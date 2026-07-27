@@ -125,16 +125,43 @@ type BaseBox struct {
 	BorderWidth     int
 	BorderColor     Color
 	BackgroundColor Color
-
-	Padding int
+	Color           Color
+	Padding         int
 
 	Width, Height int
 
 	Children []Box
 }
 
+func (b *BaseBox) appendChild(box Box) {
+	b.Children = append(b.Children, box)
+}
+
+func (b *BaseBox) ApplyAttributes(key string, val string) {
+	switch key {
+	default:
+		panic(`不认识的属性`)
+	case `border-width`:
+		b.BorderWidth = mustParseInt(val)
+	case `border-color`:
+		b.BorderColor = Color(val)
+	case `background-color`:
+		b.BackgroundColor = Color(val)
+	case `padding`:
+		b.Padding = mustParseInt(val)
+	case `width`:
+		b.Width = mustParseInt(val)
+	case `height`:
+		b.Height = mustParseInt(val)
+	}
+}
+
 type Block struct {
 	BaseBox
+}
+
+func (b *Block) ApplyAttributes(key string, val string) {
+	b.BaseBox.ApplyAttributes(key, val)
 }
 
 type Canvas struct {
@@ -222,13 +249,13 @@ func (b *Block) Calc(
 ) (int, int) {
 	cx, cy := 0, 0
 
-	if b.Width >= 0 {
+	if b.Width > 0 {
 		cx = b.Width
 	} else {
 		cx = availableWidth
 	}
 
-	if b.Height >= 0 {
+	if b.Height > 0 {
 		cy = b.Height
 		return cx, cy
 	}
@@ -240,8 +267,8 @@ func (b *Block) Calc(
 		ccy += h
 	}
 
-	ccx += b.Padding * 2
-	ccy += b.Padding * 2
+	ccx += b.Padding*2 + b.BorderWidth*2
+	ccy += b.Padding*2 + b.BorderWidth*2
 
 	return ccx, ccy
 }
@@ -259,7 +286,7 @@ func (b *Block) Draw(canvas *Canvas, width, height int) {
 
 	for _, c := range b.Children {
 		cc := canvas.Offset(cx, cy)
-		w, h := c.Calc(width, height-cy)
+		w, h := c.Calc(width-cx, height-cy)
 		c.Draw(cc, w, h)
 		cy += h
 	}
@@ -301,32 +328,38 @@ var logo []byte
 
 type Button struct {
 	BaseBox
-
-	Text  string
-	Color Color
 }
 
 func (b *Button) Calc(availableWidth, availableHeight int) (int, int) {
-	face := onceLoadFont()
-
-	var width, height int
-
-	if b.Width > 0 {
-		width = b.Width
-	} else {
-		width = measureString(onceLoadFont(), b.Text)
-		width += b.BorderWidth * 2
-		width += b.Padding * 2
-	}
-	if b.Height > 0 {
-		height = b.Height
-	} else {
-		height = (face.Metrics().Ascent + face.Metrics().Descent).Ceil()
-		height += b.BorderWidth * 2
-		height += b.Padding * 2
+	if b.Width > 0 && b.Height > 0 {
+		return b.Width, b.Height
 	}
 
-	return width, height
+	cxAvail, cyAvail := availableWidth, availableHeight
+
+	var ccx, ccy int
+	for _, c := range b.Children {
+		w, h := c.Calc(cxAvail, cyAvail)
+		switch c.(type) {
+		case *Block:
+			if w > ccx {
+				ccx = w
+			}
+			ccy += h
+			cyAvail -= h
+		default:
+			ccx += w
+			if h > ccy {
+				ccy = h
+			}
+			cxAvail -= w
+		}
+	}
+
+	ccx += b.Padding*2 + b.BorderWidth*2
+	ccy += b.Padding*2 + b.BorderWidth*2
+
+	return ccx, ccy
 }
 
 func (b *Button) Draw(canvas *Canvas, width, height int) {
@@ -336,13 +369,63 @@ func (b *Button) Draw(canvas *Canvas, width, height int) {
 		b.BackgroundColor.NRGBA(),
 		width-b.BorderWidth*2, height-b.BorderWidth*2,
 	)
-	drawString(
-		canvas.Offset(
-			b.BorderWidth+b.Padding,
-			b.BorderWidth+b.Padding,
-		),
-		b.Text, b.Color.NRGBA(),
-		width-b.BorderWidth*2-b.Padding*2,
-		height-b.BorderWidth*2-b.Padding*2,
+
+	cx := b.BorderWidth + b.Padding
+	cy := b.BorderWidth + b.Padding
+
+	for _, c := range b.Children {
+		cc := canvas.Offset(cx, cy)
+		w, h := c.Calc(width-cx, height-cy)
+		c.Draw(cc, w, h)
+		switch c.(type) {
+		case *Block:
+			cy += h
+		default:
+			cx += w
+		}
+	}
+}
+
+func (b *Button) ApplyAttributes(key string, val string) {
+	switch key {
+	case `color`:
+		b.Color = Color(val)
+	default:
+		b.BaseBox.ApplyAttributes(key, val)
+	}
+}
+
+// 只用于嵌入。
+type Text struct {
+	parent Box
+	Data   string
+}
+
+// func (t *Text) ApplyAttributes(key string, val string) {
+// 	switch key {
+// 	default:
+// 		panic(`不认识的属性`)
+// 	case `color`:
+// 		t.Color = Color(val)
+// 	}
+// }
+
+func (t *Text) Calc(availableWidth, availableHeight int) (int, int) {
+	face := onceLoadFont()
+	// TODO 换行
+	width := measureString(onceLoadFont(), t.Data)
+	height := (face.Metrics().Ascent + face.Metrics().Descent).Ceil()
+	return width, height
+}
+
+func (t *Text) Draw(canvas *Canvas, width, height int) {
+	var cr Color
+	switch p := t.parent.(type) {
+	case *Button:
+		cr = p.Color
+	}
+	drawString(canvas,
+		t.Data, cr.NRGBA(),
+		width, height,
 	)
 }

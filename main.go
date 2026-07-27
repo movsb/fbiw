@@ -14,41 +14,7 @@ const (
 )
 
 func main() {
-	box := Block{
-		BaseBox: BaseBox{
-			BackgroundColor: `black`,
-			Height:          windowHeight,
-			Width:           -1,
-			Padding:         50,
-
-			Children: []Box{
-				// &Button{
-				// 	BaseBox: BaseBox{
-				// 		BackgroundColor: `white`,
-				// 	},
-				// 	Color: `blue`,
-				// 	Text:  `确定`,
-				// },
-				// &Button{
-				// 	BaseBox: BaseBox{
-				// 		BackgroundColor: `white`,
-				// 	},
-				// 	Color: `blue`,
-				// 	Text:  `确定`,
-				// },
-				&Button{
-					BaseBox: BaseBox{
-						BorderWidth:     10,
-						BorderColor:     `white`,
-						BackgroundColor: `black`,
-						Padding:         20,
-					},
-					Color: `white`,
-					Text:  `今天吃什么`,
-				},
-			},
-		},
-	}
+	box := loadBox()
 
 	canvas := Canvas{
 		bytesPerPixel: 4,

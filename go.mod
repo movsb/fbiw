@@ -5,6 +5,7 @@ go 1.26.5
 require (
 	github.com/veandco/go-sdl2 v0.4.40
 	golang.org/x/image v0.44.0
+	golang.org/x/net v0.57.0
 	golang.org/x/sys v0.47.0
 )
 
