@@ -4,6 +4,7 @@ import (
 	_ "embed"
 	"image/color"
 	"image/draw"
+	"unicode/utf8"
 )
 
 type DisplayStyle byte
@@ -336,6 +337,9 @@ func (b *Button) Calc(availableWidth, availableHeight int) (int, int) {
 	}
 
 	cxAvail, cyAvail := availableWidth, availableHeight
+	if b.Width > 0 {
+		cxAvail = b.Width - b.BorderWidth*2 - b.Padding*2
+	}
 
 	var ccx, ccy int
 	for _, c := range b.Children {
@@ -401,21 +405,58 @@ type Text struct {
 	Data   string
 }
 
-// func (t *Text) ApplyAttributes(key string, val string) {
-// 	switch key {
-// 	default:
-// 		panic(`不认识的属性`)
-// 	case `color`:
-// 		t.Color = Color(val)
-// 	}
-// }
-
-func (t *Text) Calc(availableWidth, availableHeight int) (int, int) {
+func (t *Text) Calc(availWidth, availHeight int) (int, int) {
 	face := onceLoadFont()
-	// TODO 换行
-	width := measureString(onceLoadFont(), t.Data)
-	height := (face.Metrics().Ascent + face.Metrics().Descent).Ceil()
-	return width, height
+	metrics := face.Metrics()
+	textHeight := (metrics.Ascent + metrics.Descent).Ceil()
+
+	segment := func(s string) (int, string) {
+		width := 0
+		p := 0
+		for {
+			r, n := utf8.DecodeRuneInString(s[p:])
+			if r == utf8.RuneError {
+				return 0, ``
+			}
+			rw := measureString(face, s[p:p+n])
+			if width+rw > availWidth {
+				return width, s[p:]
+			}
+			if width+rw < availWidth {
+				width += rw
+				p += n
+				if p == len(s) {
+					return width, ``
+				}
+				continue
+			}
+			width += rw
+			p += n
+			return width, s[p:]
+		}
+	}
+
+	s := t.Data
+
+	maxWidth := 0
+	lines := 0
+
+	for {
+		w, r := segment(s)
+		if w == 0 {
+			return 0, 0
+		}
+		maxWidth = max(maxWidth, w)
+		s = r
+		lines++
+		if s == `` {
+			break
+		}
+	}
+
+	height := textHeight * lines //+ metrics.Height.Ceil()*(lines-1)
+
+	return maxWidth, height
 }
 
 func (t *Text) Draw(canvas *Canvas, width, height int) {

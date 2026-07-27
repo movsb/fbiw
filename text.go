@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"sync"
+	"unicode/utf8"
 
 	"image/color"
 
@@ -47,7 +48,7 @@ var onceLoadFont = sync.OnceValue(func() font.Face {
 
 	// 72 DPI 下 Size 即为像素大小
 	fontFace, err := opentype.NewFace(parsedFont, &opentype.FaceOptions{
-		Size:    100,
+		Size:    50,
 		DPI:     72,
 		Hinting: font.HintingFull,
 	})
@@ -67,24 +68,65 @@ func drawString(canvas *Canvas, text string, color color.NRGBA, width, height in
 	metrics := face.Metrics()
 	accent := metrics.Ascent.Ceil()
 	decent := metrics.Descent.Ceil()
-
-	textWidth := measureString(face, text)
 	textHeight := accent + decent
 
-	drawer := font.Drawer{
-		Dst:  canvas.ToDrawable(width, height),
-		Src:  image.NewUniform(color),
-		Face: onceLoadFont(),
-		Dot: fixed.Point26_6{
-			X: 0,
-			Y: 0,
-		},
+	segment := func(s string) (int, int) {
+		w := 0
+		p := 0
+		for {
+			r, n := utf8.DecodeRuneInString(s[p:])
+			if r == utf8.RuneError {
+				return 0, 0
+			}
+			rw := measureString(face, s[p:p+n])
+			if w+rw > width {
+				return width, p
+			}
+			if w+rw < width {
+				w += rw
+				p += n
+				if p == len(s) {
+					return w, p
+				}
+				continue
+			}
+			w += rw
+			p += n
+			return w, p
+		}
 	}
 
-	// 居中。
-	x := (width - textWidth) / 2
-	y := (height-textHeight)/2 + accent
-	drawer.Dot = fixed.P(x, y)
+	lines := []string{}
+	maxWidth := 0
 
-	drawer.DrawString(text)
+	for text != `` {
+		w, p := segment(text)
+		if w == 0 {
+			return
+		}
+		maxWidth = max(maxWidth, w)
+		lines = append(lines, text[:p])
+		text = text[p:]
+	}
+
+	allHeight := textHeight * len(lines) //+ (len(lines)-1)*metrics.Height.Ceil()
+	y := accent + (height-allHeight)/2
+	x := (width - maxWidth) / 2
+
+	for _, line := range lines {
+		drawer := font.Drawer{
+			Dst:  canvas.ToDrawable(width, height),
+			Src:  image.NewUniform(color),
+			Face: onceLoadFont(),
+			Dot: fixed.Point26_6{
+				X: 0,
+				Y: 0,
+			},
+		}
+
+		drawer.Dot = fixed.P(x, y)
+		drawer.DrawString(line)
+
+		y += textHeight //+ metrics.Height.Ceil()
+	}
 }
