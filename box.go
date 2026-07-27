@@ -126,6 +126,8 @@ type BaseBox struct {
 	BorderColor     Color
 	BackgroundColor Color
 
+	Padding int
+
 	Width, Height int
 
 	Children []Box
@@ -238,6 +240,9 @@ func (b *Block) Calc(
 		ccy += h
 	}
 
+	ccx += b.Padding * 2
+	ccy += b.Padding * 2
+
 	return ccx, ccy
 }
 
@@ -249,10 +254,11 @@ func (b *Block) Draw(canvas *Canvas, width, height int) {
 		width-b.BorderWidth, height-b.BorderWidth,
 	)
 
-	cy := 0
+	cx := b.BorderWidth + b.Padding
+	cy := b.BorderWidth + b.Padding
 
 	for _, c := range b.Children {
-		cc := canvas.Offset(0, cy)
+		cc := canvas.Offset(cx, cy)
 		w, h := c.Calc(width, height-cy)
 		c.Draw(cc, w, h)
 		cy += h
@@ -310,12 +316,14 @@ func (b *Button) Calc(availableWidth, availableHeight int) (int, int) {
 	} else {
 		width = measureString(onceLoadFont(), b.Text)
 		width += b.BorderWidth * 2
+		width += b.Padding * 2
 	}
 	if b.Height > 0 {
 		height = b.Height
 	} else {
 		height = (face.Metrics().Ascent + face.Metrics().Descent).Ceil()
 		height += b.BorderWidth * 2
+		height += b.Padding * 2
 	}
 
 	return width, height
@@ -329,8 +337,12 @@ func (b *Button) Draw(canvas *Canvas, width, height int) {
 		width-b.BorderWidth*2, height-b.BorderWidth*2,
 	)
 	drawString(
-		canvas.Offset(b.BorderWidth, b.BorderWidth),
+		canvas.Offset(
+			b.BorderWidth+b.Padding,
+			b.BorderWidth+b.Padding,
+		),
 		b.Text, b.Color.NRGBA(),
-		width-b.BorderWidth*2, height-b.BorderWidth*2,
+		width-b.BorderWidth*2-b.Padding*2,
+		height-b.BorderWidth*2-b.Padding*2,
 	)
 }

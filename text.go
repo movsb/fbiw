@@ -36,7 +36,7 @@ func (c *FontCanvas) Set(x, y int, clr color.Color) {
 }
 
 var onceLoadFont = sync.OnceValue(func() font.Face {
-	fontBytes, err := os.ReadFile("苹方.TTF")
+	fontBytes, err := os.ReadFile("方正宋黑.TTF")
 	if err != nil {
 		log.Fatalf("读取字体失败: %v", err)
 	}
