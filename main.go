@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	_ "net/http/pprof"
+	"os"
 	"runtime"
 	"sync/atomic"
 	"time"
@@ -40,23 +41,28 @@ func main() {
 	}()
 
 	now := time.Now()
+	box.Base().Dirty = true
 
 	loop(func(buffer []byte) {
 		canvas.buffer = buffer
 
 		start := time.Now()
-		box.Draw(&canvas, windowWidth, windowHeight)
 
-		base := box.Base()
-		fpsBox := base.Children[0].(*Button)
-		textBox := fpsBox.Children[0].(*Text)
-		textBox.Data = fmt.Sprint(`帧绘制时间：`, time.Since(start).Round(time.Microsecond*100))
+		if box.Base().IsDirty() {
+			box.Draw(&canvas, windowWidth, windowHeight)
+		}
+
+		// base := box.Base()
+		// fpsBox := base.Children[0].(*Button)
+		// textBox := fpsBox.Children[0].(*Text)
+		// textBox.Data = fmt.Sprint(`帧绘制时间：`, time.Since(start).Round(time.Microsecond*100))
+		fmt.Println(`帧绘制时间：`, time.Since(start))
 
 		frameCounter.Add(1)
 
 		if runtime.GOOS == `linux` {
 			if time.Since(now) > time.Second*5 {
-				// os.Exit(0)
+				os.Exit(0)
 			}
 		}
 	})

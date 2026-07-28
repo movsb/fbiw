@@ -135,6 +135,8 @@ var presetColors = map[string]uint32{
 }
 
 type BaseBox struct {
+	Dirty bool
+
 	Display DisplayStyle
 
 	BorderWidth     int
@@ -150,6 +152,26 @@ type BaseBox struct {
 
 func (b *BaseBox) Base() *BaseBox {
 	return b
+}
+
+func (b *BaseBox) SetNoDirty() {
+	b.Dirty = false
+}
+
+func (b *BaseBox) IsDirty() bool {
+	if b.Dirty {
+		return true
+	}
+	for _, c := range b.Children {
+		// 文本会设置给父对象。
+		if _, ok := c.(*Text); ok {
+			continue
+		}
+		if c.Base().IsDirty() {
+			return true
+		}
+	}
+	return false
 }
 
 func (b *BaseBox) appendChild(box Box) {
@@ -238,6 +260,8 @@ func (b *BaseBox) Calc(availWidth, availHeight int) (int, int) {
 }
 
 func (b *BaseBox) Draw(canvas *Canvas, actualWidth, actualHeight int) {
+	defer b.SetNoDirty()
+
 	// 默认都是 border-box，所以以实际的宽和高为准。
 	drawBorder(canvas,
 		b.BorderColor.NRGBA(),
@@ -543,6 +567,8 @@ func (t *Text) Calc(availWidth, availHeight int) (int, int) {
 }
 
 func (t *Text) Draw(canvas *Canvas, width, height int) {
+	t.Base().SetNoDirty()
+
 	var cr Color
 	switch p := t.parent.(type) {
 	case *Button:
@@ -628,6 +654,8 @@ func (b *Image) Calc(availWidth, availHeight int) (int, int) {
 }
 
 func (b *Image) Draw(canvas *Canvas, width, height int) {
+	defer b.SetNoDirty()
+
 	img, err := loadImageCached(b.Src)
 	if err != nil {
 		return
