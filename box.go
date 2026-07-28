@@ -11,8 +11,6 @@ import (
 
 	_ "image/jpeg"
 	_ "image/png"
-
-	"github.com/anthonynsimon/bild/transform"
 )
 
 type DisplayStyle string
@@ -577,58 +575,70 @@ func (b *Image) ApplyAttributes(key string, val string) {
 	}
 }
 
+var imgCache = map[string]image.Image{}
+
+func loadImageCached(path string) (image.Image, error) {
+	if img, ok := imgCache[path]; ok {
+		return img, nil
+	}
+
+	log.Println(`重新解码：`, path)
+	fp, err := os.Open(path)
+	if err != nil {
+		log.Println(err, path)
+		return nil, err
+	}
+	defer fp.Close()
+	img, _, err := image.Decode(fp)
+	if err != nil {
+		log.Println(`图片解码错误`, err, path)
+		return nil, err
+	}
+
+	imgCache[path] = img
+
+	return img, nil
+}
+
 func (b *Image) Calc(availWidth, availHeight int) (int, int) {
 	if b.Width > 0 && b.Height > 0 {
 		return b.Width, b.Height
 	}
 
-	fp, err := os.Open(b.Src)
+	img, err := loadImageCached(b.Src)
 	if err != nil {
-		log.Println(err, b.Src)
 		return 0, 0
 	}
-	defer fp.Close()
 
-	img, _, err := image.DecodeConfig(fp)
-	if err != nil {
-		log.Println(`图片解码错误`, err, b.Src)
-	}
+	imgWidth, imgHeight := img.Bounds().Dx(), img.Bounds().Dy()
 
-	imgWidth, imgHeight := img.Width, img.Height
-
-	if imgWidth > availWidth || imgHeight > availHeight {
-		scaleW := imgWidth / availWidth
-		scaleH := imgHeight / availHeight
-		bigger := max(scaleW, scaleH)
-		if bigger <= 0 {
-			return 0, 0
-		}
-		return imgWidth / bigger, imgHeight / bigger
-	}
+	// if imgWidth > availWidth || imgHeight > availHeight {
+	// 	scaleW := imgWidth / availWidth
+	// 	scaleH := imgHeight / availHeight
+	// 	bigger := max(scaleW, scaleH)
+	// 	if bigger <= 0 {
+	// 		return 0, 0
+	// 	}
+	// 	return imgWidth / bigger, imgHeight / bigger
+	// }
 
 	return imgWidth, imgHeight
 }
 
 func (b *Image) Draw(canvas *Canvas, width, height int) {
-	fp, err := os.Open(b.Src)
+	img, err := loadImageCached(b.Src)
 	if err != nil {
-		log.Println(err, b.Src)
 		return
 	}
-	defer fp.Close()
 
-	img, _, err := image.Decode(fp)
-	if err != nil {
-		log.Println(`图片解码错误`, err, b.Src)
-	}
-
-	imgWidth, imgHeight := img.Bounds().Dx(), img.Bounds().Dy()
-	if imgWidth > width || imgHeight > height {
-		scaleW := imgWidth / width
-		scaleH := imgHeight / height
-		bigger := max(scaleW, scaleH)
-		imgWidth, imgHeight = imgWidth/bigger, imgHeight/bigger
-	}
-	resized := transform.Resize(img, imgWidth, imgHeight, transform.Lanczos)
-	draw.Draw(canvas.ToDrawable(width, height), resized.Rect, resized, resized.Rect.Min, draw.Src)
+	// imgWidth, imgHeight := img.Bounds().Dx(), img.Bounds().Dy()
+	// if imgWidth > width || imgHeight > height {
+	// 	scaleW := imgWidth / width
+	// 	scaleH := imgHeight / height
+	// 	bigger := max(scaleW, scaleH)
+	// 	imgWidth, imgHeight = imgWidth/bigger, imgHeight/bigger
+	// }
+	// // resized := transform.Resize(img, imgWidth, imgHeight, transform.Lanczos)
+	resized := img
+	draw.Draw(canvas.ToDrawable(width, height), resized.Bounds(), resized, resized.Bounds().Min, draw.Src)
 }
