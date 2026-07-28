@@ -12,8 +12,11 @@ import (
 //go:embed main.html
 var _main []byte
 
-func loadBox() Box {
-	nodes := Must1(html.ParseFragment(bytes.NewReader(_main), &html.Node{
+//go:embed dialog.html
+var _dialog []byte
+
+func loadBox(data []byte) Box {
+	nodes := Must1(html.ParseFragment(bytes.NewReader(data), &html.Node{
 		Type:     html.ElementNode,
 		DataAtom: atom.Div,
 		Data:     `div`,
@@ -72,6 +75,12 @@ func transformELementNode(node *html.Node) Box {
 				}
 				box.appendChild(b)
 			}
+		}
+		return &box
+	case atom.Img:
+		box := Image{}
+		for _, a := range node.Attr {
+			box.ApplyAttributes(a.Key, a.Val)
 		}
 		return &box
 	}

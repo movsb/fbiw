@@ -2,9 +2,17 @@ package main
 
 import (
 	_ "embed"
+	"image"
 	"image/color"
 	"image/draw"
+	"log"
+	"os"
 	"unicode/utf8"
+
+	_ "image/jpeg"
+	_ "image/png"
+
+	"github.com/anthonynsimon/bild/transform"
 )
 
 type DisplayStyle byte
@@ -469,4 +477,72 @@ func (t *Text) Draw(canvas *Canvas, width, height int) {
 		t.Data, cr.NRGBA(),
 		width, height,
 	)
+}
+
+type Image struct {
+	BaseBox
+
+	Src string
+}
+
+func (b *Image) ApplyAttributes(key string, val string) {
+	switch key {
+	case `src`:
+		b.Src = val
+	default:
+		b.BaseBox.ApplyAttributes(key, val)
+	}
+}
+
+func (b *Image) Calc(availWidth, availHeight int) (int, int) {
+	if b.Width > 0 && b.Height > 0 {
+		return b.Width, b.Height
+	}
+
+	fp, err := os.Open(b.Src)
+	if err != nil {
+		log.Println(err, b.Src)
+		return 0, 0
+	}
+	defer fp.Close()
+
+	img, _, err := image.DecodeConfig(fp)
+	if err != nil {
+		log.Println(`图片解码错误`, err, b.Src)
+	}
+
+	imgWidth, imgHeight := img.Width, img.Height
+
+	if imgWidth > availWidth || imgHeight > availHeight {
+		scaleW := imgWidth / availWidth
+		scaleH := imgHeight / availHeight
+		bigger := max(scaleW, scaleH)
+		return imgWidth / bigger, imgHeight / bigger
+	}
+
+	return imgWidth, imgHeight
+}
+
+func (b *Image) Draw(canvas *Canvas, width, height int) {
+	fp, err := os.Open(b.Src)
+	if err != nil {
+		log.Println(err, b.Src)
+		return
+	}
+	defer fp.Close()
+
+	img, _, err := image.Decode(fp)
+	if err != nil {
+		log.Println(`图片解码错误`, err, b.Src)
+	}
+
+	imgWidth, imgHeight := img.Bounds().Dx(), img.Bounds().Dy()
+	if imgWidth > width || imgHeight > height {
+		scaleW := imgWidth / width
+		scaleH := imgHeight / height
+		bigger := max(scaleW, scaleH)
+		imgWidth, imgHeight = imgWidth/bigger, imgHeight/bigger
+	}
+	resized := transform.Resize(img, imgWidth, imgHeight, transform.Lanczos)
+	draw.Draw(canvas.ToDrawable(width, height), resized.Rect, resized, resized.Rect.Min, draw.Src)
 }

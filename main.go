@@ -14,7 +14,8 @@ const (
 )
 
 func main() {
-	box := loadBox()
+	box := loadBox(_main)
+	dialog := loadBox(_dialog)
 
 	canvas := Canvas{
 		bytesPerPixel: 4,
@@ -38,9 +39,14 @@ func main() {
 
 	now := time.Now()
 
+	dialogWidth, dialogHeight := 600, 400
+
 	loop(func(buffer []byte) {
 		canvas.buffer = buffer
+
 		box.Draw(&canvas, windowWidth, windowHeight)
+		dialog.Draw(canvas.Offset((windowWidth-dialogWidth)/2, (windowHeight-dialogHeight)/2), dialogWidth, dialogHeight)
+
 		frameCounter.Add(1)
 
 		if runtime.GOOS == `linux` {
