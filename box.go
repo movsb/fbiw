@@ -218,9 +218,17 @@ func (b *BaseBox) Calc(availWidth, availHeight int) (int, int) {
 		xRemain -= cw
 		maxLineHeight = max(maxLineHeight, ch)
 		maxWidth = max(maxWidth, contentAvailWidth-xRemain)
+
+		// 需要换行。
+		if xRemain <= 0 {
+			xRemain = contentAvailWidth
+			yRemain -= maxLineHeight
+			maxLineHeight = 0
+		}
 	}
 
 	// 最后一个元素布置完后需要调整剩余高度
+	// 如果刚好换行，此时为0，不影响。
 	yRemain -= maxLineHeight
 
 	contentHeight := contentAvailHeight - yRemain + ncWidth
@@ -271,8 +279,16 @@ func (b *BaseBox) Draw(canvas *Canvas, actualWidth, actualHeight int) {
 			child.Draw(canvas, cw, ch)
 		}
 
-		xRemain -= cw
 		maxLineHeight = max(maxLineHeight, ch)
+
+		xRemain -= cw
+
+		// 需要换行。
+		if xRemain <= 0 {
+			xRemain = contentWidth
+			yRemain -= maxLineHeight
+			maxLineHeight = 0
+		}
 	}
 }
 
@@ -333,10 +349,52 @@ func (c *Canvas) SetPixel(x, y int, color color.NRGBA) {
 	offset := c.width*c.bytesPerPixel*yy + xx*c.bytesPerPixel
 
 	p := c.buffer[offset:]
+	_ = p[3]
 	p[0] = color.B
 	p[1] = color.G
 	p[2] = color.R
 	p[3] = color.A
+}
+
+func (c *Canvas) FillRect(x, y, width, height int, color color.NRGBA) {
+	if width <= 0 || height <= 0 {
+		return
+	}
+
+	x0 := c.x + x
+	y0 := c.y + y
+	x1 := x0 + width
+	y1 := y0 + height
+
+	if x0 < 0 {
+		x0 = 0
+	}
+	if y0 < 0 {
+		y0 = 0
+	}
+	if x1 > c.width {
+		x1 = c.width
+	}
+	if y1 > c.height {
+		y1 = c.height
+	}
+
+	var line0 []byte
+	for yy := y0; yy < y1; yy++ {
+		offset := c.width*c.bytesPerPixel*yy + x0*c.bytesPerPixel
+		if yy == y0 {
+			line0 = c.buffer[offset : offset+(x1-x0)*c.bytesPerPixel]
+			for i := 0; i < (x1-x0)*c.bytesPerPixel; i += c.bytesPerPixel {
+				p := c.buffer[offset+i:]
+				p[3] = color.A
+				p[0] = color.B
+				p[1] = color.G
+				p[2] = color.R
+			}
+		} else {
+			copy(c.buffer[offset:], line0)
+		}
+	}
 }
 
 /*
@@ -375,27 +433,14 @@ func (c *Canvas) ToDrawable(width, height int) draw.Image {
 }
 
 func drawBorder(c *Canvas, cr color.NRGBA, w, h int, borderWidth int) {
-	if borderWidth <= 0 {
-		return
-	}
-	for b := range borderWidth {
-		for x := range w {
-			c.SetPixel(x, 0+b, cr)
-			c.SetPixel(x, h-1-b, cr)
-		}
-		for y := range h {
-			c.SetPixel(0+b, y, cr)
-			c.SetPixel(w-1-b, y, cr)
-		}
-	}
+	c.FillRect(0, 0, w, borderWidth, cr)
+	c.FillRect(0, h-borderWidth, w, borderWidth, cr)
+	c.FillRect(0, borderWidth, borderWidth, h-borderWidth*2, cr)
+	c.FillRect(w-borderWidth, borderWidth, borderWidth, h-borderWidth*2, cr)
 }
 
 func drawBackground(c *Canvas, cr color.NRGBA, w, h int) {
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
-			c.SetPixel(x, y, cr)
-		}
-	}
+	c.FillRect(0, 0, w, h, cr)
 }
 
 //go:embed logo.png

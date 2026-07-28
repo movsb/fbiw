@@ -47,6 +47,8 @@ func transformNode(node *html.Node) Box {
 		t := NewText()
 		t.Data = trimmed
 		return t
+	case html.CommentNode:
+		return nil
 	default:
 		panic(`不认识节点类型`)
 	}

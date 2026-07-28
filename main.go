@@ -2,7 +2,8 @@ package main
 
 import (
 	"fmt"
-	"os"
+	"net/http"
+	_ "net/http/pprof"
 	"runtime"
 	"sync/atomic"
 	"time"
@@ -14,6 +15,8 @@ const (
 )
 
 func main() {
+	go http.ListenAndServe(`0.0.0.0:8888`, nil)
+
 	box := loadBox(_main)
 
 	canvas := Canvas{
@@ -41,13 +44,15 @@ func main() {
 	loop(func(buffer []byte) {
 		canvas.buffer = buffer
 
+		start := time.Now()
 		box.Draw(&canvas, windowWidth, windowHeight)
+		fmt.Println(`帧绘制时间：`, time.Since(start))
 
 		frameCounter.Add(1)
 
 		if runtime.GOOS == `linux` {
 			if time.Since(now) > time.Second*5 {
-				os.Exit(0)
+				// os.Exit(0)
 			}
 		}
 	})
