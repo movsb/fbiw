@@ -12,3 +12,10 @@ func Must1[T any](t T, err error) T {
 func mustParseInt(s string) int {
 	return Must1(strconv.Atoi(s))
 }
+
+func iif[T any](cond bool, a, b T) T {
+	if cond {
+		return a
+	}
+	return b
+}

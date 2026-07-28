@@ -15,9 +15,15 @@ import (
 	"github.com/anthonynsimon/bild/transform"
 )
 
-type DisplayStyle byte
+type DisplayStyle string
+
+const (
+	DisplayBlock  DisplayStyle = `block`
+	DisplayInline DisplayStyle = `inline`
+)
 
 type Box interface {
+	Base() *BaseBox
 	Calc(availableWidth, availableHeight int) (int, int)
 	Draw(canvas *Canvas, width, height int)
 }
@@ -131,6 +137,8 @@ var presetColors = map[string]uint32{
 }
 
 type BaseBox struct {
+	Display DisplayStyle
+
 	BorderWidth     int
 	BorderColor     Color
 	BackgroundColor Color
@@ -140,6 +148,10 @@ type BaseBox struct {
 	Width, Height int
 
 	Children []Box
+}
+
+func (b *BaseBox) Base() *BaseBox {
+	return b
 }
 
 func (b *BaseBox) appendChild(box Box) {
@@ -165,12 +177,113 @@ func (b *BaseBox) ApplyAttributes(key string, val string) {
 	}
 }
 
+func (b *BaseBox) Calc(availWidth, availHeight int) (int, int) {
+	// 如果指定了大小，则直接使用。
+	if b.Width > 0 && b.Height > 0 {
+		return b.Width, b.Height
+	}
+
+	// 根据自身大小及可用空间大小取最佳值。
+	boxWidth := iif(b.Width > 0, b.Width, availWidth)
+	boxHeight := iif(b.Height > 0, b.Height, availHeight)
+
+	// 自身不可用区域。
+	ncWidth := b.BorderWidth*2 + b.Padding*2
+
+	// 内容区域可用的大小。
+	contentAvailWidth := boxWidth - ncWidth
+	contentAvailHeight := boxHeight - ncWidth
+
+	// 每次横向或纵向绘制都会调整可用空间。
+	// x, y := 0, 0
+	// 调整后的剩余空间
+	xRemain, yRemain := contentAvailWidth, contentAvailHeight
+	// 最高、最宽占用空间。
+	// xh := 0
+	// 所有行中占用宽是多少。
+	maxWidth := 0
+	// 当前行最高是多少。
+	maxLineHeight := 0
+
+	// 计算子元素占用。
+	for _, child := range b.Children {
+		base := child.Base()
+		// 如果是块级元素，需要独占一行。
+		if base.Display == DisplayBlock {
+			xRemain = contentAvailWidth
+			yRemain -= maxLineHeight
+			maxLineHeight = 0
+		}
+		cw, ch := child.Calc(xRemain, yRemain)
+		xRemain -= cw
+		maxLineHeight = max(maxLineHeight, ch)
+		maxWidth = max(maxWidth, contentAvailWidth-xRemain)
+	}
+
+	// 最后一个元素布置完后需要调整剩余高度
+	yRemain -= maxLineHeight
+
+	contentHeight := contentAvailHeight - yRemain + ncWidth
+	contentWidth := maxWidth + ncWidth
+
+	return contentWidth, contentHeight
+}
+
+func (b *BaseBox) Draw(canvas *Canvas, actualWidth, actualHeight int) {
+	// 默认都是 border-box，所以以实际的宽和高为准。
+	drawBorder(canvas,
+		b.BorderColor.NRGBA(),
+		actualWidth, actualHeight, b.BorderWidth,
+	)
+
+	// 背景位于边框内，要减掉。
+	drawBackground(
+		canvas.Offset(b.BorderWidth, b.BorderWidth),
+		b.BackgroundColor.NRGBA(),
+		actualWidth-b.BorderWidth*2,
+		actualHeight-b.BorderWidth*2,
+	)
+
+	// 内容起点均在边框和内边距以内。
+	initialOffsetX := 0 + b.BorderWidth + b.Padding
+	initialOffsetY := 0 + b.BorderWidth + b.Padding
+
+	canvas = canvas.Offset(initialOffsetX, initialOffsetY)
+	contentWidth := actualWidth - initialOffsetX*2
+	contentHeight := actualHeight - initialOffsetY*2
+
+	// 横向剩余量。
+	xRemain := contentWidth
+	yRemain := contentHeight
+	maxLineHeight := 0
+
+	for _, child := range b.Children {
+		base := child.Base()
+		if base.Display == DisplayBlock {
+			xRemain = contentWidth
+			yRemain -= maxLineHeight
+			maxLineHeight = 0
+		}
+
+		canvas := canvas.Offset(contentWidth-xRemain, contentHeight-yRemain)
+		cw, ch := child.Calc(xRemain, yRemain)
+		child.Draw(canvas, cw, ch)
+
+		xRemain -= cw
+		maxLineHeight = max(maxLineHeight, ch)
+	}
+}
+
 type Block struct {
 	BaseBox
 }
 
-func (b *Block) ApplyAttributes(key string, val string) {
-	b.BaseBox.ApplyAttributes(key, val)
+func NewBlock() *Block {
+	return &Block{
+		BaseBox: BaseBox{
+			Display: DisplayBlock,
+		},
+	}
 }
 
 type Canvas struct {
@@ -252,55 +365,6 @@ func (c *Canvas) ToDrawable(width, height int) draw.Image {
 	}
 }
 
-// 要先画背景才能画子元素，所以必须先知道大小。
-func (b *Block) Calc(
-	availableWidth, availableHeight int,
-) (int, int) {
-	cx, cy := 0, 0
-
-	if b.Width > 0 {
-		cx = b.Width
-	} else {
-		cx = availableWidth
-	}
-
-	if b.Height > 0 {
-		cy = b.Height
-		return cx, cy
-	}
-
-	var ccx, ccy int
-	for _, c := range b.Children {
-		w, h := c.Calc(cx, availableHeight)
-		ccx += w
-		ccy += h
-	}
-
-	ccx += b.Padding*2 + b.BorderWidth*2
-	ccy += b.Padding*2 + b.BorderWidth*2
-
-	return ccx, ccy
-}
-
-func (b *Block) Draw(canvas *Canvas, width, height int) {
-	drawBorder(canvas, b.BorderColor.NRGBA(), width, height, b.BorderWidth)
-	drawBackground(
-		canvas.Offset(b.BorderWidth, b.BorderWidth),
-		b.BackgroundColor.NRGBA(),
-		width-b.BorderWidth, height-b.BorderWidth,
-	)
-
-	cx := b.BorderWidth + b.Padding
-	cy := b.BorderWidth + b.Padding
-
-	for _, c := range b.Children {
-		cc := canvas.Offset(cx, cy)
-		w, h := c.Calc(width-cx, height-cy)
-		c.Draw(cc, w, h)
-		cy += h
-	}
-}
-
 func drawBorder(c *Canvas, cr color.NRGBA, w, h int, borderWidth int) {
 	if borderWidth <= 0 {
 		return
@@ -339,62 +403,11 @@ type Button struct {
 	BaseBox
 }
 
-func (b *Button) Calc(availableWidth, availableHeight int) (int, int) {
-	if b.Width > 0 && b.Height > 0 {
-		return b.Width, b.Height
-	}
-
-	cxAvail, cyAvail := availableWidth, availableHeight
-	if b.Width > 0 {
-		cxAvail = b.Width - b.BorderWidth*2 - b.Padding*2
-	}
-
-	var ccx, ccy int
-	for _, c := range b.Children {
-		w, h := c.Calc(cxAvail, cyAvail)
-		switch c.(type) {
-		case *Block:
-			if w > ccx {
-				ccx = w
-			}
-			ccy += h
-			cyAvail -= h
-		default:
-			ccx += w
-			if h > ccy {
-				ccy = h
-			}
-			cxAvail -= w
-		}
-	}
-
-	ccx += b.Padding*2 + b.BorderWidth*2
-	ccy += b.Padding*2 + b.BorderWidth*2
-
-	return ccx, ccy
-}
-
-func (b *Button) Draw(canvas *Canvas, width, height int) {
-	drawBorder(canvas, b.BorderColor.NRGBA(), width, height, b.BorderWidth)
-	drawBackground(
-		canvas.Offset(b.BorderWidth, b.BorderWidth),
-		b.BackgroundColor.NRGBA(),
-		width-b.BorderWidth*2, height-b.BorderWidth*2,
-	)
-
-	cx := b.BorderWidth + b.Padding
-	cy := b.BorderWidth + b.Padding
-
-	for _, c := range b.Children {
-		cc := canvas.Offset(cx, cy)
-		w, h := c.Calc(width-cx, height-cy)
-		c.Draw(cc, w, h)
-		switch c.(type) {
-		case *Block:
-			cy += h
-		default:
-			cx += w
-		}
+func NewButton() *Button {
+	return &Button{
+		BaseBox: BaseBox{
+			Display: DisplayInline,
+		},
 	}
 }
 
@@ -411,6 +424,14 @@ func (b *Button) ApplyAttributes(key string, val string) {
 type Text struct {
 	parent Box
 	Data   string
+}
+
+func NewText() *Text {
+	return &Text{}
+}
+
+func (t *Text) Base() *BaseBox {
+	return t.parent.Base()
 }
 
 func (t *Text) Calc(availWidth, availHeight int) (int, int) {
@@ -483,6 +504,14 @@ type Image struct {
 	BaseBox
 
 	Src string
+}
+
+func NewImage() *Image {
+	return &Image{
+		BaseBox: BaseBox{
+			Display: DisplayInline,
+		},
+	}
 }
 
 func (b *Image) ApplyAttributes(key string, val string) {

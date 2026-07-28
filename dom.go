@@ -44,7 +44,9 @@ func transformNode(node *html.Node) Box {
 		if trimmed == `` {
 			return nil
 		}
-		return &Text{Data: trimmed}
+		t := NewText()
+		t.Data = trimmed
+		return t
 	default:
 		panic(`不认识节点类型`)
 	}
@@ -53,7 +55,7 @@ func transformNode(node *html.Node) Box {
 func transformELementNode(node *html.Node) Box {
 	switch node.DataAtom {
 	case atom.Div:
-		box := Block{}
+		box := NewBlock()
 		for _, a := range node.Attr {
 			box.ApplyAttributes(a.Key, a.Val)
 		}
@@ -62,27 +64,27 @@ func transformELementNode(node *html.Node) Box {
 				box.appendChild(b)
 			}
 		}
-		return &box
+		return box
 	case atom.Button:
-		box := Button{}
+		box := NewButton()
 		for _, a := range node.Attr {
 			box.ApplyAttributes(a.Key, a.Val)
 		}
 		for c := range node.ChildNodes() {
 			if b := transformNode(c); b != nil {
 				if t, ok := b.(*Text); ok {
-					t.parent = &box
+					t.parent = box
 				}
 				box.appendChild(b)
 			}
 		}
-		return &box
+		return box
 	case atom.Img:
-		box := Image{}
+		box := NewImage()
 		for _, a := range node.Attr {
 			box.ApplyAttributes(a.Key, a.Val)
 		}
-		return &box
+		return box
 	}
 
 	switch node.Data {
