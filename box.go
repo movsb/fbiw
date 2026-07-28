@@ -160,6 +160,8 @@ func (b *BaseBox) ApplyAttributes(key string, val string) {
 	switch key {
 	default:
 		panic(`不认识的属性`)
+	case `display`:
+		b.Display = DisplayStyle(val)
 	case `border-width`:
 		b.BorderWidth = mustParseInt(val)
 	case `border-color`:

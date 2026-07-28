@@ -46,7 +46,11 @@ func main() {
 
 		start := time.Now()
 		box.Draw(&canvas, windowWidth, windowHeight)
-		fmt.Println(`帧绘制时间：`, time.Since(start))
+
+		base := box.Base()
+		fpsBox := base.Children[0].(*Button)
+		textBox := fpsBox.Children[0].(*Text)
+		textBox.Data = fmt.Sprint(`帧绘制时间：`, time.Since(start).Round(time.Microsecond*100))
 
 		frameCounter.Add(1)
 
