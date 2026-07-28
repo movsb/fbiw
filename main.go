@@ -1,69 +1,51 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	_ "net/http/pprof"
-	"os"
-	"runtime"
-	"sync/atomic"
-	"time"
 )
 
-const (
-	windowWidth  = 1024
-	windowHeight = 768
-)
+func init() {
+	// pprof 性能测试用。
+	go http.ListenAndServe(`0.0.0.0:8888`, nil)
+}
 
 func main() {
-	go http.ListenAndServe(`0.0.0.0:8888`, nil)
+	display := openDisplay()
+	defer display.Close()
 
-	box := loadBox(_main)
-
-	canvas := Canvas{
-		bytesPerPixel: 4,
+	canvas := &Canvas{
+		buffer:        display.Data,
+		bytesPerPixel: display.Bpp / 8,
 		x:             0,
 		y:             0,
-		width:         windowWidth,
-		height:        windowHeight,
+		width:         display.Width,
+		height:        display.Height,
 	}
 
-	var frameCounter atomic.Uint64
-
-	go func() {
-		var last = uint64(0)
-		for {
-			time.Sleep(time.Second)
-			curr := frameCounter.Load()
-			fmt.Println(`FPS:`, curr-last)
-			last = curr
-		}
-	}()
-
-	now := time.Now()
+	box := loadBox(_main)
 	box.Base().Dirty = true
+	box.Draw(canvas, display.Width, display.Height)
+	display.Sync()
 
-	loop(func(buffer []byte) {
-		canvas.buffer = buffer
-
-		start := time.Now()
-
-		if box.Base().IsDirty() {
-			box.Draw(&canvas, windowWidth, windowHeight)
+	// 没有缓冲，满了（或处理不过来）即丢。
+	ctx, cancel := context.WithCancel(context.Background())
+	pollEvents(ctx, func(event Event) {
+		if event.Type == QuitEvent {
+			cancel()
+			return
 		}
-
-		// base := box.Base()
-		// fpsBox := base.Children[0].(*Button)
-		// textBox := fpsBox.Children[0].(*Text)
-		// textBox.Data = fmt.Sprint(`帧绘制时间：`, time.Since(start).Round(time.Microsecond*100))
-		fmt.Println(`帧绘制时间：`, time.Since(start))
-
-		frameCounter.Add(1)
-
-		if runtime.GOOS == `linux` {
-			if time.Since(now) > time.Second*5 {
-				os.Exit(0)
-			}
+		if event.Type == KeyboardEvent {
+			text := box.Base().Children[0].(*Button).Base().Children[0].(*Text)
+			pressed := iif(event.Keyboard.Pressed, "按下", "松开")
+			text.Data = fmt.Sprintf(`按键：%s (%s)`, event.Keyboard.Name, pressed)
+			text.Base().Dirty = true
+		}
+		if box.Base().IsDirty() {
+			box.Draw(canvas, display.Width, display.Height)
+			display.Sync()
 		}
 	})
 }

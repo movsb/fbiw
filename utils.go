@@ -1,6 +1,13 @@
 package main
 
-import "strconv"
+import (
+	"io"
+	"os"
+	"runtime"
+	"strconv"
+
+	"golang.org/x/sys/unix"
+)
 
 func Must1[T any](t T, err error) T {
 	if err != nil {
@@ -18,4 +25,40 @@ func iif[T any](cond bool, a, b T) T {
 		return a
 	}
 	return b
+}
+
+func captureStdoutStderr(w io.Writer) error {
+	r, pipeWriter, err := os.Pipe()
+	if err != nil {
+		return err
+	}
+
+	if err := unix.Dup2(int(pipeWriter.Fd()), int(os.Stdout.Fd())); err != nil {
+		r.Close()
+		pipeWriter.Close()
+		return err
+	}
+	if err := unix.Dup2(int(pipeWriter.Fd()), int(os.Stderr.Fd())); err != nil {
+		r.Close()
+		pipeWriter.Close()
+		return err
+	}
+	pipeWriter.Close()
+
+	go func() {
+		defer r.Close()
+		io.Copy(w, r)
+	}()
+
+	return nil
+}
+
+func init() {
+	if runtime.GOOS == `linux` {
+		// 文件不用关。
+		logFile, err := os.OpenFile(`/tmp/fbtest.log`, os.O_WRONLY|os.O_CREATE|os.O_APPEND|os.O_SYNC, 0600)
+		if err == nil {
+			captureStdoutStderr(logFile)
+		}
+	}
 }
