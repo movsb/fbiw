@@ -130,6 +130,8 @@ func _pollEvents(ctx context.Context, handler func(Event)) {
 		316: Menu,
 		314: Select,
 		315: Start,
+		310: L1,
+		311: R1,
 		59:  Fn1,
 		60:  Fn2,
 		115: VolumeUp,

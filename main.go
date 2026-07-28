@@ -32,10 +32,26 @@ func main() {
 
 	// 没有缓冲，满了（或处理不过来）即丢。
 	ctx, cancel := context.WithCancel(context.Background())
+
+	menuPressed := false
+	startPressed := false
+
 	pollEvents(ctx, func(event Event) {
 		if event.Type == QuitEvent {
 			cancel()
 			return
+		}
+		if event.Type == KeyboardEvent {
+			switch event.Keyboard.Name {
+			case Menu:
+				menuPressed = event.Keyboard.Pressed
+			case Start:
+				startPressed = event.Keyboard.Pressed
+			}
+			if menuPressed && startPressed {
+				cancel()
+				return
+			}
 		}
 		if event.Type == KeyboardEvent {
 			text := box.Base().Children[0].(*Button).Base().Children[0].(*Text)
