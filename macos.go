@@ -77,6 +77,22 @@ func pollEvents(ctx context.Context, handler func(Event)) {
 		})
 	}
 
+	keyMaps := map[sdl.Keycode]KeyName{
+		sdl.K_w: Up,
+		sdl.K_s: Down,
+		sdl.K_a: Left,
+		sdl.K_d: Right,
+		sdl.K_k: A,
+		sdl.K_j: B,
+		sdl.K_i: X,
+		sdl.K_u: Y,
+		sdl.K_r: Menu,
+		sdl.K_t: Select,
+		sdl.K_y: Start,
+		sdl.K_q: L1,
+		sdl.K_o: R1,
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -88,10 +104,10 @@ func pollEvents(ctx context.Context, handler func(Event)) {
 			handler(Event{Type: QuitEvent})
 			return
 		case *sdl.KeyboardEvent:
-			keyDown := event.Type == sdl.KEYDOWN
-			switch event.Keysym.Sym {
-			case sdl.K_w:
-				sendKey(Up, keyDown)
+			pressed := event.Type == sdl.KEYDOWN
+			key := event.Keysym.Sym
+			if mapped, ok := keyMaps[key]; ok {
+				sendKey(mapped, pressed)
 			}
 		}
 	}

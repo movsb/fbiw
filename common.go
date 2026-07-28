@@ -52,9 +52,9 @@ func (k KeyName) String() string {
 	case Fn2:
 		return `Fn2`
 	case VolumeUp:
-		return `增量+`
+		return `音量+`
 	case VolumeDown:
-		return `增量-`
+		return `音量-`
 	case Home:
 		return `HOME`
 	case L1:
