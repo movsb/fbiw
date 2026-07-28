@@ -25,7 +25,7 @@ const (
 type Box interface {
 	Base() *BaseBox
 	Calc(availableWidth, availableHeight int) (int, int)
-	Draw(canvas *Canvas, width, height int)
+	Draw(canvas *Canvas, actualWidth, actualHeight int)
 }
 
 type Color string
@@ -358,11 +358,18 @@ func (w _BatchWriter) Write(p []byte) (int, error) {
 */
 
 func (c *Canvas) ToDrawable(width, height int) draw.Image {
-	return &FontCanvas{
+	fc := &FontCanvas{
 		underlying: c,
 		width:      width,
 		height:     height,
 	}
+	if c.x+width > c.width {
+		fc.width = c.width - c.x
+	}
+	if c.y+height > c.height {
+		fc.height = c.height - c.y
+	}
+	return fc
 }
 
 func drawBorder(c *Canvas, cr color.NRGBA, w, h int, borderWidth int) {
