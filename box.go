@@ -267,7 +267,9 @@ func (b *BaseBox) Draw(canvas *Canvas, actualWidth, actualHeight int) {
 
 		canvas := canvas.Offset(contentWidth-xRemain, contentHeight-yRemain)
 		cw, ch := child.Calc(xRemain, yRemain)
-		child.Draw(canvas, cw, ch)
+		if cw > 0 && ch > 0 {
+			child.Draw(canvas, cw, ch)
+		}
 
 		xRemain -= cw
 		maxLineHeight = max(maxLineHeight, ch)
@@ -553,6 +555,9 @@ func (b *Image) Calc(availWidth, availHeight int) (int, int) {
 		scaleW := imgWidth / availWidth
 		scaleH := imgHeight / availHeight
 		bigger := max(scaleW, scaleH)
+		if bigger <= 0 {
+			return 0, 0
+		}
 		return imgWidth / bigger, imgHeight / bigger
 	}
 
