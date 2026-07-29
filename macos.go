@@ -49,8 +49,8 @@ func openDisplay() *Display {
 	// d.Data = buffer.Pixels()
 	d.Data = make([]byte, len(buffer.Pixels()))
 
-	originRect := sdl.Rect{0, 0, windowWidth, windowHeight}
-	scaledRect := sdl.Rect{0, 0, windowWidth, windowHeight}
+	originRect := sdl.Rect{X: 0, Y: 0, W: windowWidth, H: windowHeight}
+	scaledRect := sdl.Rect{X: 0, Y: 0, W: windowWidth, H: windowHeight}
 
 	d.Sync = func() {
 		copy(buffer.Pixels(), d.Data)

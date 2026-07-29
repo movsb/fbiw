@@ -467,16 +467,6 @@ func drawBackground(c *Canvas, cr color.NRGBA, w, h int) {
 	c.FillRect(0, 0, w, h, cr)
 }
 
-//go:embed logo.png
-var logo []byte
-
-// func (b *Block) drawText(c *Canvas, w, h int) {
-// 	drawString(c, `测试文字 A 1334 ，。，！*（#¥&`)
-
-// 	// img, _ := png.Decode(bytes.NewReader(logo))
-// 	// draw.Draw(c.ToDrawable(), image.Rect(0, 0, img.Bounds().Dx(), img.Bounds().Dy()), img, image.Pt(0, 0), draw.Src)
-// }
-
 type Button struct {
 	BaseBox
 }

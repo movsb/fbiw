@@ -66,13 +66,16 @@ func (k KeyName) String() string {
 }
 
 type Display struct {
+	// 屏幕的宽度和高度
 	Width, Height int
-	Bpp, Stride   int
 
-	// 内部双缓冲，可放心写。
+	// 位深以及一行的字节数（带padding）
+	Bpp, Stride int
+
+	// 内部双缓冲，可放心写这个缓冲。
 	Data []byte
 
-	// 写完调用此方法同步到屏幕。
+	// 写完后调用此方法同步到屏幕。
 	Sync func()
 
 	Close func()
