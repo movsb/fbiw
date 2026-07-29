@@ -281,7 +281,7 @@ func (b *Block) Calc(availWidth, availHeight int) {
 		avgHeight := (contentAvailHeight - contentHeight) / len(zeroSpacers)
 		contentHeight = contentAvailHeight
 		for _, spacer := range zeroSpacers {
-			spacer.calcPos = Rect{ncWidth, 0, avgHeight, 0}
+			spacer.calcPos = Rect{ncWidth, 0, 0, avgHeight}
 		}
 	}
 
@@ -294,7 +294,7 @@ func (b *Block) Calc(availWidth, availHeight int) {
 	}
 
 	b.calcPos.Width = boxMaxWidth
-	b.calcPos.Height = contentHeight + ncWidth*2
+	b.calcPos.Height = iif(b.Height > 0, b.Height, contentHeight+ncWidth*2)
 }
 
 func (b *BaseBox) Calc(availWidth, availHeight int) {
@@ -585,7 +585,7 @@ func (b *Inline) ApplyAttributes(key string, val string) {
 
 // 用来代替 margin 的使用。
 //
-// <spacer>是旧html标签，如果使用会被标红。。。
+// <spacer>是旧html标签，如果使用会被标红，且 html.Parse 错乱。
 type Spacer struct {
 	BaseBox
 }

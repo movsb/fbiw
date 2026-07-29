@@ -44,3 +44,14 @@
     b1: [0,0,256,0]
     b2: [256,0,256,0]
     b3: [512,0,256,0]
+
+- html: |
+    <block>
+      <inline></inline>
+      <space height=50></space>
+      <block height=50></block>
+      <space id=s></space>
+      <inline></inline>
+    </block>
+  calc:
+    s: [0,100,0,668]
