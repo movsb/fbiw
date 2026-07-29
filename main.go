@@ -26,7 +26,9 @@ func main() {
 
 	box := loadBox(_main)
 	box.Base().Dirty = true
-	box.Draw(canvas, display.Width, display.Height)
+
+	box.Calc(display.Width, display.Height)
+	box.Draw(canvas)
 	display.Sync()
 
 	// 没有缓冲，满了（或处理不过来）即丢。
@@ -53,7 +55,8 @@ func main() {
 			}
 		}
 		if box.Base().IsDirty() {
-			box.Draw(canvas, display.Width, display.Height)
+			box.Calc(display.Width, display.Height)
+			box.Draw(canvas)
 			display.Sync()
 		}
 	})

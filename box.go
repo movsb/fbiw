@@ -14,17 +14,17 @@ import (
 	_ "image/png"
 )
 
-type DisplayStyle string
-
-const (
-	DisplayBlock  DisplayStyle = `block`
-	DisplayInline DisplayStyle = `inline`
-)
-
 type Box interface {
 	Base() *BaseBox
-	Calc(availableWidth, availableHeight int) (int, int)
-	Draw(canvas *Canvas, actualWidth, actualHeight int)
+	// 根据可用的宽度和高度计算自己实际的宽度和高度。
+	// 自己写：并把宽度和高度写到 calcPos{width, height}。
+	// 父亲写：{x, y}。
+	Calc(availableWidth, availableHeight int)
+	// 根据自身的 calcPos 直接画。
+	// calcPos 的 {x,y} 相对于父元素。
+	// 所以除根元素外（因为它是0，0），其它在Draw之前都要调整canvas到offset，
+	// 即：父元素在遍历子元素Draw的时候记得根据子元素的{x,y}作offset。
+	Draw(canvas *Canvas)
 }
 
 type Color string
@@ -136,9 +136,9 @@ var presetColors = map[string]uint32{
 }
 
 type BaseBox struct {
-	Dirty bool
+	ID string
 
-	Display DisplayStyle
+	Dirty bool
 
 	BorderWidth     int
 	BorderColor     Color
@@ -150,6 +150,13 @@ type BaseBox struct {
 	Width, Height int
 
 	Children []Box
+
+	calcPos Rect
+}
+
+type Rect struct {
+	X, Y          int
+	Width, Height int
 }
 
 func (b *BaseBox) Base() *BaseBox {
@@ -176,16 +183,16 @@ func (b *BaseBox) IsDirty() bool {
 	return false
 }
 
-func (b *BaseBox) appendChild(box Box) {
-	b.Children = append(b.Children, box)
+func (b *BaseBox) appendChild(self, child Box) {
+	b.Children = append(b.Children, child)
 }
 
 func (b *BaseBox) ApplyAttributes(key string, val string) {
 	switch key {
 	default:
 		panic(`不认识的属性`)
-	case `display`:
-		b.Display = DisplayStyle(val)
+	case `id`:
+		b.ID = val
 	case `border-width`:
 		b.BorderWidth = mustParseInt(val)
 	case `border-color`:
@@ -203,141 +210,93 @@ func (b *BaseBox) ApplyAttributes(key string, val string) {
 	}
 }
 
-func (b *BaseBox) Calc(availWidth, availHeight int) (int, int) {
-	// 如果指定了大小，则直接使用。
-	if b.Width > 0 && b.Height > 0 {
-		return b.Width, b.Height
-	}
-
-	// 根据自身大小及可用空间大小取最佳值。
-	boxWidth := iif(b.Width > 0, b.Width, availWidth)
-	boxHeight := iif(b.Height > 0, b.Height, availHeight)
-
-	// 自身不可用区域。
-	ncWidth := b.BorderWidth*2 + b.Padding*2
-
-	// 内容区域可用的大小。
-	contentAvailWidth := boxWidth - ncWidth
-	contentAvailHeight := boxHeight - ncWidth
-
-	// 每次横向或纵向绘制都会调整可用空间。
-	// x, y := 0, 0
-	// 调整后的剩余空间
-	xRemain, yRemain := contentAvailWidth, contentAvailHeight
-	// 最高、最宽占用空间。
-	// xh := 0
-	// 所有行中占用宽是多少。
-	maxWidth := 0
-	// 当前行最高是多少。
-	maxLineHeight := 0
-
-	// 计算子元素占用。
-	for _, child := range b.Children {
-		base := child.Base()
-		// 如果是块级元素，需要独占一行。
-		if base.Display == DisplayBlock {
-			xRemain = contentAvailWidth
-			yRemain -= maxLineHeight
-			maxLineHeight = 0
-		}
-		cw, ch := child.Calc(xRemain, yRemain)
-		xRemain -= cw
-		maxLineHeight = max(maxLineHeight, ch)
-		maxWidth = max(maxWidth, contentAvailWidth-xRemain)
-
-		// 需要换行。
-		if xRemain <= 0 {
-			xRemain = contentAvailWidth
-			yRemain -= maxLineHeight
-			maxLineHeight = 0
-		}
-	}
-
-	// 最后一个元素布置完后需要调整剩余高度
-	// 如果刚好换行，此时为0，不影响。
-	yRemain -= maxLineHeight
-
-	contentHeight := contentAvailHeight - yRemain + ncWidth
-	contentWidth := maxWidth + ncWidth
-
-	return contentWidth, contentHeight
+type Block struct {
+	BaseBox
 }
 
-func (b *BaseBox) Draw(canvas *Canvas, actualWidth, actualHeight int) {
+func NewBlock() *Block {
+	return &Block{}
+}
+
+func (b *Block) Calc(availWidth, availHeight int) {
+	// 自身不可用区域。
+	ncWidth := b.BorderWidth + b.Padding
+
+	// 根据自身大小及可用空间大小取最佳值。
+	boxMaxWidth := iif(b.Width > 0, b.Width, availWidth)
+	boxMaxHeight := iif(b.Height > 0, b.Height, availHeight)
+
+	// 内容区域可用的大小。
+	contentAvailWidth := boxMaxWidth - ncWidth*2
+	contentAvailHeight := boxMaxHeight - ncWidth*2
+
+	// 当前实际占用高度
+	contentHeight := 0
+
+	for _, child := range b.Children {
+		child.Calc(contentAvailWidth, contentAvailHeight-contentHeight)
+		child.Base().calcPos.X = ncWidth
+		contentHeight += child.Base().calcPos.Height
+	}
+
+	// 如果有 Spacer（未设定大小的），则均匀地铺满。
+	zeroSpacers := []*Spacer{}
+	for _, child := range b.Children {
+		if spacer, ok := child.(*Spacer); ok && spacer.Height == 0 {
+			zeroSpacers = append(zeroSpacers, spacer)
+		}
+	}
+	if len(zeroSpacers) > 0 {
+		// 铺满，然后均匀分布
+		avgHeight := (contentAvailHeight - contentHeight) / len(zeroSpacers)
+		contentHeight = contentAvailHeight
+		for _, spacer := range zeroSpacers {
+			spacer.calcPos = Rect{ncWidth, 0, avgHeight, 0}
+		}
+	}
+
+	// 最后再重新调整 Y
+	offsetY := ncWidth
+	for _, child := range b.Children {
+		p := &child.Base().calcPos
+		p.Y = offsetY
+		offsetY += p.Height
+	}
+
+	b.calcPos.Width = boxMaxWidth
+	b.calcPos.Height = contentHeight + ncWidth*2
+}
+
+func (b *BaseBox) Calc(availWidth, availHeight int) {
+	b.calcPos = Rect{0, 0, b.Width, b.Height}
+}
+
+func (b *BaseBox) Draw(canvas *Canvas) {
 	defer b.SetNoDirty()
 
 	// 默认都是 border-box，所以以实际的宽和高为准。
-	drawBorder(canvas,
-		b.BorderColor.NRGBA(),
-		actualWidth, actualHeight, b.BorderWidth,
-	)
+	drawBorder(canvas, b.BorderColor.NRGBA(), b.calcPos.Width, b.calcPos.Height, b.BorderWidth)
 
 	// 背景位于边框内，要减掉。
 	if b.BackgroundImage != `` {
 		drawBackgroundImage(
 			canvas.Offset(b.BorderWidth, b.BorderWidth),
 			b.BackgroundImage,
-			actualWidth-b.BorderWidth*2,
-			actualHeight-b.BorderWidth*2,
+			b.calcPos.Width-b.BorderWidth*2,
+			b.calcPos.Height-b.BorderWidth*2,
 		)
 	} else {
 		drawBackgroundColor(
 			canvas.Offset(b.BorderWidth, b.BorderWidth),
 			b.BackgroundColor.NRGBA(),
-			actualWidth-b.BorderWidth*2,
-			actualHeight-b.BorderWidth*2,
+			b.calcPos.Width-b.BorderWidth*2,
+			b.calcPos.Height-b.BorderWidth*2,
 		)
 	}
 
-	// 内容起点均在边框和内边距以内。
-	initialOffsetX := 0 + b.BorderWidth + b.Padding
-	initialOffsetY := 0 + b.BorderWidth + b.Padding
-
-	canvas = canvas.Offset(initialOffsetX, initialOffsetY)
-	contentWidth := actualWidth - initialOffsetX*2
-	contentHeight := actualHeight - initialOffsetY*2
-
-	// 横向剩余量。
-	xRemain := contentWidth
-	yRemain := contentHeight
-	maxLineHeight := 0
-
 	for _, child := range b.Children {
-		base := child.Base()
-		if base.Display == DisplayBlock {
-			xRemain = contentWidth
-			yRemain -= maxLineHeight
-			maxLineHeight = 0
-		}
-
-		canvas := canvas.Offset(contentWidth-xRemain, contentHeight-yRemain)
-		cw, ch := child.Calc(xRemain, yRemain)
-		if cw > 0 && ch > 0 {
-			child.Draw(canvas, cw, ch)
-		}
-
-		maxLineHeight = max(maxLineHeight, ch)
-
-		xRemain -= cw
-
-		// 需要换行。
-		if xRemain <= 0 {
-			xRemain = contentWidth
-			yRemain -= maxLineHeight
-			maxLineHeight = 0
-		}
-	}
-}
-
-type Block struct {
-	BaseBox
-}
-
-func NewBlock() *Block {
-	return &Block{
-		BaseBox: BaseBox{
-			Display: DisplayBlock,
-		},
+		p := child.Base().calcPos
+		child.Draw(canvas.Offset(p.X, p.Y))
 	}
 }
 
@@ -507,11 +466,7 @@ type Button struct {
 }
 
 func NewButton() *Button {
-	return &Button{
-		BaseBox: BaseBox{
-			Display: DisplayInline,
-		},
-	}
+	return &Button{}
 }
 
 func (b *Button) ApplyAttributes(key string, val string) {
@@ -523,21 +478,109 @@ func (b *Button) ApplyAttributes(key string, val string) {
 	}
 }
 
+type Inline struct {
+	BaseBox
+}
+
+func NewInline() *Inline {
+	return &Inline{}
+}
+
+func (b *Inline) Calc(availWidth, availHeight int) {
+	// 自身不可用区域。
+	ncWidth := b.BorderWidth + b.Padding
+
+	// 根据自身大小及可用空间大小取最佳值。
+	boxMaxWidth := iif(b.Width > 0, b.Width, availWidth)
+	boxMaxHeight := iif(b.Height > 0, b.Height, availHeight)
+
+	// 内容区域可用的大小。
+	contentAvailWidth := boxMaxWidth - ncWidth*2
+	contentAvailHeight := boxMaxHeight - ncWidth*2
+
+	// 当前实际占用宽度
+	contentWidth := 0
+
+	// 实际最高占用。
+	contentMaxHeight := 0
+
+	for _, child := range b.Children {
+		child.Calc(contentAvailHeight, contentAvailWidth-contentWidth)
+		child.Base().calcPos.Y = ncWidth
+		contentWidth += child.Base().calcPos.Width
+		contentMaxHeight = max(contentMaxHeight, child.Base().calcPos.Height)
+	}
+
+	// 如果有 Spacer（未设定大小的），则均匀地铺满。
+	zeroSpacers := []*Spacer{}
+	for _, child := range b.Children {
+		if spacer, ok := child.(*Spacer); ok && spacer.Width == 0 {
+			zeroSpacers = append(zeroSpacers, spacer)
+		}
+	}
+	if len(zeroSpacers) > 0 {
+		// 铺满，然后均匀分布
+		avgWidth := (contentAvailWidth - contentWidth) / len(zeroSpacers)
+		contentWidth = contentAvailWidth
+		for _, spacer := range zeroSpacers {
+			spacer.calcPos = Rect{0, ncWidth, avgWidth, 0}
+		}
+	}
+
+	// 最后再重新调整 X
+	offsetX := ncWidth
+	for _, child := range b.Children {
+		p := &child.Base().calcPos
+		p.X = offsetX
+		offsetX += p.Width
+	}
+
+	b.calcPos.Width = contentWidth + ncWidth*2
+	b.calcPos.Height = contentMaxHeight + ncWidth*2
+}
+
+func (b *Inline) ApplyAttributes(key string, val string) {
+	switch key {
+	case `color`:
+		b.Color = Color(val)
+	default:
+		b.BaseBox.ApplyAttributes(key, val)
+	}
+}
+
+// 用来代替 margin 的使用。
+//
+// <spacer>是旧html标签，如果使用会被标红。。。
+type Spacer struct {
+	BaseBox
+}
+
+func NewSpacer() *Spacer {
+	return &Spacer{}
+}
+
 // 只用于嵌入。
 type Text struct {
-	parent Box
-	Data   string
+	BaseBox
+
+	Color Color
+	Data  string
 }
 
 func NewText() *Text {
 	return &Text{}
 }
 
-func (t *Text) Base() *BaseBox {
-	return t.parent.Base()
+func (b *Text) ApplyAttributes(key string, val string) {
+	switch key {
+	case `color`:
+		b.Color = Color(val)
+	default:
+		b.BaseBox.ApplyAttributes(key, val)
+	}
 }
 
-func (t *Text) Calc(availWidth, availHeight int) (int, int) {
+func (t *Text) Calc(availWidth, availHeight int) {
 	face := onceLoadFont()
 	metrics := face.Metrics()
 	textHeight := (metrics.Ascent + metrics.Descent).Ceil()
@@ -576,7 +619,7 @@ func (t *Text) Calc(availWidth, availHeight int) (int, int) {
 	for {
 		w, r := segment(s)
 		if w == 0 {
-			return 0, 0
+			return // 出错了
 		}
 		maxWidth = max(maxWidth, w)
 		s = r
@@ -586,22 +629,18 @@ func (t *Text) Calc(availWidth, availHeight int) (int, int) {
 		}
 	}
 
-	height := textHeight * lines //+ metrics.Height.Ceil()*(lines-1)
-
-	return maxWidth, height
+	t.calcPos.Width = maxWidth
+	t.calcPos.Height = textHeight * lines
 }
 
-func (t *Text) Draw(canvas *Canvas, width, height int) {
+func (t *Text) Draw(canvas *Canvas) {
 	t.Base().SetNoDirty()
-
-	var cr Color
-	switch p := t.parent.(type) {
-	case *Button:
-		cr = p.Color
+	if t.Color.NRGBA() == EmptyColor {
+		t.Color = Color(`black`)
 	}
 	drawString(canvas,
-		t.Data, cr.NRGBA(),
-		width, height,
+		t.Data, t.Color.NRGBA(),
+		t.calcPos.Width, t.calcPos.Height,
 	)
 }
 
@@ -612,11 +651,7 @@ type Image struct {
 }
 
 func NewImage() *Image {
-	return &Image{
-		BaseBox: BaseBox{
-			Display: DisplayInline,
-		},
-	}
+	return &Image{}
 }
 
 func (b *Image) ApplyAttributes(key string, val string) {
@@ -653,14 +688,17 @@ func loadImageCached(path string) (image.Image, error) {
 	return img, nil
 }
 
-func (b *Image) Calc(availWidth, availHeight int) (int, int) {
+func (b *Image) Calc(availWidth, availHeight int) {
 	if b.Width > 0 && b.Height > 0 {
-		return b.Width, b.Height
+		b.calcPos.Width = b.Width
+		b.calcPos.Height = b.Height
+		return
 	}
 
 	img, err := loadImageCached(b.Src)
 	if err != nil {
-		return 0, 0
+		b.calcPos = Rect{}
+		return
 	}
 
 	imgWidth, imgHeight := img.Bounds().Dx(), img.Bounds().Dy()
@@ -675,10 +713,11 @@ func (b *Image) Calc(availWidth, availHeight int) (int, int) {
 	// 	return imgWidth / bigger, imgHeight / bigger
 	// }
 
-	return imgWidth, imgHeight
+	b.calcPos.Width = imgWidth
+	b.calcPos.Height = imgHeight
 }
 
-func (b *Image) Draw(canvas *Canvas, width, height int) {
+func (b *Image) Draw(canvas *Canvas) {
 	defer b.SetNoDirty()
 
 	img, err := loadImageCached(b.Src)
@@ -695,5 +734,5 @@ func (b *Image) Draw(canvas *Canvas, width, height int) {
 	// }
 	// // resized := transform.Resize(img, imgWidth, imgHeight, transform.Lanczos)
 	resized := img
-	drawImage(canvas, resized, width, height)
+	drawImage(canvas, resized, b.calcPos.Width, b.calcPos.Height)
 }

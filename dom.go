@@ -28,6 +28,7 @@ func loadBox(data []byte) Box {
 			panic(`只能有一个节点`)
 		}
 	}
+	// html.Render(os.Stdout, nodes[0])
 	return transformNodeTree(nodes[0])
 }
 
@@ -55,18 +56,37 @@ func transformNode(node *html.Node) Box {
 }
 
 func transformELementNode(node *html.Node) Box {
-	switch node.DataAtom {
-	case atom.Div:
+	switch node.Data {
+	case `block`:
 		box := NewBlock()
 		for _, a := range node.Attr {
 			box.ApplyAttributes(a.Key, a.Val)
 		}
 		for c := range node.ChildNodes() {
 			if b := transformNode(c); b != nil {
-				box.appendChild(b)
+				box.appendChild(box, b)
 			}
 		}
 		return box
+	case `inline`:
+		box := NewInline()
+		for _, a := range node.Attr {
+			box.ApplyAttributes(a.Key, a.Val)
+		}
+		for c := range node.ChildNodes() {
+			if b := transformNode(c); b != nil {
+				box.appendChild(box, b)
+			}
+		}
+		return box
+	case `space`:
+		box := NewSpacer()
+		for _, a := range node.Attr {
+			box.ApplyAttributes(a.Key, a.Val)
+		}
+		return box
+	}
+	switch node.DataAtom {
 	case atom.Button:
 		box := NewButton()
 		for _, a := range node.Attr {
@@ -74,10 +94,7 @@ func transformELementNode(node *html.Node) Box {
 		}
 		for c := range node.ChildNodes() {
 			if b := transformNode(c); b != nil {
-				if t, ok := b.(*Text); ok {
-					t.parent = box
-				}
-				box.appendChild(b)
+				box.appendChild(box, b)
 			}
 		}
 		return box
@@ -89,24 +106,5 @@ func transformELementNode(node *html.Node) Box {
 		return box
 	}
 
-	switch node.Data {
-	// case `text`:
-	// 	box := Text{}
-	// 	for _, a := range node.Attr {
-	// 		box.ApplyAttributes(a.Key, a.Val)
-	// 	}
-	// 	if t := node.FirstChild; t != nil {
-	// 		if t.Type == html.TextNode {
-	// 			box.Data = strings.TrimSpace(t.Data)
-	// 			if t.NextSibling != nil {
-	// 				panic(`文本不能再有子节点。`)
-	// 			}
-	// 		} else {
-	// 			panic(`不支持的文本子节点`)
-	// 		}
-	// 	}
-	// 	return &box
-	default:
-		panic(`不认识的盒子`)
-	}
+	panic(`不认识的盒子`)
 }

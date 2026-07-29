@@ -6,6 +6,7 @@ import (
 	"runtime"
 	"strconv"
 
+	"github.com/goccy/go-yaml"
 	"golang.org/x/sys/unix"
 )
 
@@ -61,4 +62,20 @@ func init() {
 			captureStdoutStderr(logFile)
 		}
 	}
+}
+
+func loadTestCases[T any](path string) []*T {
+	fp, err := os.Open(path)
+	if err != nil {
+		panic(err)
+	}
+	defer fp.Close()
+
+	var t []*T
+
+	if err := yaml.NewDecoder(fp, yaml.DisallowUnknownField()).Decode(&t); err != nil {
+		panic(err)
+	}
+
+	return t
 }
