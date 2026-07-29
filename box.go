@@ -153,8 +153,9 @@ type BaseBox struct {
 	// Calc时，会预填充Width。
 	widthPercentage int
 
-	// 子元素的水平对齐方式。
+	// 子元素的水平/垂直对齐方式。
 	// 默认("")居左，“center”居中。
+	// 默认("")居顶，“middle”居中。
 	Align string
 
 	Children []Box
@@ -570,6 +571,13 @@ func (b *Inline) Calc(availWidth, availHeight int) {
 		offsetX += p.Width
 	}
 
+	// 如果是垂直居中，则重新调整Y
+	if b.Align == `middle` {
+		for _, child := range b.Children {
+			child.Base().calcPos.Y += (contentMaxHeight - child.Base().calcPos.Height) / 2
+		}
+	}
+
 	b.calcPos.Width = iif(b.Width > 0, b.Width, contentWidth+ncWidth*2)
 	b.calcPos.Height = contentMaxHeight + ncWidth*2
 }
@@ -671,7 +679,7 @@ func (t *Text) Calc(availWidth, availHeight int) {
 func (t *Text) Draw(canvas *Canvas) {
 	t.Base().SetNoDirty()
 	if t.Color.NRGBA() == EmptyColor {
-		t.Color = Color(`black`)
+		t.Color = Color(`white`)
 	}
 	drawString(canvas,
 		t.Data, t.Color.NRGBA(),
