@@ -153,6 +153,10 @@ type BaseBox struct {
 	// Calc时，会预填充Width。
 	widthPercentage int
 
+	// 子元素的水平对齐方式。
+	// 默认("")居左，“center”居中。
+	Align string
+
 	Children []Box
 
 	calcPos Rect
@@ -215,6 +219,8 @@ func (b *BaseBox) ApplyAttributes(key string, val string) {
 		}
 	case `height`:
 		b.Height = mustParseInt(val)
+	case `align`:
+		b.Align = val
 	}
 }
 
@@ -255,6 +261,12 @@ func (b *Block) Calc(availWidth, availHeight int) {
 		child.Calc(contentAvailWidth, contentAvailHeight-contentHeight)
 		child.Base().calcPos.X = ncWidth
 		contentHeight += child.Base().calcPos.Height
+
+		// 启用对齐。
+		// 纵向排列的时候需要对每个元素进行设置。
+		if b.Align == `center` {
+			child.Base().calcPos.X += (contentAvailWidth - child.Base().calcPos.Width) / 2
+		}
 	}
 
 	// 如果有 Spacer（未设定大小的），则均匀地铺满。
