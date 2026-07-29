@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"unicode/utf8"
 
 	_ "image/jpeg"
@@ -148,6 +149,9 @@ type BaseBox struct {
 	Padding         int
 
 	Width, Height int
+	// 如果Width是用百分数表示的，会把整数部分记录到这里。
+	// Calc时，会预填充Width。
+	widthPercentage int
 
 	Children []Box
 
@@ -190,7 +194,7 @@ func (b *BaseBox) appendChild(self, child Box) {
 func (b *BaseBox) ApplyAttributes(key string, val string) {
 	switch key {
 	default:
-		panic(`不认识的属性`)
+		panic(`不认识的属性：` + key)
 	case `id`:
 		b.ID = val
 	case `border-width`:
@@ -204,9 +208,22 @@ func (b *BaseBox) ApplyAttributes(key string, val string) {
 	case `padding`:
 		b.Padding = mustParseInt(val)
 	case `width`:
-		b.Width = mustParseInt(val)
+		if before, ok := strings.CutSuffix(val, `%`); ok {
+			b.widthPercentage = mustParseInt(before)
+		} else {
+			b.Width = mustParseInt(val)
+		}
 	case `height`:
 		b.Height = mustParseInt(val)
+	}
+}
+
+// 如果宽度指定了百分比，其百分比是相对于父元素的，不能等到其它元素占用（并减去）后再计算。
+func (b *BaseBox) presetWidth(parentTotalAvailWidth int) {
+	if b.widthPercentage > 0 {
+		// 百分比暂时优先级更高，所以如果窗口大小变了。b.Width会怎样？
+		// 因为百分比才是真实的初始化，Width原本是没有的。
+		b.Width = int(float32(b.widthPercentage) / 100 * float32(parentTotalAvailWidth))
 	}
 }
 
@@ -234,6 +251,7 @@ func (b *Block) Calc(availWidth, availHeight int) {
 	contentHeight := 0
 
 	for _, child := range b.Children {
+		child.Base().presetWidth(contentAvailWidth)
 		child.Calc(contentAvailWidth, contentAvailHeight-contentHeight)
 		child.Base().calcPos.X = ncWidth
 		contentHeight += child.Base().calcPos.Height
@@ -268,7 +286,11 @@ func (b *Block) Calc(availWidth, availHeight int) {
 }
 
 func (b *BaseBox) Calc(availWidth, availHeight int) {
-	b.calcPos = Rect{0, 0, b.Width, b.Height}
+	b.calcPos = Rect{
+		0, 0,
+		b.Width,
+		b.Height,
+	}
 }
 
 func (b *BaseBox) Draw(canvas *Canvas) {
@@ -505,7 +527,8 @@ func (b *Inline) Calc(availWidth, availHeight int) {
 	contentMaxHeight := 0
 
 	for _, child := range b.Children {
-		child.Calc(contentAvailHeight, contentAvailWidth-contentWidth)
+		child.Base().presetWidth(contentAvailWidth)
+		child.Calc(contentAvailWidth-contentWidth, contentAvailHeight)
 		child.Base().calcPos.Y = ncWidth
 		contentWidth += child.Base().calcPos.Width
 		contentMaxHeight = max(contentMaxHeight, child.Base().calcPos.Height)
@@ -535,7 +558,7 @@ func (b *Inline) Calc(availWidth, availHeight int) {
 		offsetX += p.Width
 	}
 
-	b.calcPos.Width = contentWidth + ncWidth*2
+	b.calcPos.Width = iif(b.Width > 0, b.Width, contentWidth+ncWidth*2)
 	b.calcPos.Height = contentMaxHeight + ncWidth*2
 }
 

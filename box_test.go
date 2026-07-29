@@ -16,19 +16,22 @@ func getByID(root Box, id string) Box {
 			return box
 		}
 	}
-	panic(`指定ID的盒子没找到`)
+	return nil
 }
 
 func TestCalc(t *testing.T) {
 	cases := loadTestCases[BoxTest](`testdata/box.yaml`)
 	for i, tc := range cases {
 		root := loadBox([]byte(tc.HTML))
-		if i == 2 {
+		if i == 3 {
 			i += 0
 		}
 		root.Calc(1024, 768)
 		for id, rect := range tc.Calc {
 			box := getByID(root, id)
+			if box == nil {
+				panic(`指定编号的盒子没找到：` + id)
+			}
 			pos := box.Base().calcPos
 			if pos.X != rect[0] ||
 				pos.Y != rect[1] ||
