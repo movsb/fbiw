@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	_ "net/http/pprof"
 )
@@ -52,12 +51,6 @@ func main() {
 				cancel()
 				return
 			}
-		}
-		if event.Type == KeyboardEvent {
-			text := box.Base().Children[0].(*Button).Base().Children[0].(*Text)
-			pressed := iif(event.Keyboard.Pressed, "按下", "松开")
-			text.Data = fmt.Sprintf(`按键：%s (%s)`, event.Keyboard.Name, pressed)
-			text.Base().Dirty = true
 		}
 		if box.Base().IsDirty() {
 			box.Draw(canvas, display.Width, display.Height)

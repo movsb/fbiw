@@ -7,6 +7,7 @@ import (
 	"image/draw"
 	"log"
 	"os"
+	"path/filepath"
 	"unicode/utf8"
 
 	_ "image/jpeg"
@@ -142,6 +143,7 @@ type BaseBox struct {
 	BorderWidth     int
 	BorderColor     Color
 	BackgroundColor Color
+	BackgroundImage string
 	Color           Color
 	Padding         int
 
@@ -190,6 +192,8 @@ func (b *BaseBox) ApplyAttributes(key string, val string) {
 		b.BorderColor = Color(val)
 	case `background-color`:
 		b.BackgroundColor = Color(val)
+	case `background-image`:
+		b.BackgroundImage = val
 	case `padding`:
 		b.Padding = mustParseInt(val)
 	case `width`:
@@ -269,12 +273,21 @@ func (b *BaseBox) Draw(canvas *Canvas, actualWidth, actualHeight int) {
 	)
 
 	// 背景位于边框内，要减掉。
-	drawBackground(
-		canvas.Offset(b.BorderWidth, b.BorderWidth),
-		b.BackgroundColor.NRGBA(),
-		actualWidth-b.BorderWidth*2,
-		actualHeight-b.BorderWidth*2,
-	)
+	if b.BackgroundImage != `` {
+		drawBackgroundImage(
+			canvas.Offset(b.BorderWidth, b.BorderWidth),
+			b.BackgroundImage,
+			actualWidth-b.BorderWidth*2,
+			actualHeight-b.BorderWidth*2,
+		)
+	} else {
+		drawBackgroundColor(
+			canvas.Offset(b.BorderWidth, b.BorderWidth),
+			b.BackgroundColor.NRGBA(),
+			actualWidth-b.BorderWidth*2,
+			actualHeight-b.BorderWidth*2,
+		)
+	}
 
 	// 内容起点均在边框和内边距以内。
 	initialOffsetX := 0 + b.BorderWidth + b.Padding
@@ -457,14 +470,36 @@ func (c *Canvas) ToDrawable(width, height int) draw.Image {
 }
 
 func drawBorder(c *Canvas, cr color.NRGBA, w, h int, borderWidth int) {
+	if cr == EmptyColor {
+		return
+	}
 	c.FillRect(0, 0, w, borderWidth, cr)
 	c.FillRect(0, h-borderWidth, w, borderWidth, cr)
 	c.FillRect(0, borderWidth, borderWidth, h-borderWidth*2, cr)
 	c.FillRect(w-borderWidth, borderWidth, borderWidth, h-borderWidth*2, cr)
 }
 
-func drawBackground(c *Canvas, cr color.NRGBA, w, h int) {
+func drawBackgroundColor(c *Canvas, cr color.NRGBA, w, h int) {
+	if cr == EmptyColor {
+		return
+	}
 	c.FillRect(0, 0, w, h, cr)
+}
+
+func drawImage(c *Canvas, img image.Image, width, height int) {
+	draw.Draw(
+		c.ToDrawable(width, height),
+		image.Rect(0, 0, width, height),
+		img, image.Pt(0, 0), draw.Over,
+	)
+}
+
+func drawBackgroundImage(c *Canvas, path string, width, height int) {
+	img, err := loadImageCached(path)
+	if err != nil {
+		return
+	}
+	drawImage(c, img, width, height)
 }
 
 type Button struct {
@@ -601,7 +636,7 @@ func loadImageCached(path string) (image.Image, error) {
 	}
 
 	log.Println(`重新解码：`, path)
-	fp, err := os.Open(path)
+	fp, err := os.Open(filepath.Join(skinDir, path))
 	if err != nil {
 		log.Println(err, path)
 		return nil, err
@@ -660,5 +695,5 @@ func (b *Image) Draw(canvas *Canvas, width, height int) {
 	// }
 	// // resized := transform.Resize(img, imgWidth, imgHeight, transform.Lanczos)
 	resized := img
-	draw.Draw(canvas.ToDrawable(width, height), resized.Bounds(), resized, resized.Bounds().Min, draw.Src)
+	drawImage(canvas, resized, width, height)
 }

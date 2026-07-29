@@ -16,6 +16,8 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+const skinDir = `/usr/trimui/res/skin`
+
 func openDisplay() *Display {
 	d := &Display{}
 

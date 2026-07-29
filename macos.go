@@ -8,6 +8,8 @@ import (
 	"github.com/veandco/go-sdl2/sdl"
 )
 
+const skinDir = `./skin`
+
 func openDisplay() *Display {
 	const (
 		windowWidth  = 1024
