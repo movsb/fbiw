@@ -55,3 +55,15 @@
     </block>
   calc:
     s: [0,100,0,668]
+
+- html: |
+    <block>
+      <inline>
+        <inline height=100 id=i align=middle>
+          <img id=img>
+        </inline>
+      </inline>
+    </block>
+  calc:
+    i: [0,0,0,100]
+    img: [0,50,0,0]

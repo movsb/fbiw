@@ -294,7 +294,7 @@ func (b *Block) Calc(availWidth, availHeight int) {
 		offsetY += p.Height
 	}
 
-	b.calcPos.Width = boxMaxWidth
+	b.calcPos.Width = iif(b.Width > 0, b.Width, boxMaxWidth)
 	b.calcPos.Height = iif(b.Height > 0, b.Height, contentHeight+ncWidth*2)
 }
 
@@ -489,6 +489,9 @@ func drawImage(c *Canvas, img image.Image, width, height int) {
 }
 
 func drawBackgroundImage(c *Canvas, path string, width, height int) {
+	if path == `` {
+		return
+	}
 	img, err := loadImageCached(path)
 	if err != nil {
 		return
@@ -571,15 +574,16 @@ func (b *Inline) Calc(availWidth, availHeight int) {
 		offsetX += p.Width
 	}
 
+	b.calcPos.Width = iif(b.Width > 0, b.Width, contentWidth+ncWidth*2)
+	b.calcPos.Height = iif(b.Height > 0, b.Height, contentMaxHeight+ncWidth*2)
+
 	// 如果是垂直居中，则重新调整Y
 	if b.Align == `middle` {
+		contentHeight := iif(b.Height > 0, b.Height-ncWidth*2, contentMaxHeight)
 		for _, child := range b.Children {
-			child.Base().calcPos.Y += (contentMaxHeight - child.Base().calcPos.Height) / 2
+			child.Base().calcPos.Y += (contentHeight - child.Base().calcPos.Height) / 2
 		}
 	}
-
-	b.calcPos.Width = iif(b.Width > 0, b.Width, contentWidth+ncWidth*2)
-	b.calcPos.Height = contentMaxHeight + ncWidth*2
 }
 
 func (b *Inline) ApplyAttributes(key string, val string) {
@@ -738,6 +742,11 @@ func (b *Image) Calc(availWidth, availHeight int) {
 		return
 	}
 
+	if b.Src == `` {
+		b.calcPos = Rect{}
+		return
+	}
+
 	img, err := loadImageCached(b.Src)
 	if err != nil {
 		b.calcPos = Rect{}
@@ -762,6 +771,10 @@ func (b *Image) Calc(availWidth, availHeight int) {
 
 func (b *Image) Draw(canvas *Canvas) {
 	defer b.SetNoDirty()
+
+	if b.Src == `` {
+		return
+	}
 
 	img, err := loadImageCached(b.Src)
 	if err != nil {
