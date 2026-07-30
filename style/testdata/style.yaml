@@ -1,13 +1,13 @@
 - style: 'block {}'
   rules:
-    - selectors:
+    - selector:
         - tag: block
           specificity: 1
       declarations: []
 
 - style: 'block inline {}'
   rules:
-    - selectors:
+    - selector:
         - tag: block
           specificity: 1
         - tag: inline

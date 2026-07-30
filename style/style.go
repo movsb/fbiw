@@ -5,67 +5,8 @@ import (
 	"bytes"
 	"fmt"
 	"io"
-	"slices"
 	"strings"
 )
-
-type Styles struct {
-	Color           Value
-	BackgroundColor Value
-}
-
-type ValueType uint8
-
-const (
-	VTNone ValueType = iota
-	VTString
-)
-
-type Value struct {
-	Type ValueType
-
-	String string
-}
-
-func StringValue(s string) Value {
-	return Value{
-		Type:   VTString,
-		String: s,
-	}
-}
-
-// 用结构体而不是直接type为[]string的原因是修改的时候不想重新赋值。
-type Class struct {
-	class []string
-}
-
-func ParseClass(raw string) Class {
-	return Class{class: strings.Fields(raw)}
-}
-func (c *Class) Set(class string) {
-	c.class = strings.Fields(class)
-}
-func (c Class) Contains(class string) bool {
-	return slices.Contains(c.class, class)
-}
-func (c Class) ContainsAny(class ...string) bool {
-	return slices.ContainsFunc(class, c.Contains)
-}
-func (c *Class) Add(class string) {
-	if !c.Contains(class) {
-		c.class = append(c.class, class)
-	}
-}
-func (c *Class) Remove(class string) {
-	c.class = slices.DeleteFunc(c.class, func(each string) bool { return each == class })
-}
-
-// 表示匹配到的规则。
-type RuleMatch struct {
-	// 合并后的相关性。
-	Specificity  uint32
-	Declarations []Declaration
-}
 
 type Rule struct {
 	// 只表示单条选择器（类似逗号分隔的会被拆成多条）

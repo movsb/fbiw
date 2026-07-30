@@ -67,3 +67,17 @@
   calc:
     i: [0,0,0,100]
     img: [0,50,0,0]
+
+- html: |
+    <block>
+      <inline id=i></inline>
+    </block>
+  style: |
+    block {
+      color: red;
+    }
+  computed:
+    i:
+      color:
+        type: 2
+        color: 4281490431 # 0xFF325BFF

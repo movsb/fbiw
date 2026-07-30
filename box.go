@@ -2,6 +2,7 @@ package main
 
 import (
 	_ "embed"
+	"errors"
 	"fmt"
 	"gofb/style"
 	"gofb/utils"
@@ -11,7 +12,6 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"strings"
 	"unicode/utf8"
 	"unsafe"
 
@@ -32,135 +32,12 @@ type Box interface {
 	Draw(canvas *Canvas)
 }
 
-type Color string
-
-var EmptyColor = color.NRGBA{0, 1, 0, 1}
-
-func (c Color) NRGBA() (out color.NRGBA) {
-	if len(c) == 0 {
-		// 特殊值。
-		return EmptyColor
-	}
-	if c[0] == '#' {
-		index := -1
-		decode := func() uint8 {
-			index++
-			switch b := c[1+index]; {
-			case '0' <= b && b <= '9':
-				return b - '0'
-			case 'a' <= b && b <= 'f':
-				return b - 'a'
-			case 'A' <= b && b <= 'F':
-				return b - 'A'
-			default:
-				// 无效值忽略。
-				return 0
-			}
-		}
-		h := c[1:]
-		switch len(h) {
-		case 3:
-			r, g, b := decode(), decode(), decode()
-			r |= r << 4
-			g |= g << 4
-			b |= b << 4
-			out = color.NRGBA{r, g, b, 0xFF}
-		case 4:
-			r, g, b, a := decode(), decode(), decode(), decode()
-			r |= r << 4
-			g |= g << 4
-			b |= b << 4
-			a |= a << 4
-			out = color.NRGBA{r, g, b, a}
-		case 6:
-			r := decode()<<4 | decode()
-			g := decode()<<4 | decode()
-			b := decode()<<4 | decode()
-			out = color.NRGBA{r, g, b, 0xFF}
-		case 8:
-			r := decode()<<4 | decode()
-			g := decode()<<4 | decode()
-			b := decode()<<4 | decode()
-			a := decode()<<4 | decode()
-			out = color.NRGBA{r, g, b, a}
-		}
-		return
-	} else {
-		if c, ok := presetColors[string(c)]; ok {
-			out.R = uint8(c >> 24)
-			out.G = uint8(c >> 16)
-			out.B = uint8(c >> 8)
-			out.A = uint8(c)
-		}
-		return
-	}
-}
-
-var presetColors = map[string]uint32{
-	`coral`:          0xF08080FF,
-	`salmon`:         0xE9967AFF,
-	`red`:            0xFF325BFF,
-	`hotpink`:        0xFF69B4FF,
-	`deeppink`:       0xFF1493FF,
-	`palevioletred`:  0xDB7093FF,
-	`tomato`:         0xFF6347FF,
-	`darkorange`:     0xFF8C00FF,
-	`orange`:         0xFFA500FF,
-	`yellow`:         0xFFD800FF,
-	`darkkhaki`:      0xBDB76BFF,
-	`magenta`:        0xDA70D6FF,
-	`purple`:         0x9932CCFF,
-	`slateblue`:      0x6A5ACDFF,
-	`mediumseagreen`: 0x3CB371FF,
-	`green`:          0x17A817FF,
-	`yellowgreen`:    0x9ACD32FF,
-	`olive`:          0x6B8E23FF,
-	`darkseagreen`:   0x8FBC8BFF,
-	`lightseagreen`:  0x20B2AAFF,
-	`teal`:           0x008080FF,
-	`cyan`:           0x00CED1FF,
-	`aqua`:           0x00CED1FF,
-	`cadetblue`:      0x5F9EA0FF,
-	`steelblue`:      0x4682B4FF,
-	`deepskyblue`:    0x00BFFFFF,
-	`blue`:           0x1E90FFFF,
-	`burlywood`:      0xDEB887FF,
-	`tan`:            0xD2B48CFF,
-	`rosybrown`:      0xBC8F8FFF,
-	`sandybrown`:     0xF4A460FF,
-	`goldenrod`:      0xDAA520FF,
-	`darkgoldenrod`:  0xB8860BFF,
-	`peru`:           0xCD853FFF,
-	`chocolate`:      0xD2691EFF,
-	`white`:          0xFFFFFFFF,
-	`silver`:         0xC0C0C0FF,
-	`darkgray`:       0xA9A9A9FF,
-	`gray`:           0x808080FF,
-	`slategray`:      0x708090FF,
-	`black`:          0x000000FF,
-}
-
 type BaseBox struct {
 	ID    string
 	Tag   string
 	Class style.Class
 
 	Dirty bool
-
-	BorderWidth     int
-	BorderColor     Color
-	BackgroundImage string
-	Padding         int
-
-	Width, Height int
-	// 如果Width是用百分数表示的，会把整数部分记录到这里。
-	// Calc时，会预填充Width。
-	widthPercentage int
-
-	// 子元素的水平/垂直对齐方式。
-	// 默认("")居左，“center”居中。
-	// 默认("")居顶，“middle”居中。
-	Align string
 
 	Parent   Box
 	Children []Box
@@ -169,6 +46,10 @@ type BaseBox struct {
 
 	inlineStyles   style.Styles
 	computedStyles style.Styles
+
+	// 如果 computedStyles 设置了 width 百分比，
+	// 这里用来临时保存 Calc 计算的 width。
+	computedWidth style.Value
 }
 
 type Rect struct {
@@ -205,43 +86,34 @@ func (b *BaseBox) appendChild(self, child Box) {
 	child.Base().Parent = b
 }
 
-func (b *BaseBox) ApplyAttributes(key string, val string) {
+func (b *BaseBox) ApplyAttributes(key string, val string) error {
+	if err := b.inlineStyles.Set(key, val); err == nil {
+		return nil
+	} else {
+		if !errors.Is(err, style.ErrUnknownStyleProperty) {
+			return err
+		}
+	}
+
 	switch key {
 	default:
-		panic(`不认识的属性：` + key)
+		return fmt.Errorf(`不认识的属性：%s`, key)
 	case `id`:
 		b.ID = val
 	case `class`:
 		b.Class.Set(val)
-	case `border-width`:
-		b.BorderWidth = utils.MustParseInt(val)
-	case `border-color`:
-		b.BorderColor = Color(val)
-	case `color`:
-		b.inlineStyles.Color = style.StringValue(val)
-	case `background-image`:
-		b.BackgroundImage = val
-	case `padding`:
-		b.Padding = utils.MustParseInt(val)
-	case `width`:
-		if before, ok := strings.CutSuffix(val, `%`); ok {
-			b.widthPercentage = utils.MustParseInt(before)
-		} else {
-			b.Width = utils.MustParseInt(val)
-		}
-	case `height`:
-		b.Height = utils.MustParseInt(val)
-	case `align`:
-		b.Align = val
 	}
+
+	return nil
 }
 
 // 如果宽度指定了百分比，其百分比是相对于父元素的，不能等到其它元素占用（并减去）后再计算。
 func (b *BaseBox) presetWidth(parentTotalAvailWidth int) {
-	if b.widthPercentage > 0 {
+	if b.computedStyles.Width.IsPercentage() {
 		// 百分比暂时优先级更高，所以如果窗口大小变了。b.Width会怎样？
 		// 因为百分比才是真实的初始化，Width原本是没有的。
-		b.Width = int(float32(b.widthPercentage) / 100 * float32(parentTotalAvailWidth))
+		w := int(float32(b.computedStyles.Width.Number) / 100 * float32(parentTotalAvailWidth))
+		b.computedWidth = style.NumberValue(w)
 	}
 }
 
@@ -258,12 +130,17 @@ func NewBlock() *Block {
 }
 
 func (b *Block) Calc(availWidth, availHeight int) {
+	computed := &b.computedStyles
+
 	// 自身不可用区域。
-	ncWidth := b.BorderWidth + b.Padding
+	ncWidth := computed.BorderWidth.Number + computed.Padding.Number
 
 	// 根据自身大小及可用空间大小取最佳值。
-	boxMaxWidth := utils.Iif(b.Width > 0, b.Width, availWidth)
-	boxMaxHeight := utils.Iif(b.Height > 0, b.Height, availHeight)
+	boxMaxWidth := utils.Iiif(
+		b.computedWidth.IsNumber(), computed.Width.IsNumber(),
+		b.computedWidth.Number, computed.Width.Number, availWidth,
+	)
+	boxMaxHeight := utils.Iif(computed.Width.IsNumber(), computed.Width.Number, availHeight)
 
 	// 内容区域可用的大小。
 	contentAvailWidth := boxMaxWidth - ncWidth*2
@@ -280,7 +157,7 @@ func (b *Block) Calc(availWidth, availHeight int) {
 
 		// 启用对齐。
 		// 纵向排列的时候需要对每个元素进行设置。
-		if b.Align == `center` {
+		if computed.Align.String == `center` {
 			child.Base().calcPos.X += (contentAvailWidth - child.Base().calcPos.Width) / 2
 		}
 	}
@@ -288,7 +165,7 @@ func (b *Block) Calc(availWidth, availHeight int) {
 	// 如果有 Spacer（未设定大小的），则均匀地铺满。
 	zeroSpacers := []*Spacer{}
 	for _, child := range b.Children {
-		if spacer, ok := child.(*Spacer); ok && spacer.Height == 0 {
+		if spacer, ok := child.(*Spacer); ok && spacer.computedStyles.Height.Empty() {
 			zeroSpacers = append(zeroSpacers, spacer)
 		}
 	}
@@ -309,38 +186,48 @@ func (b *Block) Calc(availWidth, availHeight int) {
 		offsetY += p.Height
 	}
 
-	b.calcPos.Width = utils.Iif(b.Width > 0, b.Width, boxMaxWidth)
-	b.calcPos.Height = utils.Iif(b.Height > 0, b.Height, contentHeight+ncWidth*2)
+	b.calcPos.Width = utils.Iiif(
+		b.computedWidth.IsNumber(), computed.Width.IsNumber(),
+		b.computedWidth.Number, computed.Width.Number, boxMaxWidth)
+	b.calcPos.Height = utils.Iif(computed.Height.IsNumber(), computed.Height.Number, contentHeight+ncWidth*2)
 }
 
 func (b *BaseBox) Calc(availWidth, availHeight int) {
 	b.calcPos = Rect{
 		0, 0,
-		b.Width,
-		b.Height,
+		b.computedStyles.Width.Number,
+		b.computedStyles.Height.Number,
 	}
 }
 
 func (b *BaseBox) Draw(canvas *Canvas) {
 	defer b.SetNoDirty()
 
+	borderWidth := b.computedStyles.BorderWidth.Number
+
 	// 默认都是 border-box，所以以实际的宽和高为准。
-	drawBorder(canvas, b.BorderColor.NRGBA(), b.calcPos.Width, b.calcPos.Height, b.BorderWidth)
+	if borderWidth > 0 && !b.computedStyles.BorderColor.Empty() {
+		drawBorder(canvas,
+			b.computedStyles.BorderColor.Color,
+			b.calcPos.Width, b.calcPos.Height,
+			borderWidth,
+		)
+	}
 
 	// 背景位于边框内，要减掉。
-	if b.BackgroundImage != `` {
+	if src := b.computedStyles.BackgroundImage.String; src != `` {
 		drawBackgroundImage(
-			canvas.Offset(b.BorderWidth, b.BorderWidth),
-			b.BackgroundImage,
-			b.calcPos.Width-b.BorderWidth*2,
-			b.calcPos.Height-b.BorderWidth*2,
+			canvas.Offset(borderWidth, borderWidth),
+			src,
+			b.calcPos.Width-borderWidth*2,
+			b.calcPos.Height-borderWidth*2,
 		)
-	} else {
+	} else if !b.computedStyles.BackgroundColor.Empty() {
 		drawBackgroundColor(
-			canvas.Offset(b.BorderWidth, b.BorderWidth),
-			Color(b.computedStyles.BackgroundColor.String).NRGBA(),
-			b.calcPos.Width-b.BorderWidth*2,
-			b.calcPos.Height-b.BorderWidth*2,
+			canvas.Offset(borderWidth, borderWidth),
+			b.computedStyles.BackgroundColor.Color,
+			b.calcPos.Width-borderWidth*2,
+			b.calcPos.Height-borderWidth*2,
 		)
 	}
 
@@ -444,7 +331,7 @@ func (c *Canvas) SetPixel(x, y int, color color.NRGBA) {
 	p[3] = color.A
 }
 
-func (c *Canvas) FillRect(x, y, width, height int, color color.NRGBA) {
+func (c *Canvas) FillRect(x, y, width, height int, color style.Color) {
 	if width <= 0 || height <= 0 {
 		return
 	}
@@ -475,10 +362,10 @@ func (c *Canvas) FillRect(x, y, width, height int, color color.NRGBA) {
 			for i := 0; i < (x1-x0)*c.bytesPerPixel; i += c.bytesPerPixel {
 				p := c.buffer[offset+i:]
 				_ = p[3]
-				p[0] = color.B
-				p[1] = color.G
-				p[2] = color.R
-				p[3] = color.A
+				p[0] = color.B() // TODO 确定被内联
+				p[1] = color.G()
+				p[2] = color.R()
+				p[3] = color.A()
 			}
 		} else {
 			copy(c.buffer[offset:], line0)
@@ -521,20 +408,14 @@ func (c *Canvas) ToDrawable(width, height int) draw.Image {
 	return fc
 }
 
-func drawBorder(c *Canvas, cr color.NRGBA, w, h int, borderWidth int) {
-	if cr == EmptyColor {
-		return
-	}
+func drawBorder(c *Canvas, cr style.Color, w, h int, borderWidth int) {
 	c.FillRect(0, 0, w, borderWidth, cr)
 	c.FillRect(0, h-borderWidth, w, borderWidth, cr)
 	c.FillRect(0, borderWidth, borderWidth, h-borderWidth*2, cr)
 	c.FillRect(w-borderWidth, borderWidth, borderWidth, h-borderWidth*2, cr)
 }
 
-func drawBackgroundColor(c *Canvas, cr color.NRGBA, w, h int) {
-	if cr == EmptyColor {
-		return
-	}
+func drawBackgroundColor(c *Canvas, cr style.Color, w, h int) {
 	c.FillRect(0, 0, w, h, cr)
 }
 
@@ -561,10 +442,10 @@ func NewButton() *Button {
 	}
 }
 
-func (b *Button) ApplyAttributes(key string, val string) {
+func (b *Button) ApplyAttributes(key string, val string) error {
 	switch key {
 	default:
-		b.BaseBox.ApplyAttributes(key, val)
+		return b.BaseBox.ApplyAttributes(key, val)
 	}
 }
 
@@ -581,12 +462,22 @@ func NewInline() *Inline {
 }
 
 func (b *Inline) Calc(availWidth, availHeight int) {
+	computed := &b.computedStyles
+
 	// 自身不可用区域。
-	ncWidth := b.BorderWidth + b.Padding
+	ncWidth := computed.BorderWidth.Number + computed.Padding.Number
 
 	// 根据自身大小及可用空间大小取最佳值。
-	boxMaxWidth := utils.Iif(b.Width > 0, b.Width, availWidth)
-	boxMaxHeight := utils.Iif(b.Height > 0, b.Height, availHeight)
+	boxMaxWidth := utils.Iiif(
+		b.computedWidth.IsNumber(),
+		computed.Width.IsNumber(),
+		b.computedWidth.Number,
+		computed.Width.Number,
+		availWidth)
+	boxMaxHeight := utils.Iif(
+		computed.Height.IsNumber(),
+		computed.Height.Number,
+		availHeight)
 
 	// 内容区域可用的大小。
 	contentAvailWidth := boxMaxWidth - ncWidth*2
@@ -609,7 +500,7 @@ func (b *Inline) Calc(availWidth, availHeight int) {
 	// 如果有 Spacer（未设定大小的），则均匀地铺满。
 	zeroSpacers := []*Spacer{}
 	for _, child := range b.Children {
-		if spacer, ok := child.(*Spacer); ok && spacer.Width == 0 {
+		if spacer, ok := child.(*Spacer); ok && spacer.computedStyles.Width.Empty() {
 			zeroSpacers = append(zeroSpacers, spacer)
 		}
 	}
@@ -630,22 +521,33 @@ func (b *Inline) Calc(availWidth, availHeight int) {
 		offsetX += p.Width
 	}
 
-	b.calcPos.Width = utils.Iif(b.Width > 0, b.Width, contentWidth+ncWidth*2)
-	b.calcPos.Height = utils.Iif(b.Height > 0, b.Height, contentMaxHeight+ncWidth*2)
+	b.calcPos.Width = utils.Iiif(
+		b.computedWidth.IsNumber(),
+		computed.Width.IsNumber(),
+		b.computedWidth.Number,
+		computed.Width.Number,
+		contentWidth+ncWidth*2)
+	b.calcPos.Height = utils.Iif(
+		computed.Height.IsNumber(),
+		computed.Height.Number,
+		contentMaxHeight+ncWidth*2)
 
 	// 如果是垂直居中，则重新调整Y
-	if b.Align == `middle` {
-		contentHeight := utils.Iif(b.Height > 0, b.Height-ncWidth*2, contentMaxHeight)
+	if computed.Align.String == `middle` {
+		contentHeight := utils.Iif(
+			computed.Height.IsNumber(),
+			computed.Height.Number-ncWidth*2,
+			contentMaxHeight)
 		for _, child := range b.Children {
 			child.Base().calcPos.Y += (contentHeight - child.Base().calcPos.Height) / 2
 		}
 	}
 }
 
-func (b *Inline) ApplyAttributes(key string, val string) {
+func (b *Inline) ApplyAttributes(key string, val string) error {
 	switch key {
 	default:
-		b.BaseBox.ApplyAttributes(key, val)
+		return b.BaseBox.ApplyAttributes(key, val)
 	}
 }
 
@@ -734,7 +636,7 @@ func (t *Text) Calc(availWidth, availHeight int) {
 func (t *Text) Draw(canvas *Canvas) {
 	t.Base().SetNoDirty()
 	drawString(canvas,
-		t.Data, Color(t.computedStyles.Color.String).NRGBA(),
+		t.Data, t.computedStyles.Color.Color,
 		t.calcPos.Width, t.calcPos.Height,
 	)
 }
@@ -753,12 +655,13 @@ func NewImage() *Image {
 	}
 }
 
-func (b *Image) ApplyAttributes(key string, val string) {
+func (b *Image) ApplyAttributes(key string, val string) error {
 	switch key {
 	case `src`:
 		b.Src = val
+		return nil
 	default:
-		b.BaseBox.ApplyAttributes(key, val)
+		return b.BaseBox.ApplyAttributes(key, val)
 	}
 }
 
@@ -829,9 +732,9 @@ func loadImageCached(path string) (*DecodedImage, error) {
 }
 
 func (b *Image) Calc(availWidth, availHeight int) {
-	if b.Width > 0 && b.Height > 0 {
-		b.calcPos.Width = b.Width
-		b.calcPos.Height = b.Height
+	if !b.computedStyles.Width.Empty() && !b.computedStyles.Height.Empty() {
+		b.calcPos.Width = b.computedStyles.Width.Number
+		b.calcPos.Height = b.computedStyles.Height.Number
 		return
 	}
 

@@ -1,13 +1,16 @@
 package main
 
 import (
+	"gofb/style"
 	"gofb/utils"
 	"testing"
 )
 
 type BoxTest struct {
-	HTML string            `yaml:"html"`
-	Calc map[string][4]int `yaml:"calc"`
+	HTML     string                  `yaml:"html"`
+	Style    string                  `yaml:"style"`
+	Calc     map[string][4]int       `yaml:"calc"`
+	Computed map[string]style.Styles `yaml:"computed"`
 }
 
 func getByID(root Box, id string) Box {
@@ -26,9 +29,11 @@ func TestCalc(t *testing.T) {
 	cases := utils.LoadTestCases[BoxTest](`testdata/box.yaml`)
 	for i, tc := range cases {
 		root := loadBox([]byte(tc.HTML))
-		if i == 6 {
+		if i == 7 {
 			i += 0
 		}
+		parsed := utils.Must1(style.ParseStyle([]byte(tc.Style)))
+		applyStyles(root, []*style.Sheet{parsed})
 		root.Calc(1024, 768)
 		for id, rect := range tc.Calc {
 			box := getByID(root, id)
@@ -41,6 +46,15 @@ func TestCalc(t *testing.T) {
 				pos.Width != rect[2] ||
 				pos.Height != rect[3] {
 				t.Errorf(`排版错误：#%d, id: %s, want: %v -> got: %v`, i, id, rect, pos)
+			}
+		}
+		for id, styles := range tc.Computed {
+			box := getByID(root, id)
+			if box == nil {
+				panic(`指定编号的盒子没找到：` + id)
+			}
+			if styles != box.Base().computedStyles {
+				t.Errorf("排版错误：#%d, id: %s, want: \n%v\ngot: \n%v", i, id, styles, box.Base().computedStyles)
 			}
 		}
 	}

@@ -10,6 +10,12 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+func Must(err error) {
+	if err != nil {
+		panic(err)
+	}
+}
+
 func Must1[T any](t T, err error) T {
 	if err != nil {
 		panic(err)
@@ -26,6 +32,15 @@ func Iif[T any](cond bool, a, b T) T {
 		return a
 	}
 	return b
+}
+func Iiif[T any](cond1, cond2 bool, a, b, c T) T {
+	if cond1 {
+		return a
+	}
+	if cond2 {
+		return b
+	}
+	return c
 }
 
 func captureStdoutStderr(w io.Writer) error {

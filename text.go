@@ -1,6 +1,7 @@
 package main
 
 import (
+	"gofb/style"
 	"image"
 	"log"
 	"os"
@@ -63,7 +64,7 @@ func measureString(face font.Face, text string) int {
 	return font.MeasureString(face, text).Ceil()
 }
 
-func drawString(canvas *Canvas, text string, color color.NRGBA, width, height int) {
+func drawString(canvas *Canvas, text string, color style.Color, width, height int) {
 	face := onceLoadFont()
 	metrics := face.Metrics()
 	accent := metrics.Ascent.Ceil()
@@ -116,7 +117,7 @@ func drawString(canvas *Canvas, text string, color color.NRGBA, width, height in
 	for _, line := range lines {
 		drawer := font.Drawer{
 			Dst:  canvas.ToDrawable(width, height),
-			Src:  image.NewUniform(color),
+			Src:  image.NewUniform(color.NRGBA()),
 			Face: onceLoadFont(),
 			Dot: fixed.Point26_6{
 				X: 0,

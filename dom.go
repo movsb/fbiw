@@ -6,6 +6,7 @@ import (
 	"gofb/style"
 	"gofb/utils"
 	"iter"
+	"reflect"
 	"slices"
 	"strings"
 
@@ -86,37 +87,45 @@ func applyStyles(root Box, sheets []*style.Sheet) {
 
 		// 从样式表更新
 		for d := range declarations(matches) {
-			switch d.Name {
-			case `color`:
-				styles.Color = style.StringValue(d.Value)
-			case `background-color`:
-				styles.BackgroundColor = style.StringValue(d.Value)
+			if err := styles.Set(d.Name, d.Value); err != nil {
+				panic(err)
 			}
 		}
 
 		// 从内联覆盖
-		inlines := node.Base().inlineStyles
-		if inlines.Color.Type != style.VTNone {
-			styles.Color = inlines.Color
-		}
-		if inlines.BackgroundColor.Type != style.VTNone {
-			styles.BackgroundColor = inlines.BackgroundColor
+		// 如果性能孬就换成独立的复制过程。
+		inlines := &node.Base().inlineStyles
+		inlineValue := reflect.ValueOf(inlines)
+		stylesValue := reflect.ValueOf(&styles)
+		for field, value := range inlineValue.Elem().Fields() {
+			if field.Type == reflect.TypeFor[style.Value]() {
+				value2 := value.Interface().(style.Value)
+				if !value2.Empty() {
+					dstValue := stylesValue.Elem().FieldByIndex(field.Index)
+					dstValue.Set(value)
+				}
+			}
 		}
 
 		// 从父母继承
-		inherit := func(found func(styles style.Styles) style.Value) style.Value {
-			for parent := node.Base().Parent; parent != nil; parent = parent.Base().Parent {
-				if value := found(parent.Base().computedStyles); value.Type != style.VTNone {
-					return value
+		for field, value := range stylesValue.Elem().Fields() {
+			if field.Type == reflect.TypeFor[style.Value]() {
+				value2 := value.Interface().(style.Value)
+				if !value2.Empty() {
+					continue
+				}
+				if !style.ShouldInherit(strings.ToLower(field.Name)) {
+					continue
+				}
+				for parent := node.Base().Parent; parent != nil; parent = parent.Base().Parent {
+					parentValue := reflect.ValueOf(&parent.Base().computedStyles)
+					parentField := parentValue.Elem().FieldByIndex(field.Index)
+					value3 := parentField.Interface().(style.Value)
+					if !value3.Empty() {
+						value.Set(parentField)
+					}
 				}
 			}
-			return style.Value{}
-		}
-		if styles.Color.Type == style.VTNone {
-			styles.Color = inherit(func(styles style.Styles) style.Value { return styles.Color })
-		}
-		if styles.BackgroundColor.Type == style.VTNone {
-			styles.BackgroundColor = inherit(func(styles style.Styles) style.Value { return styles.BackgroundColor })
 		}
 
 		return styles
@@ -178,7 +187,7 @@ func transformELementNode(node *html.Node) Box {
 	case `block`:
 		box := NewBlock()
 		for _, a := range node.Attr {
-			box.ApplyAttributes(a.Key, a.Val)
+			utils.Must(box.ApplyAttributes(a.Key, a.Val))
 		}
 		for c := range node.ChildNodes() {
 			if b := transformNode(c); b != nil {
@@ -189,7 +198,7 @@ func transformELementNode(node *html.Node) Box {
 	case `inline`:
 		box := NewInline()
 		for _, a := range node.Attr {
-			box.ApplyAttributes(a.Key, a.Val)
+			utils.Must(box.ApplyAttributes(a.Key, a.Val))
 		}
 		for c := range node.ChildNodes() {
 			if b := transformNode(c); b != nil {
