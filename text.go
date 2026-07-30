@@ -19,19 +19,19 @@ type FontCanvas struct {
 	width, height int
 }
 
-func (c *FontCanvas) Bounds() image.Rectangle {
+func (c FontCanvas) Bounds() image.Rectangle {
 	return image.Rect(0, 0, c.width, c.height)
 }
 
-func (c *FontCanvas) ColorModel() color.Model {
+func (c FontCanvas) ColorModel() color.Model {
 	return color.NRGBAModel
 }
 
-func (c *FontCanvas) At(x, y int) color.Color {
+func (c FontCanvas) At(x, y int) color.Color {
 	return c.underlying.getPixel(x, y)
 }
 
-func (c *FontCanvas) Set(x, y int, clr color.Color) {
+func (c FontCanvas) Set(x, y int, clr color.Color) {
 	cc := c.ColorModel().Convert(clr).(color.NRGBA)
 	c.underlying.SetPixel(x, y, cc)
 }

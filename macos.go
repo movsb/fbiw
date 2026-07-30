@@ -111,6 +111,8 @@ func pollEvents(ctx context.Context, handler func(Event)) {
 			if mapped, ok := keyMaps[key]; ok {
 				sendKey(mapped, pressed)
 			}
+		default:
+			handler(Event{})
 		}
 	}
 }

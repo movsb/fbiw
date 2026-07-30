@@ -84,7 +84,8 @@ type Display struct {
 type EventType uint
 
 const (
-	QuitEvent EventType = iota
+	UnknownEvent EventType = iota + 1
+	QuitEvent
 	KeyboardEvent
 )
 

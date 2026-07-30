@@ -3,8 +3,11 @@ package main
 import (
 	"context"
 	"gofb/style"
+	"log"
 	"net/http"
 	_ "net/http/pprof"
+	"runtime"
+	"time"
 )
 
 func init() {
@@ -56,10 +59,15 @@ func main() {
 				cancel()
 				return
 			}
+			// 在linux上测试总是跟随按键更新重绘。
+			box.Base().Dirty = true
 		}
-		if box.Base().IsDirty() {
+		// 在MacOS上更方便观察帧率。
+		if box.Base().IsDirty() || runtime.GOOS == `darwin` {
+			now := time.Now()
 			box.Calc(display.Width, display.Height)
 			box.Draw(canvas)
+			log.Println(`帧绘制时长：`, time.Since(now).Round(time.Microsecond*100))
 			display.Sync()
 		}
 	})

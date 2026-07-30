@@ -2,6 +2,7 @@ package main
 
 import (
 	_ "embed"
+	"fmt"
 	"gofb/style"
 	"gofb/utils"
 	"image"
@@ -373,6 +374,28 @@ func (c *Canvas) Offset(x, y int) *Canvas {
 	}
 }
 
+func (c *Canvas) DrawImage(img *DecodedImage, width, height int) {
+	// 右下角限制在屏幕内。
+	if c.x+width > c.width {
+		width = c.width - c.x
+	}
+	if c.y+height > c.height {
+		height = c.height - c.y
+	}
+	// 也不要超出图片外。
+	// 后期缩放图片的时候需要考虑。
+	width = min(width, img.Width)
+	height = min(height, img.Height)
+
+	for y := range height {
+		offset := (c.y + y) * c.width * c.bytesPerPixel
+		offset += c.x * c.bytesPerPixel
+		dst := c.buffer[offset:]
+		src := img.Pixels[y*img.Width*4:]
+		copy(dst, src[0:width*4])
+	}
+}
+
 func (c *Canvas) getPixel(x, y int) color.NRGBA {
 	xx, yy := c.x+x, c.y+y
 	offset := c.width*c.bytesPerPixel*yy + xx*c.bytesPerPixel
@@ -430,10 +453,11 @@ func (c *Canvas) FillRect(x, y, width, height int, color color.NRGBA) {
 			line0 = c.buffer[offset : offset+(x1-x0)*c.bytesPerPixel]
 			for i := 0; i < (x1-x0)*c.bytesPerPixel; i += c.bytesPerPixel {
 				p := c.buffer[offset+i:]
-				p[3] = color.A
+				_ = p[3]
 				p[0] = color.B
 				p[1] = color.G
 				p[2] = color.R
+				p[3] = color.A
 			}
 		} else {
 			copy(c.buffer[offset:], line0)
@@ -462,7 +486,7 @@ func (w _BatchWriter) Write(p []byte) (int, error) {
 */
 
 func (c *Canvas) ToDrawable(width, height int) draw.Image {
-	fc := &FontCanvas{
+	fc := FontCanvas{
 		underlying: c,
 		width:      width,
 		height:     height,
@@ -493,14 +517,6 @@ func drawBackgroundColor(c *Canvas, cr color.NRGBA, w, h int) {
 	c.FillRect(0, 0, w, h, cr)
 }
 
-func drawImage(c *Canvas, img image.Image, width, height int) {
-	draw.Draw(
-		c.ToDrawable(width, height),
-		image.Rect(0, 0, width, height),
-		img, image.Pt(0, 0), draw.Over,
-	)
-}
-
 func drawBackgroundImage(c *Canvas, path string, width, height int) {
 	if path == `` {
 		return
@@ -509,7 +525,7 @@ func drawBackgroundImage(c *Canvas, path string, width, height int) {
 	if err != nil {
 		return
 	}
-	drawImage(c, img, width, height)
+	c.DrawImage(img, width, height)
 }
 
 type Button struct {
@@ -725,9 +741,18 @@ func (b *Image) ApplyAttributes(key string, val string) {
 	}
 }
 
-var imgCache = map[string]image.Image{}
+var imgCache = map[string]*DecodedImage{}
 
-func loadImageCached(path string) (image.Image, error) {
+// 用标准库的 draw.Draw 造成了极多不必要的计算，
+// 而目标屏幕的内存格式是确定的（B、G、R、A），都不是 [image.RGBA] 或
+// [image.NRGBA] 的格式（它们是 R、G、B、A），每次渲染的时候都转换实在没有意义。
+// 所以这里直接在内存中保存目标格式，加快渲染效率。
+type DecodedImage struct {
+	Pixels        []byte // 内存格式：B G R A，长度：width*height*4
+	Width, Height int
+}
+
+func loadImageCached(path string) (*DecodedImage, error) {
 	if img, ok := imgCache[path]; ok {
 		return img, nil
 	}
@@ -745,9 +770,41 @@ func loadImageCached(path string) (image.Image, error) {
 		return nil, err
 	}
 
-	imgCache[path] = img
+	decoded := &DecodedImage{
+		Width:  img.Bounds().Dx(),
+		Height: img.Bounds().Dy(),
+	}
+	decoded.Pixels = make([]byte, decoded.Width*decoded.Height*4)
 
-	return img, nil
+	var pixels []byte
+	var stride int
+
+	switch m := img.(type) {
+	case *image.RGBA:
+		pixels = m.Pix
+		stride = m.Stride
+	case *image.NRGBA:
+		pixels = m.Pix
+		stride = m.Stride
+	default:
+		log.Printf(`暂不支持的图片解码格式：%T`, img)
+		return nil, fmt.Errorf(`不支持的图片格式`)
+	}
+
+	for y := range decoded.Height {
+		p := pixels[y*stride:]
+		for x := range decoded.Width {
+			d := decoded.Pixels[y*decoded.Width*4+x*4:]
+			d[0] = p[2+x*4]
+			d[1] = p[1+x*4]
+			d[2] = p[0+x*4]
+			d[3] = p[3+x*4]
+		}
+	}
+
+	imgCache[path] = decoded
+
+	return decoded, nil
 }
 
 func (b *Image) Calc(availWidth, availHeight int) {
@@ -768,20 +825,8 @@ func (b *Image) Calc(availWidth, availHeight int) {
 		return
 	}
 
-	imgWidth, imgHeight := img.Bounds().Dx(), img.Bounds().Dy()
-
-	// if imgWidth > availWidth || imgHeight > availHeight {
-	// 	scaleW := imgWidth / availWidth
-	// 	scaleH := imgHeight / availHeight
-	// 	bigger := max(scaleW, scaleH)
-	// 	if bigger <= 0 {
-	// 		return 0, 0
-	// 	}
-	// 	return imgWidth / bigger, imgHeight / bigger
-	// }
-
-	b.calcPos.Width = imgWidth
-	b.calcPos.Height = imgHeight
+	b.calcPos.Width = img.Width
+	b.calcPos.Height = img.Height
 }
 
 func (b *Image) Draw(canvas *Canvas) {
@@ -796,14 +841,5 @@ func (b *Image) Draw(canvas *Canvas) {
 		return
 	}
 
-	// imgWidth, imgHeight := img.Bounds().Dx(), img.Bounds().Dy()
-	// if imgWidth > width || imgHeight > height {
-	// 	scaleW := imgWidth / width
-	// 	scaleH := imgHeight / height
-	// 	bigger := max(scaleW, scaleH)
-	// 	imgWidth, imgHeight = imgWidth/bigger, imgHeight/bigger
-	// }
-	// // resized := transform.Resize(img, imgWidth, imgHeight, transform.Lanczos)
-	resized := img
-	drawImage(canvas, resized, b.calcPos.Width, b.calcPos.Height)
+	canvas.DrawImage(img, b.calcPos.Width, b.calcPos.Height)
 }
