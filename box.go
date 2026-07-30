@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 	"unicode/utf8"
+	"unsafe"
 
 	_ "image/jpeg"
 	_ "image/png"
@@ -392,7 +393,27 @@ func (c *Canvas) DrawImage(img *DecodedImage, width, height int) {
 		offset += c.x * c.bytesPerPixel
 		dst := c.buffer[offset:]
 		src := img.Pixels[y*img.Width*4:]
-		copy(dst, src[0:width*4])
+		// len := width * 4
+		// copy(dst, src[0:len])
+		for x := range width {
+			// 参考：image/draw/draw.go
+			// “Small cap improves performance”
+			// 从每帧2.6ms降到1.7ms。
+			s := src[x*4 : x*4+4]
+			d := dst[x*4 : x*4+4]
+			a := s[3]
+			switch {
+			case a == 255:
+				// copy(d, s[:4])
+				*(*uint32)(unsafe.Pointer(&d[0])) = *(*uint32)(unsafe.Pointer(&s[0]))
+			case a != 0:
+				i := 255 - a
+				d[0] = uint8((int(s[0])*int(a) + int(d[0])*int(i)) / 255)
+				d[1] = uint8((int(s[1])*int(a) + int(d[1])*int(i)) / 255)
+				d[2] = uint8((int(s[2])*int(a) + int(d[2])*int(i)) / 255)
+				d[3] = 255
+			}
+		}
 	}
 }
 
