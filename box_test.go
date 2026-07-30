@@ -1,6 +1,9 @@
 package main
 
-import "testing"
+import (
+	"gofb/utils"
+	"testing"
+)
 
 type BoxTest struct {
 	HTML string            `yaml:"html"`
@@ -20,10 +23,10 @@ func getByID(root Box, id string) Box {
 }
 
 func TestCalc(t *testing.T) {
-	cases := loadTestCases[BoxTest](`testdata/box.yaml`)
+	cases := utils.LoadTestCases[BoxTest](`testdata/box.yaml`)
 	for i, tc := range cases {
 		root := loadBox([]byte(tc.HTML))
-		if i == 3 {
+		if i == 6 {
 			i += 0
 		}
 		root.Calc(1024, 768)

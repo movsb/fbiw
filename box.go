@@ -2,6 +2,8 @@ package main
 
 import (
 	_ "embed"
+	"gofb/style"
+	"gofb/utils"
 	"image"
 	"image/color"
 	"image/draw"
@@ -137,15 +139,15 @@ var presetColors = map[string]uint32{
 }
 
 type BaseBox struct {
-	ID string
+	ID    string
+	Tag   string
+	Class style.Class
 
 	Dirty bool
 
 	BorderWidth     int
 	BorderColor     Color
-	BackgroundColor Color
 	BackgroundImage string
-	Color           Color
 	Padding         int
 
 	Width, Height int
@@ -158,9 +160,13 @@ type BaseBox struct {
 	// 默认("")居顶，“middle”居中。
 	Align string
 
+	Parent   Box
 	Children []Box
 
 	calcPos Rect
+
+	inlineStyles   style.Styles
+	computedStyles style.Styles
 }
 
 type Rect struct {
@@ -194,6 +200,7 @@ func (b *BaseBox) IsDirty() bool {
 
 func (b *BaseBox) appendChild(self, child Box) {
 	b.Children = append(b.Children, child)
+	child.Base().Parent = b
 }
 
 func (b *BaseBox) ApplyAttributes(key string, val string) {
@@ -202,24 +209,26 @@ func (b *BaseBox) ApplyAttributes(key string, val string) {
 		panic(`不认识的属性：` + key)
 	case `id`:
 		b.ID = val
+	case `class`:
+		b.Class.Set(val)
 	case `border-width`:
-		b.BorderWidth = mustParseInt(val)
+		b.BorderWidth = utils.MustParseInt(val)
 	case `border-color`:
 		b.BorderColor = Color(val)
-	case `background-color`:
-		b.BackgroundColor = Color(val)
+	case `color`:
+		b.inlineStyles.Color = style.StringValue(val)
 	case `background-image`:
 		b.BackgroundImage = val
 	case `padding`:
-		b.Padding = mustParseInt(val)
+		b.Padding = utils.MustParseInt(val)
 	case `width`:
 		if before, ok := strings.CutSuffix(val, `%`); ok {
-			b.widthPercentage = mustParseInt(before)
+			b.widthPercentage = utils.MustParseInt(before)
 		} else {
-			b.Width = mustParseInt(val)
+			b.Width = utils.MustParseInt(val)
 		}
 	case `height`:
-		b.Height = mustParseInt(val)
+		b.Height = utils.MustParseInt(val)
 	case `align`:
 		b.Align = val
 	}
@@ -239,7 +248,11 @@ type Block struct {
 }
 
 func NewBlock() *Block {
-	return &Block{}
+	return &Block{
+		BaseBox: BaseBox{
+			Tag: `block`,
+		},
+	}
 }
 
 func (b *Block) Calc(availWidth, availHeight int) {
@@ -247,8 +260,8 @@ func (b *Block) Calc(availWidth, availHeight int) {
 	ncWidth := b.BorderWidth + b.Padding
 
 	// 根据自身大小及可用空间大小取最佳值。
-	boxMaxWidth := iif(b.Width > 0, b.Width, availWidth)
-	boxMaxHeight := iif(b.Height > 0, b.Height, availHeight)
+	boxMaxWidth := utils.Iif(b.Width > 0, b.Width, availWidth)
+	boxMaxHeight := utils.Iif(b.Height > 0, b.Height, availHeight)
 
 	// 内容区域可用的大小。
 	contentAvailWidth := boxMaxWidth - ncWidth*2
@@ -294,8 +307,8 @@ func (b *Block) Calc(availWidth, availHeight int) {
 		offsetY += p.Height
 	}
 
-	b.calcPos.Width = iif(b.Width > 0, b.Width, boxMaxWidth)
-	b.calcPos.Height = iif(b.Height > 0, b.Height, contentHeight+ncWidth*2)
+	b.calcPos.Width = utils.Iif(b.Width > 0, b.Width, boxMaxWidth)
+	b.calcPos.Height = utils.Iif(b.Height > 0, b.Height, contentHeight+ncWidth*2)
 }
 
 func (b *BaseBox) Calc(availWidth, availHeight int) {
@@ -323,7 +336,7 @@ func (b *BaseBox) Draw(canvas *Canvas) {
 	} else {
 		drawBackgroundColor(
 			canvas.Offset(b.BorderWidth, b.BorderWidth),
-			b.BackgroundColor.NRGBA(),
+			Color(b.computedStyles.BackgroundColor.String).NRGBA(),
 			b.calcPos.Width-b.BorderWidth*2,
 			b.calcPos.Height-b.BorderWidth*2,
 		)
@@ -504,13 +517,15 @@ type Button struct {
 }
 
 func NewButton() *Button {
-	return &Button{}
+	return &Button{
+		BaseBox: BaseBox{
+			Tag: `button`,
+		},
+	}
 }
 
 func (b *Button) ApplyAttributes(key string, val string) {
 	switch key {
-	case `color`:
-		b.Color = Color(val)
 	default:
 		b.BaseBox.ApplyAttributes(key, val)
 	}
@@ -521,7 +536,11 @@ type Inline struct {
 }
 
 func NewInline() *Inline {
-	return &Inline{}
+	return &Inline{
+		BaseBox: BaseBox{
+			Tag: `inline`,
+		},
+	}
 }
 
 func (b *Inline) Calc(availWidth, availHeight int) {
@@ -529,8 +548,8 @@ func (b *Inline) Calc(availWidth, availHeight int) {
 	ncWidth := b.BorderWidth + b.Padding
 
 	// 根据自身大小及可用空间大小取最佳值。
-	boxMaxWidth := iif(b.Width > 0, b.Width, availWidth)
-	boxMaxHeight := iif(b.Height > 0, b.Height, availHeight)
+	boxMaxWidth := utils.Iif(b.Width > 0, b.Width, availWidth)
+	boxMaxHeight := utils.Iif(b.Height > 0, b.Height, availHeight)
 
 	// 内容区域可用的大小。
 	contentAvailWidth := boxMaxWidth - ncWidth*2
@@ -574,12 +593,12 @@ func (b *Inline) Calc(availWidth, availHeight int) {
 		offsetX += p.Width
 	}
 
-	b.calcPos.Width = iif(b.Width > 0, b.Width, contentWidth+ncWidth*2)
-	b.calcPos.Height = iif(b.Height > 0, b.Height, contentMaxHeight+ncWidth*2)
+	b.calcPos.Width = utils.Iif(b.Width > 0, b.Width, contentWidth+ncWidth*2)
+	b.calcPos.Height = utils.Iif(b.Height > 0, b.Height, contentMaxHeight+ncWidth*2)
 
 	// 如果是垂直居中，则重新调整Y
 	if b.Align == `middle` {
-		contentHeight := iif(b.Height > 0, b.Height-ncWidth*2, contentMaxHeight)
+		contentHeight := utils.Iif(b.Height > 0, b.Height-ncWidth*2, contentMaxHeight)
 		for _, child := range b.Children {
 			child.Base().calcPos.Y += (contentHeight - child.Base().calcPos.Height) / 2
 		}
@@ -588,8 +607,6 @@ func (b *Inline) Calc(availWidth, availHeight int) {
 
 func (b *Inline) ApplyAttributes(key string, val string) {
 	switch key {
-	case `color`:
-		b.Color = Color(val)
 	default:
 		b.BaseBox.ApplyAttributes(key, val)
 	}
@@ -603,27 +620,24 @@ type Spacer struct {
 }
 
 func NewSpacer() *Spacer {
-	return &Spacer{}
+	return &Spacer{
+		BaseBox: BaseBox{
+			Tag: `space`,
+		},
+	}
 }
 
 // 只用于嵌入。
 type Text struct {
 	BaseBox
-
-	Color Color
-	Data  string
+	Data string
 }
 
 func NewText() *Text {
-	return &Text{}
-}
-
-func (b *Text) ApplyAttributes(key string, val string) {
-	switch key {
-	case `color`:
-		b.Color = Color(val)
-	default:
-		b.BaseBox.ApplyAttributes(key, val)
+	return &Text{
+		BaseBox: BaseBox{
+			Tag: `text`,
+		},
 	}
 }
 
@@ -682,11 +696,8 @@ func (t *Text) Calc(availWidth, availHeight int) {
 
 func (t *Text) Draw(canvas *Canvas) {
 	t.Base().SetNoDirty()
-	if t.Color.NRGBA() == EmptyColor {
-		t.Color = Color(`white`)
-	}
 	drawString(canvas,
-		t.Data, t.Color.NRGBA(),
+		t.Data, Color(t.computedStyles.Color.String).NRGBA(),
 		t.calcPos.Width, t.calcPos.Height,
 	)
 }
@@ -698,7 +709,11 @@ type Image struct {
 }
 
 func NewImage() *Image {
-	return &Image{}
+	return &Image{
+		BaseBox: BaseBox{
+			Tag: `image`,
+		},
+	}
 }
 
 func (b *Image) ApplyAttributes(key string, val string) {

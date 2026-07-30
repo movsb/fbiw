@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"gofb/style"
 	"net/http"
 	_ "net/http/pprof"
 )
@@ -25,6 +26,8 @@ func main() {
 	}
 
 	box := loadBox(_main)
+	styles := loadStyles()
+	applyStyles(box, []*style.Sheet{styles})
 	box.Base().Dirty = true
 
 	box.Calc(display.Width, display.Height)

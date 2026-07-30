@@ -1,4 +1,4 @@
-package main
+package utils
 
 import (
 	"io"
@@ -17,11 +17,11 @@ func Must1[T any](t T, err error) T {
 	return t
 }
 
-func mustParseInt(s string) int {
+func MustParseInt(s string) int {
 	return Must1(strconv.Atoi(s))
 }
 
-func iif[T any](cond bool, a, b T) T {
+func Iif[T any](cond bool, a, b T) T {
 	if cond {
 		return a
 	}
@@ -64,7 +64,7 @@ func init() {
 	}
 }
 
-func loadTestCases[T any](path string) []*T {
+func LoadTestCases[T any](path string) []*T {
 	fp, err := os.Open(path)
 	if err != nil {
 		panic(err)

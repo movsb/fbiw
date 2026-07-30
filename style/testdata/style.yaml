@@ -1,0 +1,15 @@
+- style: 'block {}'
+  rules:
+    - selectors:
+        - tag: block
+          specificity: 1
+      declarations: []
+
+- style: 'block inline {}'
+  rules:
+    - selectors:
+        - tag: block
+          specificity: 1
+        - tag: inline
+          specificity: 1
+      declarations: []

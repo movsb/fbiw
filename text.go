@@ -37,7 +37,7 @@ func (c *FontCanvas) Set(x, y int, clr color.Color) {
 }
 
 var onceLoadFont = sync.OnceValue(func() font.Face {
-	fontBytes, err := os.ReadFile("方正宋黑.TTF")
+	fontBytes, err := os.ReadFile("fonts/MapleMonoNormalNL-NF-CN-Regular.ttf")
 	if err != nil {
 		log.Fatalf("读取字体失败: %v", err)
 	}
@@ -48,7 +48,7 @@ var onceLoadFont = sync.OnceValue(func() font.Face {
 
 	// 72 DPI 下 Size 即为像素大小
 	fontFace, err := opentype.NewFace(parsedFont, &opentype.FaceOptions{
-		Size:    50,
+		Size:    25,
 		DPI:     72,
 		Hinting: font.HintingFull,
 	})

@@ -1,5 +1,42 @@
-<div background-image="bg.png" padding="10">
-	<div>
+<block background-image="bg.png" padding="10">
+	<inline>
 		<img src="nav-logo.png">
-	</div>
-</div>
+		<space></space>
+		<inline align="middle" id="status-bar">
+			<img src="ic-wifi-03.png">
+			<space width="10"></space>
+			<img src="ic-sound-n.png">
+			<space width="10"></space>
+			<inline>100%</inline>
+			<space width="10"></space>
+			<img src="ic-batery-75%.png">
+			<space width="10"></space>
+			<inline>12:34</inline>
+		</inline>
+	</inline>
+	<space height="50"></space>
+	<inline>
+		<space></space>
+		<img src="nav-search-n.png">
+		<space></space>
+	</inline>
+	<space></space>
+	<inline width="100%">
+		<block width="25%" align="center">
+			<img src="nav-icon-favorites-n.png" id="here">
+			<inline>收藏</inline>
+		</block>
+		<block width="25%" align="center">
+			<img src="nav-icon-recent-n.png">
+			<inline>最近</inline>
+		</block>
+		<block width="25%" align="center">
+			<img src="nav-icon-games-n.png">
+			<inline>游戏</inline>
+		</block>
+		<block width="25%" align="center">
+			<img src="nav-icon-ports-n.png">
+			<inline>独立</inline>
+		</block>
+	</inline>
+</block>
