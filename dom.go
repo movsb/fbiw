@@ -3,8 +3,6 @@ package main
 import (
 	"bytes"
 	_ "embed"
-	"gofb/style"
-	"gofb/utils"
 	"iter"
 	"reflect"
 	"slices"
@@ -18,16 +16,16 @@ type Document struct {
 	fontManager *FontManager
 
 	// 默认样式总是用于初始化拷贝，所以不需要用指针，方便拷贝并覆盖。
-	defaultStyles style.Styles
+	defaultStyles Styles
 }
 
 func NewDocument(fontManager *FontManager) *Document {
 	return &Document{
 		fontManager: fontManager,
-		defaultStyles: style.Styles{
-			Color:      style.ColorValueFromString(`black`),
-			FontFamily: style.StringValue(`system`),
-			FontSize:   style.NumberValue(25),
+		defaultStyles: Styles{
+			Color:      ColorValueFromString(`black`),
+			FontFamily: StringValue(`system`),
+			FontSize:   NumberValue(25),
 		},
 	}
 }
@@ -38,9 +36,9 @@ var _main []byte
 //go:embed style.css
 var _styles []byte
 
-func applyStyles(root Box, sheets []*style.Sheet) {
-	nodeMatch := func(node Box, selector style.Selector) bool {
-		match := func(node Box, selector style.NodeSelector) bool {
+func applyStyles(root Box, sheets []*Sheet) {
+	nodeMatch := func(node Box, selector Selector) bool {
+		match := func(node Box, selector NodeSelector) bool {
 			return (selector.Tag == `` || selector.Tag == node.Base().Tag) &&
 				(len(selector.Class) == 0 || node.Base().Class.ContainsAll(selector.Class...)) &&
 				(selector.ID == `` || selector.ID == node.Base().ID)
@@ -82,8 +80,8 @@ func applyStyles(root Box, sheets []*style.Sheet) {
 		return matchAncestors(node, len(ancestorSelectors)-1)
 	}
 
-	findMatches := func(node Box) []style.RuleMatch {
-		matches := []style.RuleMatch{}
+	findMatches := func(node Box) []RuleMatch {
+		matches := []RuleMatch{}
 		for _, sheet := range sheets {
 			for _, rule := range sheet.Rules {
 				if nodeMatch(node, rule.Selector) {
@@ -91,7 +89,7 @@ func applyStyles(root Box, sheets []*style.Sheet) {
 					for _, sel := range rule.Selector {
 						spec += sel.Specificity
 					}
-					matches = append(matches, style.RuleMatch{
+					matches = append(matches, RuleMatch{
 						Specificity:  spec,
 						Declarations: rule.Declarations,
 					})
@@ -109,13 +107,13 @@ func applyStyles(root Box, sheets []*style.Sheet) {
 		}
 	}
 
-	compute := func(matches []style.RuleMatch, node Box) style.Styles {
-		declarations := func(matches []style.RuleMatch) iter.Seq[style.Declaration] {
+	compute := func(matches []RuleMatch, node Box) Styles {
+		declarations := func(matches []RuleMatch) iter.Seq[Declaration] {
 			// 按相关性递增排序（后来居上）。
-			slices.SortFunc(matches, func(a, b style.RuleMatch) int {
+			slices.SortFunc(matches, func(a, b RuleMatch) int {
 				return int(a.Specificity) - int(b.Specificity)
 			})
-			return func(yield func(style.Declaration) bool) {
+			return func(yield func(Declaration) bool) {
 				for _, rule := range matches {
 					for _, d := range rule.Declarations {
 						if !yield(d) {
@@ -136,14 +134,14 @@ func applyStyles(root Box, sheets []*style.Sheet) {
 		// 从父母继承
 		// TODO 优化：如果样式表或内联表有值，则无需再从父母继承。
 		for field, value := range stylesValue.Elem().Fields() {
-			if !style.ShouldInherit(field.Name) {
+			if !ShouldInherit(field.Name) {
 				continue
 			}
-			if field.Type == reflect.TypeFor[style.Value]() {
+			if field.Type == reflect.TypeFor[Value]() {
 				for parent := node.Base().Parent; parent != nil; parent = parent.Base().Parent {
 					parentValue := reflect.ValueOf(&parent.Base().computedStyles)
 					parentField := parentValue.Elem().FieldByIndex(field.Index)
-					value3 := parentField.Interface().(style.Value)
+					value3 := parentField.Interface().(Value)
 					if !value3.Empty() {
 						value.Set(parentField)
 						// 从最近的祖先那里获取一次即可。
@@ -163,8 +161,8 @@ func applyStyles(root Box, sheets []*style.Sheet) {
 		// 从内联覆盖
 		// 如果性能孬就换成独立的复制过程。
 		for field, value := range inlineValue.Elem().Fields() {
-			if field.Type == reflect.TypeFor[style.Value]() {
-				value2 := value.Interface().(style.Value)
+			if field.Type == reflect.TypeFor[Value]() {
+				value2 := value.Interface().(Value)
 				if !value2.Empty() {
 					dstValue := stylesValue.Elem().FieldByIndex(field.Index)
 					dstValue.Set(value)
@@ -182,12 +180,12 @@ func applyStyles(root Box, sheets []*style.Sheet) {
 	})
 }
 
-func loadStyles() *style.Sheet {
-	return utils.Must1(style.ParseStyle(_styles))
+func loadStyles() *Sheet {
+	return Must1(ParseStyle(_styles))
 }
 
 func loadBox(doc *Document, data []byte) Box {
-	nodes := utils.Must1(html.ParseFragment(bytes.NewReader(data), &html.Node{
+	nodes := Must1(html.ParseFragment(bytes.NewReader(data), &html.Node{
 		Type:     html.ElementNode,
 		DataAtom: atom.Div,
 		Data:     `div`,
@@ -231,7 +229,7 @@ func transformELementNode(doc *Document, node *html.Node) Box {
 	case `block`:
 		box := NewBlock(doc)
 		for _, a := range node.Attr {
-			utils.Must(box.ApplyAttributes(a.Key, a.Val))
+			Must(box.ApplyAttributes(a.Key, a.Val))
 		}
 		for c := range node.ChildNodes() {
 			if b := transformNode(doc, c); b != nil {
@@ -242,7 +240,7 @@ func transformELementNode(doc *Document, node *html.Node) Box {
 	case `inline`:
 		box := NewInline(doc)
 		for _, a := range node.Attr {
-			utils.Must(box.ApplyAttributes(a.Key, a.Val))
+			Must(box.ApplyAttributes(a.Key, a.Val))
 		}
 		for c := range node.ChildNodes() {
 			if b := transformNode(doc, c); b != nil {

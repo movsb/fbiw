@@ -1,7 +1,6 @@
 package main
 
 import (
-	"gofb/style"
 	"image"
 	"unicode/utf8"
 
@@ -33,7 +32,7 @@ func (c FontCanvas) Set(x, y int, clr color.Color) {
 	c.underlying.SetPixel(x, y, cc)
 }
 
-func drawString(canvas *Canvas, text string, face FontFace, color style.Color, width, height int) {
+func drawString(canvas *Canvas, text string, face FontFace, color Color, width, height int) {
 	metrics := face.Metrics()
 	accent := metrics.Ascent.Ceil()
 	decent := metrics.Descent.Ceil()

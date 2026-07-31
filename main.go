@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"gofb/style"
 	"log"
 	"net/http"
 	_ "net/http/pprof"
@@ -95,7 +94,7 @@ func main() {
 	doc := NewDocument(fontManager)
 	box := loadBox(doc, _main)
 	styles := loadStyles()
-	applyStyles(box, []*style.Sheet{styles})
+	applyStyles(box, []*Sheet{styles})
 	box.Base().Dirty = true
 
 	box.Calc(display.Width, display.Height)

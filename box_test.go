@@ -1,8 +1,6 @@
 package main
 
 import (
-	"gofb/style"
-	"gofb/utils"
 	"reflect"
 	"testing"
 )
@@ -14,7 +12,7 @@ type BoxTest struct {
 	Calc                map[string][4]int `yaml:"calc"`
 
 	// ID -> Property（大写开头的） -> Value
-	Computed map[string]map[string]style.Value `yaml:"computed"`
+	Computed map[string]map[string]Value `yaml:"computed"`
 }
 
 func getByID(root Box, id string) Box {
@@ -30,20 +28,20 @@ func getByID(root Box, id string) Box {
 }
 
 func TestCalc(t *testing.T) {
-	cases := utils.LoadTestCases[BoxTest](`testdata/box.yaml`)
+	cases := LoadTestCases[BoxTest](`testdata/box.yaml`)
 	for i, tc := range cases {
 		fontManager := NewFontManager()
 		doc := NewDocument(fontManager)
 		// 清空默认样式方便测试。
 		if !tc.EnableDefaultStyles {
-			doc.defaultStyles = style.Styles{}
+			doc.defaultStyles = Styles{}
 		}
 		if i == 10 {
 			i += 0
 		}
 		root := loadBox(doc, []byte(tc.HTML))
-		parsed := utils.Must1(style.ParseStyle([]byte(tc.Style)))
-		applyStyles(root, []*style.Sheet{parsed})
+		parsed := Must1(ParseStyle([]byte(tc.Style)))
+		applyStyles(root, []*Sheet{parsed})
 		root.Calc(1024, 768)
 		for id, rect := range tc.Calc {
 			box := getByID(root, id)
@@ -69,7 +67,7 @@ func TestCalc(t *testing.T) {
 				if !field.IsValid() {
 					panic(`找不到字段：` + name)
 				}
-				fieldValue := field.Interface().(style.Value)
+				fieldValue := field.Interface().(Value)
 				if fieldValue != expected {
 					t.Errorf("样式错误：#%d, id: %s, name: %s\nwant: %+v\ngot:  %+v",
 						i, id, name, expected, fieldValue)

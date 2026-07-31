@@ -1,7 +1,6 @@
-package style
+package main
 
 import (
-	"gofb/utils"
 	"reflect"
 	"testing"
 )
@@ -11,8 +10,8 @@ type StyleParseTest struct {
 	Rules []Rule
 }
 
-func TestCalc(t *testing.T) {
-	cases := utils.LoadTestCases[StyleParseTest](`testdata/style.yaml`)
+func TestParseStyle(t *testing.T) {
+	cases := LoadTestCases[StyleParseTest](`testdata/style.yaml`)
 	for i, tc := range cases {
 		sheet, err := ParseStyle([]byte(tc.Style))
 		if err != nil {

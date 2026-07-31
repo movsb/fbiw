@@ -4,8 +4,6 @@ import (
 	_ "embed"
 	"errors"
 	"fmt"
-	"gofb/style"
-	"gofb/utils"
 	"image"
 	"image/color"
 	"image/draw"
@@ -36,7 +34,7 @@ type Box interface {
 type BaseBox struct {
 	ID    string
 	Tag   string
-	Class style.Class
+	Class Class
 
 	Dirty bool
 
@@ -48,12 +46,12 @@ type BaseBox struct {
 	// TODO 实际上应该写回 computedStyles.
 	calcPos Rect
 
-	inlineStyles   style.Styles
-	computedStyles style.Styles
+	inlineStyles   Styles
+	computedStyles Styles
 
 	// 如果 computedStyles 设置了 width 百分比，
 	// 这里用来临时保存 Calc 计算的 width。
-	computedWidth style.Value
+	computedWidth Value
 }
 
 type Rect struct {
@@ -104,7 +102,7 @@ func (b *BaseBox) ApplyAttributes(key string, val string) error {
 	if err := b.inlineStyles.Set(key, val); err == nil {
 		return nil
 	} else {
-		if !errors.Is(err, style.ErrUnknownStyleProperty) {
+		if !errors.Is(err, ErrUnknownStyleProperty) {
 			return err
 		}
 	}
@@ -127,7 +125,7 @@ func (b *BaseBox) presetWidth(parentTotalAvailWidth int) {
 		// 百分比暂时优先级更高，所以如果窗口大小变了。b.Width会怎样？
 		// 因为百分比才是真实的初始化，Width原本是没有的。
 		w := int(float32(b.computedStyles.Width.Number) / 100 * float32(parentTotalAvailWidth))
-		b.computedWidth = style.NumberValue(w)
+		b.computedWidth = NumberValue(w)
 	}
 }
 
@@ -151,11 +149,11 @@ func (b *Block) Calc(availWidth, availHeight int) {
 	ncWidth := computed.BorderWidth.Number + computed.Padding.Number
 
 	// 根据自身大小及可用空间大小取最佳值。
-	boxMaxWidth := utils.Iiif(
+	boxMaxWidth := Iiif(
 		b.computedWidth.IsNumber(), computed.Width.IsNumber(),
 		b.computedWidth.Number, computed.Width.Number, availWidth,
 	)
-	boxMaxHeight := utils.Iif(computed.Width.IsNumber(), computed.Width.Number, availHeight)
+	boxMaxHeight := Iif(computed.Width.IsNumber(), computed.Width.Number, availHeight)
 
 	// 内容区域可用的大小。
 	contentAvailWidth := boxMaxWidth - ncWidth*2
@@ -203,10 +201,10 @@ func (b *Block) Calc(availWidth, availHeight int) {
 		offsetY += p.Height
 	}
 
-	b.calcPos.Width = utils.Iiif(
+	b.calcPos.Width = Iiif(
 		b.computedWidth.IsNumber(), computed.Width.IsNumber(),
 		b.computedWidth.Number, computed.Width.Number, boxMaxWidth)
-	b.calcPos.Height = utils.Iif(computed.Height.IsNumber(), computed.Height.Number, contentHeight+ncWidth*2)
+	b.calcPos.Height = Iif(computed.Height.IsNumber(), computed.Height.Number, contentHeight+ncWidth*2)
 }
 
 func (b *BaseBox) Calc(availWidth, availHeight int) {
@@ -348,7 +346,7 @@ func (c *Canvas) SetPixel(x, y int, color color.NRGBA) {
 	p[3] = color.A
 }
 
-func (c *Canvas) FillRect(x, y, width, height int, color style.Color) {
+func (c *Canvas) FillRect(x, y, width, height int, color Color) {
 	if width <= 0 || height <= 0 {
 		return
 	}
@@ -425,14 +423,14 @@ func (c *Canvas) ToDrawable(width, height int) draw.Image {
 	return fc
 }
 
-func drawBorder(c *Canvas, cr style.Color, w, h int, borderWidth int) {
+func drawBorder(c *Canvas, cr Color, w, h int, borderWidth int) {
 	c.FillRect(0, 0, w, borderWidth, cr)
 	c.FillRect(0, h-borderWidth, w, borderWidth, cr)
 	c.FillRect(0, borderWidth, borderWidth, h-borderWidth*2, cr)
 	c.FillRect(w-borderWidth, borderWidth, borderWidth, h-borderWidth*2, cr)
 }
 
-func drawBackgroundColor(c *Canvas, cr style.Color, w, h int) {
+func drawBackgroundColor(c *Canvas, cr Color, w, h int) {
 	c.FillRect(0, 0, w, h, cr)
 }
 
@@ -487,13 +485,13 @@ func (b *Inline) Calc(availWidth, availHeight int) {
 	ncWidth := computed.BorderWidth.Number + computed.Padding.Number
 
 	// 根据自身大小及可用空间大小取最佳值。
-	boxMaxWidth := utils.Iiif(
+	boxMaxWidth := Iiif(
 		b.computedWidth.IsNumber(),
 		computed.Width.IsNumber(),
 		b.computedWidth.Number,
 		computed.Width.Number,
 		availWidth)
-	boxMaxHeight := utils.Iif(
+	boxMaxHeight := Iif(
 		computed.Height.IsNumber(),
 		computed.Height.Number,
 		availHeight)
@@ -542,20 +540,20 @@ func (b *Inline) Calc(availWidth, availHeight int) {
 		offsetX += p.Width
 	}
 
-	b.calcPos.Width = utils.Iiif(
+	b.calcPos.Width = Iiif(
 		b.computedWidth.IsNumber(),
 		computed.Width.IsNumber(),
 		b.computedWidth.Number,
 		computed.Width.Number,
 		contentWidth+ncWidth*2)
-	b.calcPos.Height = utils.Iif(
+	b.calcPos.Height = Iif(
 		computed.Height.IsNumber(),
 		computed.Height.Number,
 		contentMaxHeight+ncWidth*2)
 
 	// 如果是垂直居中，则重新调整Y
 	if computed.Align.String == `middle` {
-		contentHeight := utils.Iif(
+		contentHeight := Iif(
 			computed.Height.IsNumber(),
 			computed.Height.Number-ncWidth*2,
 			contentMaxHeight)
