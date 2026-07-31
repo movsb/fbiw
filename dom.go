@@ -25,10 +25,9 @@ func NewDocument(fontManager *FontManager) *Document {
 	return &Document{
 		fontManager: fontManager,
 		defaultStyles: style.Styles{
-			BackgroundColor: style.ColorValueFromString(`white`),
-			Color:           style.ColorValueFromString(`black`),
-			FontFamily:      style.StringValue(`system`),
-			FontSize:        style.NumberValue(25),
+			Color:      style.ColorValueFromString(`black`),
+			FontFamily: style.StringValue(`system`),
+			FontSize:   style.NumberValue(25),
 		},
 	}
 }
@@ -109,6 +108,7 @@ func applyStyles(root Box, sheets []*style.Sheet) {
 		stylesValue := reflect.ValueOf(&styles)
 
 		// 从父母继承
+		// TODO 优化：如果样式表或内联表有值，则无需再从父母继承。
 		for field, value := range stylesValue.Elem().Fields() {
 			if !style.ShouldInherit(strings.ToLower(field.Name)) {
 				continue

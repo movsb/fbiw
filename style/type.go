@@ -212,7 +212,7 @@ const ColorNone = Color(0x01010101)
 // 这时候如果什么也不写，会导致继承。
 // 所以只能写个none。
 func (c Color) None() bool {
-	return c != ColorNone
+	return c == ColorNone
 }
 func (c Color) R() uint8 {
 	return uint8(c >> 24)
