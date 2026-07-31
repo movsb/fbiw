@@ -32,10 +32,10 @@ func TestCalc(t *testing.T) {
 		doc := NewDocument(fontManager)
 		// 清空默认样式方便测试。
 		doc.defaultStyles = style.Styles{}
-		root := loadBox(doc, []byte(tc.HTML))
-		if i == 7 {
+		if i == 8 {
 			i += 0
 		}
+		root := loadBox(doc, []byte(tc.HTML))
 		parsed := utils.Must1(style.ParseStyle([]byte(tc.Style)))
 		applyStyles(root, []*style.Sheet{parsed})
 		root.Calc(1024, 768)

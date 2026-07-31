@@ -82,3 +82,17 @@
       color:
         type: 2
         color: 4281490431 # 0xFF325BFF
+
+#8 非Spacer作为Spacer自动布局。
+- html: |
+    <block>
+      <block id=a spacer></block>
+      <block height=68></block>
+    </block>
+  calc:
+    a: [0,0,1024,700]
+  computed:
+    a:
+      spacer:
+        type: 5
+        bool: true

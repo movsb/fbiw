@@ -43,6 +43,8 @@ type BaseBox struct {
 	Parent   Box
 	Children []Box
 
+	// Calc后的坐标信息。
+	// TODO 实际上应该写回 computedStyles.
 	calcPos Rect
 
 	inlineStyles   style.Styles
@@ -165,10 +167,12 @@ func (b *Block) Calc(availWidth, availHeight int) {
 	}
 
 	// 如果有 Spacer（未设定大小的），则均匀地铺满。
-	zeroSpacers := []*Spacer{}
+	zeroSpacers := []Box{}
 	for _, child := range b.Children {
 		if spacer, ok := child.(*Spacer); ok && spacer.computedStyles.Height.Empty() {
 			zeroSpacers = append(zeroSpacers, spacer)
+		} else if child.Base().computedStyles.Spacer.Bool {
+			zeroSpacers = append(zeroSpacers, child)
 		}
 	}
 	if len(zeroSpacers) > 0 {
@@ -176,7 +180,7 @@ func (b *Block) Calc(availWidth, availHeight int) {
 		avgHeight := (contentAvailHeight - contentHeight) / len(zeroSpacers)
 		contentHeight = contentAvailHeight
 		for _, spacer := range zeroSpacers {
-			spacer.calcPos = Rect{ncWidth, 0, 0, avgHeight}
+			spacer.Base().calcPos.Height = avgHeight
 		}
 	}
 
@@ -502,10 +506,12 @@ func (b *Inline) Calc(availWidth, availHeight int) {
 	}
 
 	// 如果有 Spacer（未设定大小的），则均匀地铺满。
-	zeroSpacers := []*Spacer{}
+	zeroSpacers := []Box{}
 	for _, child := range b.Children {
 		if spacer, ok := child.(*Spacer); ok && spacer.computedStyles.Width.Empty() {
 			zeroSpacers = append(zeroSpacers, spacer)
+		} else if child.Base().computedStyles.Spacer.Bool {
+			zeroSpacers = append(zeroSpacers, child)
 		}
 	}
 	if len(zeroSpacers) > 0 {
@@ -513,7 +519,7 @@ func (b *Inline) Calc(availWidth, availHeight int) {
 		avgWidth := (contentAvailWidth - contentWidth) / len(zeroSpacers)
 		contentWidth = contentAvailWidth
 		for _, spacer := range zeroSpacers {
-			spacer.calcPos = Rect{0, ncWidth, avgWidth, 0}
+			spacer.Base().calcPos.Width = avgWidth
 		}
 	}
 

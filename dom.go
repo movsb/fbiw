@@ -111,22 +111,10 @@ func applyStyles(root Box, sheets []*style.Sheet) {
 			}
 		}
 
-		// 从内联覆盖
-		// 如果性能孬就换成独立的复制过程。
+		// 从父母继承
 		inlines := &node.Base().inlineStyles
 		inlineValue := reflect.ValueOf(inlines)
 		stylesValue := reflect.ValueOf(&styles)
-		for field, value := range inlineValue.Elem().Fields() {
-			if field.Type == reflect.TypeFor[style.Value]() {
-				value2 := value.Interface().(style.Value)
-				if !value2.Empty() {
-					dstValue := stylesValue.Elem().FieldByIndex(field.Index)
-					dstValue.Set(value)
-				}
-			}
-		}
-
-		// 从父母继承
 		for field, value := range stylesValue.Elem().Fields() {
 			if field.Type == reflect.TypeFor[style.Value]() {
 				value2 := value.Interface().(style.Value)
@@ -143,6 +131,18 @@ func applyStyles(root Box, sheets []*style.Sheet) {
 					if !value3.Empty() {
 						value.Set(parentField)
 					}
+				}
+			}
+		}
+
+		// 从内联覆盖
+		// 如果性能孬就换成独立的复制过程。
+		for field, value := range inlineValue.Elem().Fields() {
+			if field.Type == reflect.TypeFor[style.Value]() {
+				value2 := value.Interface().(style.Value)
+				if !value2.Empty() {
+					dstValue := stylesValue.Elem().FieldByIndex(field.Index)
+					dstValue.Set(value)
 				}
 			}
 		}

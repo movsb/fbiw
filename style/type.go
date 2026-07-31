@@ -30,6 +30,9 @@ type Styles struct {
 	FontSize   Value // font-size
 	FontBold   Value // bold
 	FontItalic Value // italic
+
+	// 是否当作Spacer可变大小布局。
+	Spacer Value
 }
 
 func ShouldInherit(name string) bool {
@@ -119,6 +122,9 @@ func (s *Styles) Set(name string, raw string) error {
 		return setBoolean(&s.FontBold, raw, false)
 	case `italic`, `font-italic`:
 		return setBoolean(&s.FontItalic, raw, false)
+
+	case `spacer`:
+		return setBoolean(&s.Spacer, raw, true)
 	}
 }
 
@@ -187,8 +193,8 @@ func PercentageValue(v int) Value {
 }
 func BoolValue(v bool) Value {
 	return Value{
-		Type:   VTBool,
-		Number: utils.Iif(v, 1, 0),
+		Type: VTBool,
+		Bool: v,
 	}
 }
 
