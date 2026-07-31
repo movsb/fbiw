@@ -203,3 +203,7 @@ func _pollEvents(ctx context.Context, handler func(Event)) {
 		// fmt.Printf("Keyboard: type=%d code=%d value=%d\n", ev.Type, ev.Code, ev.Value)
 	}
 }
+
+func loadFonts(fontManager *FontManager) error {
+	return nil
+}

@@ -1,9 +1,12 @@
+<document>
+<style>
+</style>
 <block background-image="bg.png" padding="10">
 	<inline>
 		<img src="nav-logo.png">
 		<space></space>
 		<inline align="middle" id="status-bar">
-			<img src="ic-wifi-03.png">
+			<img src="ic-wifi-03.png" id="img">
 			<space width="10"></space>
 			<img src="ic-sound-n.png">
 			<space width="10"></space>
@@ -11,7 +14,7 @@
 			<space width="10"></space>
 			<img src="ic-batery-75%.png">
 			<space width="10"></space>
-			<inline>12:34</inline>
+			<inline bold="true">12:34</inline>
 		</inline>
 	</inline>
 	<space height="50"></space>
@@ -21,10 +24,10 @@
 		<space></space>
 	</inline>
 	<space></space>
-	<inline width="100%">
+	<inline width="100%" border-width="10" border-color="cyan" padding="10">
 		<block width="25%" align="center">
-			<img src="iotesting-key-menu.png" id="here">
-			<inline height="50">收藏</inline>
+			<img src="nav-icon-favorites-n.png">
+			<inline>收藏</inline>
 		</block>
 		<block width="25%" align="center">
 			<img src="nav-icon-recent-n.png">
@@ -40,3 +43,4 @@
 		</block>
 	</inline>
 </block>
+</document>

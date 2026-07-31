@@ -2,6 +2,7 @@ package main
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -15,36 +16,41 @@ type BoxTest struct {
 	Computed map[string]map[string]Value `yaml:"computed"`
 }
 
-func getByID(root Box, id string) Box {
-	if root.Base().ID == id {
-		return root
-	}
-	for _, child := range root.Base().Children {
-		if box := getByID(child, id); box != nil {
-			return box
-		}
-	}
-	return nil
-}
-
 func TestCalc(t *testing.T) {
 	cases := LoadTestCases[BoxTest](`testdata/box.yaml`)
 	for i, tc := range cases {
 		fontManager := NewFontManager()
-		doc := NewDocument(fontManager)
+
+		// 早期非标准页面兼容
+		if strings.HasPrefix(tc.HTML, `<block`) {
+			updated := `<document><style>` +
+				tc.Style +
+				`</style>` +
+				tc.HTML +
+				`</document>`
+			tc.HTML = updated
+		}
+
+		doc, err := NewDocument(fontManager, strings.NewReader(tc.HTML))
+		if err != nil {
+			t.Errorf(`文档解析失败：#%d: %v`, i, err)
+			continue
+		}
+
 		// 清空默认样式方便测试。
 		if !tc.EnableDefaultStyles {
 			doc.defaultStyles = Styles{}
 		}
-		if i == 10 {
-			i += 0
+
+		doc.Resize(1024, 768)
+		if err := doc.Style(); err != nil {
+			t.Error(err)
+			continue
 		}
-		root := loadBox(doc, []byte(tc.HTML))
-		parsed := Must1(ParseStyle([]byte(tc.Style)))
-		applyStyles(root, []*Sheet{parsed})
-		root.Calc(1024, 768)
+		doc.Layout()
+
 		for id, rect := range tc.Calc {
-			box := getByID(root, id)
+			box := doc.GetElementByID(id)
 			if box == nil {
 				panic(`指定编号的盒子没找到：` + id)
 			}
@@ -57,7 +63,7 @@ func TestCalc(t *testing.T) {
 			}
 		}
 		for id, styles := range tc.Computed {
-			box := getByID(root, id)
+			box := doc.GetElementByID(id)
 			if box == nil {
 				panic(`指定编号的盒子没找到：` + id)
 			}

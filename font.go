@@ -20,6 +20,13 @@ func NewFontManager() *FontManager {
 	}
 }
 
+func (fm *FontManager) Close() {
+	for _, f := range fm.fonts {
+		f.File.Close()
+	}
+	clear(fm.fonts)
+}
+
 type FontFace struct {
 	font.Face
 }

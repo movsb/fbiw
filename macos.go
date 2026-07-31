@@ -4,6 +4,8 @@ package main
 
 import (
 	"context"
+	"fmt"
+	"path/filepath"
 
 	"github.com/veandco/go-sdl2/sdl"
 )
@@ -117,4 +119,50 @@ func pollEvents(ctx context.Context, handler func(Event)) {
 			handler(Event{})
 		}
 	}
+}
+
+func loadFonts(fontManager *FontManager) error {
+	for dir, faces := range map[string][]struct {
+		FileName string
+		Family   string
+		Bold     bool
+		Italic   bool
+	}{
+		`fonts/`: {
+			{
+				FileName: `MapleMonoNormalNL-NF-CN-Regular.ttf`,
+				Family:   `MapleMono`,
+				Bold:     false,
+				Italic:   false,
+			},
+			{
+				FileName: `MapleMonoNormalNL-NF-CN-Italic.ttf`,
+				Family:   `MapleMono`,
+				Bold:     false,
+				Italic:   true,
+			},
+			{
+				FileName: `MapleMonoNormalNL-NF-CN-Bold.ttf`,
+				Family:   `MapleMono`,
+				Bold:     true,
+				Italic:   false,
+			},
+			{
+				FileName: `MapleMonoNormalNL-NF-CN-BoldItalic.ttf`,
+				Family:   `MapleMono`,
+				Bold:     true,
+				Italic:   true,
+			},
+		},
+	} {
+		for _, face := range faces {
+			if err := fontManager.AddFont(
+				filepath.Join(dir, face.FileName),
+				face.Family, face.Bold, face.Italic,
+			); err != nil {
+				return fmt.Errorf(`加载字体失败：%w`, err)
+			}
+		}
+	}
+	return nil
 }
