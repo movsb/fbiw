@@ -39,32 +39,58 @@ var _main []byte
 var _styles []byte
 
 func applyStyles(root Box, sheets []*style.Sheet) {
-	nodeMatch := func(node Box, selector style.Selector) (uint32, bool) {
-		specificity := uint32(0)
-		for _, selector := range slices.Backward(selector) {
-			match := false
-			if selector.Tag == node.Base().Tag {
-				match = true
-				specificity += 1 << 0
-			} else if node.Base().Class.ContainsAny(selector.Class...) {
-				match = true
-				specificity += 1 << 8
-			} else if selector.ID != `` && selector.ID == node.Base().ID {
-				match = true
-				specificity += 1 << 16
-			}
-			if !match {
-				return 0, false
-			}
+	nodeMatch := func(node Box, selector style.Selector) bool {
+		match := func(node Box, selector style.NodeSelector) bool {
+			return (selector.Tag == `` || selector.Tag == node.Base().Tag) &&
+				(len(selector.Class) == 0 || node.Base().Class.ContainsAll(selector.Class...)) &&
+				(selector.ID == `` || selector.ID == node.Base().ID)
 		}
-		return specificity, true
+
+		// 先是自身匹配
+		if !match(node, selector[len(selector)-1]) {
+			return false
+		}
+
+		if len(selector) <= 1 {
+			return true
+		}
+
+		// 如果自身匹配，继续往上寻找可能的祖先匹配。
+		// 每一个后代选择器都需要对每个祖先进行尝试。
+		ancestorSelectors := selector[:len(selector)-1]
+
+		// 找单个选择器能匹配的至少一个祖先。
+		// 基本约等于 document.querySelector 的功能。
+		// 递归好烧脑。
+		var matchAncestors func(node Box, backIndex int) bool
+		matchAncestors = func(node Box, backIndex int) bool {
+			// 前面的所有选择器均匹配上了，并且已经没有选择器了，
+			// 所以到这里就表示所有选择器匹配成功了。
+			if backIndex < 0 {
+				return true
+			}
+			for ancestor := range node.Base().Ancestors() {
+				if match(ancestor, ancestorSelectors[backIndex]) {
+					if matchAncestors(ancestor, backIndex-1) {
+						return true
+					}
+				}
+			}
+			return false
+		}
+
+		return matchAncestors(node, len(ancestorSelectors)-1)
 	}
 
 	findMatches := func(node Box) []style.RuleMatch {
 		matches := []style.RuleMatch{}
 		for _, sheet := range sheets {
 			for _, rule := range sheet.Rules {
-				if spec, ok := nodeMatch(node, rule.Selector); ok {
+				if nodeMatch(node, rule.Selector) {
+					spec := uint32(0)
+					for _, sel := range rule.Selector {
+						spec += sel.Specificity
+					}
 					matches = append(matches, style.RuleMatch{
 						Specificity:  spec,
 						Declarations: rule.Declarations,
@@ -110,7 +136,7 @@ func applyStyles(root Box, sheets []*style.Sheet) {
 		// 从父母继承
 		// TODO 优化：如果样式表或内联表有值，则无需再从父母继承。
 		for field, value := range stylesValue.Elem().Fields() {
-			if !style.ShouldInherit(strings.ToLower(field.Name)) {
+			if !style.ShouldInherit(field.Name) {
 				continue
 			}
 			if field.Type == reflect.TypeFor[style.Value]() {

@@ -9,6 +9,7 @@ import (
 	"image"
 	"image/color"
 	"image/draw"
+	"iter"
 	"log"
 	"os"
 	"path/filepath"
@@ -82,6 +83,16 @@ func (b *BaseBox) IsDirty() bool {
 		}
 	}
 	return false
+}
+
+func (b *BaseBox) Ancestors() iter.Seq[Box] {
+	return func(yield func(Box) bool) {
+		for p := b.Parent; p != nil; p = p.Base().Parent {
+			if !yield(p) {
+				break
+			}
+		}
+	}
 }
 
 func (b *BaseBox) appendChild(self, child Box) {

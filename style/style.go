@@ -193,7 +193,7 @@ func parseDeclarations(buf *BufioReader) []Declaration {
 		tmp := []byte{}
 		for {
 			b := buf.peekByte()
-			if b == ';' || b == '0' {
+			if b == ';' || b == 0 {
 				break
 			}
 			buf.Discard(1)

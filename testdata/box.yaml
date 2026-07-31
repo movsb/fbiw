@@ -133,3 +133,34 @@
       Color:
         type: 2
         color: 396892159
+
+#11 后代选择器继承
+- html: |
+    <block>
+      <block id=b1>
+        <inline id=i1></inline>
+      </block>
+      <block id=b2>
+        <inline id=i2></inline>
+      </block>
+    </block>
+  style: |
+    block { font-size: 10; }
+    #b1 inline { font-size: 18; }
+  computed:
+    b1:
+      FontSize:
+        type: 3
+        number: 10
+    b2:
+      FontSize:
+        type: 3
+        number: 10
+    i1:
+      FontSize:
+        type: 3
+        number: 18
+    i2:
+      FontSize:
+        type: 3
+        number: 10

@@ -35,11 +35,12 @@ type Styles struct {
 	Spacer Value
 }
 
+// 直接传入的是结构体字段，原始名字，没有小写、没有中划线。
 func ShouldInherit(name string) bool {
 	switch name {
-	case `color`:
+	case `Color`:
 		return true
-	case `font-family`, `font-size`, `font-bold`, `bold`, `font-italic`, `italic`:
+	case `FontFamily`, `FontSize`, `FontBold`, `FontItalic`:
 		return true
 	default:
 		return false
@@ -249,8 +250,13 @@ func (c *Class) Set(class string) {
 func (c Class) Contains(class string) bool {
 	return slices.Contains(c.class, class)
 }
-func (c Class) ContainsAny(class ...string) bool {
-	return slices.ContainsFunc(class, c.Contains)
+func (c Class) ContainsAll(class ...string) bool {
+	for _, class := range class {
+		if !c.Contains(class) {
+			return false
+		}
+	}
+	return true
 }
 func (c *Class) Add(class string) {
 	if !c.Contains(class) {
