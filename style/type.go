@@ -3,6 +3,7 @@ package style
 import (
 	"errors"
 	"fmt"
+	"gofb/utils"
 	"image/color"
 	"slices"
 	"strconv"
@@ -24,11 +25,18 @@ type Styles struct {
 	Height          Value
 	Padding         Value
 	Width           Value
+
+	FontFamily Value // font-family
+	FontSize   Value // font-size
+	FontBold   Value // bold
+	FontItalic Value // italic
 }
 
 func ShouldInherit(name string) bool {
 	switch name {
 	case `color`:
+		return true
+	case `font-family`, `font-size`, `font-bold`, `bold`, `font-italic`, `italic`:
 		return true
 	default:
 		return false
@@ -59,6 +67,21 @@ func (s *Styles) Set(name string, raw string) error {
 		*v = vv
 		return err
 	}
+	setBoolean := func(v *Value, raw string, emptyIsTrue bool) error {
+		switch raw {
+		case `1`, `true`:
+			*v = BoolValue(true)
+			return nil
+		case `0`, `false`:
+			*v = BoolValue(false)
+			return nil
+		case ``:
+			*v = BoolValue(emptyIsTrue)
+			return nil
+		default:
+			return fmt.Errorf(`未知布尔值：%v`, raw)
+		}
+	}
 
 	switch name {
 	default:
@@ -86,6 +109,16 @@ func (s *Styles) Set(name string, raw string) error {
 		return setNumber(&s.Padding, raw)
 	case `width`:
 		return setNumberOrPercentage(&s.Width, raw)
+
+	case `font-family`:
+		s.FontFamily = StringValue(raw)
+		return nil
+	case `font-size`:
+		return setNumber(&s.FontSize, raw)
+	case `bold`, `font-bold`:
+		return setBoolean(&s.FontBold, raw, false)
+	case `italic`, `font-italic`:
+		return setBoolean(&s.FontItalic, raw, false)
 	}
 }
 
@@ -97,6 +130,7 @@ const (
 	VTColor
 	VTNumber
 	VTPercentage
+	VTBool
 )
 
 type Value struct {
@@ -105,6 +139,7 @@ type Value struct {
 	String string
 	Color  Color // 0xRR_GG_BB_AA
 	Number int
+	Bool   bool
 }
 
 func (v Value) Empty() bool {
@@ -132,6 +167,12 @@ func ColorValue(cr Color) Value {
 		Color: cr,
 	}
 }
+
+// 如果解析失败，会崩溃。
+func ColorValueFromString(cr string) Value {
+	return utils.Must1(ParseColor(cr))
+}
+
 func NumberValue(v int) Value {
 	return Value{
 		Type:   VTNumber,
@@ -142,6 +183,12 @@ func PercentageValue(v int) Value {
 	return Value{
 		Type:   VTPercentage,
 		Number: v,
+	}
+}
+func BoolValue(v bool) Value {
+	return Value{
+		Type:   VTBool,
+		Number: utils.Iif(v, 1, 0),
 	}
 }
 

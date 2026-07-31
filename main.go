@@ -2,22 +2,81 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"gofb/style"
 	"log"
 	"net/http"
 	_ "net/http/pprof"
+	"path/filepath"
 	"runtime"
 	"time"
 )
 
+// pprof 性能测试用。
+//
+// go tool pprof -web  http://localhost:8888/debug/pprof/profile?seconds=30
 func init() {
-	// pprof 性能测试用。
 	go http.ListenAndServe(`0.0.0.0:8888`, nil)
+}
+
+// 加载字体
+func loadFonts(fontManager *FontManager) error {
+	for dir, faces := range map[string][]struct {
+		FileName string
+		Family   string
+		Bold     bool
+		Italic   bool
+	}{
+		`fonts/`: {
+			{
+				FileName: `MapleMonoNormalNL-NF-CN-Regular.ttf`,
+				Family:   `MapleMono`,
+				Bold:     false,
+				Italic:   false,
+			},
+			{
+				FileName: `MapleMonoNormalNL-NF-CN-Italic.ttf`,
+				Family:   `MapleMono`,
+				Bold:     false,
+				Italic:   true,
+			},
+			{
+				FileName: `MapleMonoNormalNL-NF-CN-Bold.ttf`,
+				Family:   `MapleMono`,
+				Bold:     true,
+				Italic:   false,
+			},
+			{
+				FileName: `MapleMonoNormalNL-NF-CN-BoldItalic.ttf`,
+				Family:   `MapleMono`,
+				Bold:     true,
+				Italic:   true,
+			},
+		},
+	} {
+		for _, face := range faces {
+			if err := fontManager.AddFont(
+				filepath.Join(dir, face.FileName),
+				face.Family, face.Bold, face.Italic,
+			); err != nil {
+				return fmt.Errorf(`加载字体失败：%w`, err)
+			}
+		}
+	}
+	return nil
 }
 
 func main() {
 	display := openDisplay()
 	defer display.Close()
+
+	fontManager := NewFontManager()
+	if err := fontManager.AddFont(defaultFontFile, `system`, false, false); err != nil {
+		log.Fatalln(`加载默认字体失败：`, err)
+	}
+	if err := loadFonts(fontManager); err != nil {
+		panic(`字体加载失败：` + err.Error())
+	}
 
 	canvas := &Canvas{
 		buffer:        display.Data,
@@ -28,7 +87,8 @@ func main() {
 		height:        display.Height,
 	}
 
-	box := loadBox(_main)
+	doc := NewDocument(fontManager)
+	box := loadBox(doc, _main)
 	styles := loadStyles()
 	applyStyles(box, []*style.Sheet{styles})
 	box.Base().Dirty = true

@@ -14,6 +14,25 @@ import (
 	"golang.org/x/net/html/atom"
 )
 
+type Document struct {
+	fontManager *FontManager
+
+	// 默认样式总是用于初始化拷贝，所以不需要用指针，方便拷贝并覆盖。
+	defaultStyles style.Styles
+}
+
+func NewDocument(fontManager *FontManager) *Document {
+	return &Document{
+		fontManager: fontManager,
+		defaultStyles: style.Styles{
+			BackgroundColor: style.ColorValueFromString(`white`),
+			Color:           style.ColorValueFromString(`black`),
+			FontFamily:      style.StringValue(`system`),
+			FontSize:        style.NumberValue(25),
+		},
+	}
+}
+
 //go:embed main.html
 var _main []byte
 
@@ -83,7 +102,7 @@ func applyStyles(root Box, sheets []*style.Sheet) {
 		}
 
 		// 从全局获取默认
-		styles := style.Styles{}
+		styles := root.Base().Document.defaultStyles
 
 		// 从样式表更新
 		for d := range declarations(matches) {
@@ -142,7 +161,7 @@ func loadStyles() *style.Sheet {
 	return utils.Must1(style.ParseStyle(_styles))
 }
 
-func loadBox(data []byte) Box {
+func loadBox(doc *Document, data []byte) Box {
 	nodes := utils.Must1(html.ParseFragment(bytes.NewReader(data), &html.Node{
 		Type:     html.ElementNode,
 		DataAtom: atom.Div,
@@ -156,23 +175,23 @@ func loadBox(data []byte) Box {
 		}
 	}
 	// html.Render(os.Stdout, nodes[0])
-	return transformNodeTree(nodes[0])
+	return transformNodeTree(doc, nodes[0])
 }
 
-func transformNodeTree(node *html.Node) Box {
-	return transformNode(node)
+func transformNodeTree(doc *Document, node *html.Node) Box {
+	return transformNode(doc, node)
 }
 
-func transformNode(node *html.Node) Box {
+func transformNode(doc *Document, node *html.Node) Box {
 	switch node.Type {
 	case html.ElementNode:
-		return transformELementNode(node)
+		return transformELementNode(doc, node)
 	case html.TextNode:
 		trimmed := strings.TrimSpace(node.Data)
 		if trimmed == `` {
 			return nil
 		}
-		t := NewText()
+		t := NewText(doc)
 		t.Data = trimmed
 		return t
 	case html.CommentNode:
@@ -182,32 +201,32 @@ func transformNode(node *html.Node) Box {
 	}
 }
 
-func transformELementNode(node *html.Node) Box {
+func transformELementNode(doc *Document, node *html.Node) Box {
 	switch node.Data {
 	case `block`:
-		box := NewBlock()
+		box := NewBlock(doc)
 		for _, a := range node.Attr {
 			utils.Must(box.ApplyAttributes(a.Key, a.Val))
 		}
 		for c := range node.ChildNodes() {
-			if b := transformNode(c); b != nil {
+			if b := transformNode(doc, c); b != nil {
 				box.appendChild(box, b)
 			}
 		}
 		return box
 	case `inline`:
-		box := NewInline()
+		box := NewInline(doc)
 		for _, a := range node.Attr {
 			utils.Must(box.ApplyAttributes(a.Key, a.Val))
 		}
 		for c := range node.ChildNodes() {
-			if b := transformNode(c); b != nil {
+			if b := transformNode(doc, c); b != nil {
 				box.appendChild(box, b)
 			}
 		}
 		return box
 	case `space`:
-		box := NewSpacer()
+		box := NewSpacer(doc)
 		for _, a := range node.Attr {
 			box.ApplyAttributes(a.Key, a.Val)
 		}
@@ -215,18 +234,18 @@ func transformELementNode(node *html.Node) Box {
 	}
 	switch node.DataAtom {
 	case atom.Button:
-		box := NewButton()
+		box := NewButton(doc)
 		for _, a := range node.Attr {
 			box.ApplyAttributes(a.Key, a.Val)
 		}
 		for c := range node.ChildNodes() {
-			if b := transformNode(c); b != nil {
+			if b := transformNode(doc, c); b != nil {
 				box.appendChild(box, b)
 			}
 		}
 		return box
 	case atom.Img:
-		box := NewImage()
+		box := NewImage(doc)
 		for _, a := range node.Attr {
 			box.ApplyAttributes(a.Key, a.Val)
 		}

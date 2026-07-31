@@ -3,15 +3,11 @@ package main
 import (
 	"gofb/style"
 	"image"
-	"log"
-	"os"
-	"sync"
 	"unicode/utf8"
 
 	"image/color"
 
 	"golang.org/x/image/font"
-	"golang.org/x/image/font/opentype"
 	"golang.org/x/image/math/fixed"
 )
 
@@ -37,35 +33,7 @@ func (c FontCanvas) Set(x, y int, clr color.Color) {
 	c.underlying.SetPixel(x, y, cc)
 }
 
-var onceLoadFont = sync.OnceValue(func() font.Face {
-	fontBytes, err := os.ReadFile("fonts/MapleMonoNormalNL-NF-CN-Regular.ttf")
-	if err != nil {
-		log.Fatalf("读取字体失败: %v", err)
-	}
-	parsedFont, err := opentype.Parse(fontBytes)
-	if err != nil {
-		log.Fatalf("解析字体失败: %v", err)
-	}
-
-	// 72 DPI 下 Size 即为像素大小
-	fontFace, err := opentype.NewFace(parsedFont, &opentype.FaceOptions{
-		Size:    25,
-		DPI:     72,
-		Hinting: font.HintingFull,
-	})
-	if err != nil {
-		log.Fatalf("创建 Face 失败: %v", err)
-	}
-	// defer fontFace.Close()
-	return fontFace
-})
-
-func measureString(face font.Face, text string) int {
-	return font.MeasureString(face, text).Ceil()
-}
-
-func drawString(canvas *Canvas, text string, color style.Color, width, height int) {
-	face := onceLoadFont()
+func drawString(canvas *Canvas, text string, face FontFace, color style.Color, width, height int) {
 	metrics := face.Metrics()
 	accent := metrics.Ascent.Ceil()
 	decent := metrics.Descent.Ceil()
@@ -79,7 +47,7 @@ func drawString(canvas *Canvas, text string, color style.Color, width, height in
 			if r == utf8.RuneError {
 				return 0, 0
 			}
-			rw := measureString(face, s[p:p+n])
+			rw := face.MeasureString(s[p : p+n])
 			if w+rw > width {
 				return width, p
 			}
@@ -118,7 +86,7 @@ func drawString(canvas *Canvas, text string, color style.Color, width, height in
 		drawer := font.Drawer{
 			Dst:  canvas.ToDrawable(width, height),
 			Src:  image.NewUniform(color.NRGBA()),
-			Face: onceLoadFont(),
+			Face: face,
 			Dot: fixed.Point26_6{
 				X: 0,
 				Y: 0,

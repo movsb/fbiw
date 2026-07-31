@@ -39,6 +39,7 @@ type BaseBox struct {
 
 	Dirty bool
 
+	Document *Document
 	Parent   Box
 	Children []Box
 
@@ -121,10 +122,11 @@ type Block struct {
 	BaseBox
 }
 
-func NewBlock() *Block {
+func NewBlock(doc *Document) *Block {
 	return &Block{
 		BaseBox: BaseBox{
-			Tag: `block`,
+			Document: doc,
+			Tag:      `block`,
 		},
 	}
 }
@@ -434,10 +436,11 @@ type Button struct {
 	BaseBox
 }
 
-func NewButton() *Button {
+func NewButton(doc *Document) *Button {
 	return &Button{
 		BaseBox: BaseBox{
-			Tag: `button`,
+			Document: doc,
+			Tag:      `button`,
 		},
 	}
 }
@@ -453,10 +456,11 @@ type Inline struct {
 	BaseBox
 }
 
-func NewInline() *Inline {
+func NewInline(doc *Document) *Inline {
 	return &Inline{
 		BaseBox: BaseBox{
-			Tag: `inline`,
+			Document: doc,
+			Tag:      `inline`,
 		},
 	}
 }
@@ -558,10 +562,11 @@ type Spacer struct {
 	BaseBox
 }
 
-func NewSpacer() *Spacer {
+func NewSpacer(doc *Document) *Spacer {
 	return &Spacer{
 		BaseBox: BaseBox{
-			Tag: `space`,
+			Document: doc,
+			Tag:      `space`,
 		},
 	}
 }
@@ -570,18 +575,34 @@ func NewSpacer() *Spacer {
 type Text struct {
 	BaseBox
 	Data string
+
+	// calc后保存的face，避免重复计算
+	face FontFace
 }
 
-func NewText() *Text {
+func NewText(doc *Document) *Text {
 	return &Text{
 		BaseBox: BaseBox{
-			Tag: `text`,
+			Document: doc,
+			Tag:      `text`,
 		},
 	}
 }
 
 func (t *Text) Calc(availWidth, availHeight int) {
-	face := onceLoadFont()
+	face, err := t.BaseBox.Document.fontManager.GetFace(
+		t.computedStyles.FontFamily.String,
+		t.computedStyles.FontSize.Number,
+		t.computedStyles.FontBold.Bool,
+		t.computedStyles.FontItalic.Bool,
+	)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+
+	t.face = face
+
 	metrics := face.Metrics()
 	textHeight := (metrics.Ascent + metrics.Descent).Ceil()
 
@@ -593,7 +614,7 @@ func (t *Text) Calc(availWidth, availHeight int) {
 			if r == utf8.RuneError {
 				return 0, ``
 			}
-			rw := measureString(face, s[p:p+n])
+			rw := face.MeasureString(s[p : p+n])
 			if width+rw > availWidth {
 				return width, s[p:]
 			}
@@ -636,7 +657,7 @@ func (t *Text) Calc(availWidth, availHeight int) {
 func (t *Text) Draw(canvas *Canvas) {
 	t.Base().SetNoDirty()
 	drawString(canvas,
-		t.Data, t.computedStyles.Color.Color,
+		t.Data, t.face, t.computedStyles.Color.Color,
 		t.calcPos.Width, t.calcPos.Height,
 	)
 }
@@ -647,10 +668,11 @@ type Image struct {
 	Src string
 }
 
-func NewImage() *Image {
+func NewImage(doc *Document) *Image {
 	return &Image{
 		BaseBox: BaseBox{
-			Tag: `image`,
+			Document: doc,
+			Tag:      `image`,
 		},
 	}
 }

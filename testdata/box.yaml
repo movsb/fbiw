@@ -68,6 +68,7 @@
     i: [0,0,0,100]
     img: [0,50,0,0]
 
+#7
 - html: |
     <block>
       <inline id=i></inline>

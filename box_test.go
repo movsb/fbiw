@@ -28,7 +28,11 @@ func getByID(root Box, id string) Box {
 func TestCalc(t *testing.T) {
 	cases := utils.LoadTestCases[BoxTest](`testdata/box.yaml`)
 	for i, tc := range cases {
-		root := loadBox([]byte(tc.HTML))
+		fontManager := NewFontManager()
+		doc := NewDocument(fontManager)
+		// 清空默认样式方便测试。
+		doc.defaultStyles = style.Styles{}
+		root := loadBox(doc, []byte(tc.HTML))
 		if i == 7 {
 			i += 0
 		}
@@ -54,7 +58,7 @@ func TestCalc(t *testing.T) {
 				panic(`指定编号的盒子没找到：` + id)
 			}
 			if styles != box.Base().computedStyles {
-				t.Errorf("排版错误：#%d, id: %s, want: \n%v\ngot: \n%v", i, id, styles, box.Base().computedStyles)
+				t.Errorf("样式错误：#%d, id: %s\nwant: \n%v\ngot: \n%v", i, id, styles, box.Base().computedStyles)
 			}
 		}
 	}

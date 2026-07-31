@@ -17,6 +17,7 @@ import (
 )
 
 const skinDir = `/usr/trimui/res/skin`
+const defaultFontFile = `/usr/trimui/res/full.ttf`
 
 func openDisplay() *Display {
 	d := &Display{}
