@@ -83,12 +83,30 @@ func (fm *FontManager) AddFont(path string, family string, bold, italic bool) er
 	return nil
 }
 
-func (fm *FontManager) GetFace(
-	family string,
-	size int,
-	bold bool,
-	italic bool,
-) (FontFace, error) {
+// 尝试找字体，找不到返回系统字体。
+// 如果系统字体也找不到，直接崩溃。
+func (fm *FontManager) GetFaceWithFallback(family string, size int, bold bool, italic bool) FontFace {
+	face, err := fm.GetFace(family, size, bold, italic)
+	if err == nil {
+		return face
+	}
+
+	if !(family == `system` && !bold && !italic) {
+		system, err := fm.GetFace(`system`, size, bold, italic)
+		if err == nil {
+			return system
+		}
+		// 怎么连对应形状的系统字体也找不到？
+		system, err = fm.GetFace(`system`, size, false, false)
+		if err == nil {
+			return system
+		}
+	}
+
+	panic(`没有任何可用的系统字体，没救了。`)
+}
+
+func (fm *FontManager) GetFace(family string, size int, bold bool, italic bool) (FontFace, error) {
 	out := FontFace{}
 
 	faceKey := _FontFaceKey{

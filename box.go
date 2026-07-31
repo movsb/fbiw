@@ -607,17 +607,12 @@ func NewText(doc *Document) *Text {
 }
 
 func (t *Text) Calc(availWidth, availHeight int) {
-	face, err := t.BaseBox.Document.fontManager.GetFace(
+	face := t.BaseBox.Document.fontManager.GetFaceWithFallback(
 		t.computedStyles.FontFamily.String,
 		t.computedStyles.FontSize.Number,
 		t.computedStyles.FontBold.Bool,
 		t.computedStyles.FontItalic.Bool,
 	)
-	if err != nil {
-		log.Println(err)
-		return
-	}
-
 	t.face = face
 
 	metrics := face.Metrics()

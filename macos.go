@@ -9,7 +9,8 @@ import (
 )
 
 const skinDir = `./skin`
-const defaultFontFile = `./fonts/MapleMonoNormalNL-NF-CN-Regular.ttf`
+const defaultFontFileRegular = `./fonts/MapleMonoNormalNL-NF-CN-Regular.ttf`
+const defaultFontFileBold = `./fonts/MapleMonoNormalNL-NF-CN-Bold.ttf`
 
 func openDisplay() *Display {
 	const (
