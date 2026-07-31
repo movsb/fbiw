@@ -79,7 +79,7 @@
     }
   computed:
     i:
-      color:
+      Color:
         type: 2
         color: 4281490431 # 0xFF325BFF
 
@@ -93,6 +93,43 @@
     a: [0,0,1024,700]
   computed:
     a:
-      spacer:
+      Spacer:
         type: 5
         bool: true
+
+#9
+- html: |
+    <block>
+      <inline>
+        <inline id=status-bar>
+          <img id=img>
+        </inline>
+      </inline>
+    </block>
+  style: |
+    #status-bar { color: green; }
+  computed:
+    status-bar:
+      Color:
+        type: 2
+        color: 396892159
+    img:
+      Color:
+        type: 2
+        color: 396892159
+
+#10 有默认值的情况下，如果父元素设置了，仍然应该从（最近有设置的）父元素继承
+- html: |
+    <block>
+      <block id=status-bar>
+        <img id=img>
+      </block>
+    </block>
+  enable_default_styles: true
+  style: |
+    #status-bar { color: green; }
+  computed:
+    img:
+      Color:
+        type: 2
+        color: 396892159

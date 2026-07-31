@@ -139,6 +139,7 @@ const (
 	VTBool
 )
 
+// 表示各种样式值。
 type Value struct {
 	Type _ValueType
 
@@ -148,9 +149,12 @@ type Value struct {
 	Bool   bool
 }
 
+// 特别地：对于颜色来说，Empty() 只表示它没有设置，
+// 但它仍然要从父元素继承。为了不继承，需要判断 Color.None()。
 func (v Value) Empty() bool {
 	return v.Type == VTNone
 }
+
 func (v Value) IsString() bool {
 	return v.Type == VTString
 }
@@ -200,6 +204,16 @@ func BoolValue(v bool) Value {
 
 type Color uint32
 
+const ColorNone = Color(0x01010101)
+
+// 特殊值：判断是否为空色。
+//
+// 如果父元素设备了背景，子元素不想要。
+// 这时候如果什么也不写，会导致继承。
+// 所以只能写个none。
+func (c Color) None() bool {
+	return c != ColorNone
+}
 func (c Color) R() uint8 {
 	return uint8(c >> 24)
 }
@@ -257,6 +271,9 @@ type RuleMatch struct {
 func ParseColor(c string) (_ Value, outErr error) {
 	if len(c) == 0 {
 		return Value{}, nil
+	}
+	if c == `none` {
+		return ColorValue(ColorNone), nil
 	}
 
 	defer func() {

@@ -104,34 +104,33 @@ func applyStyles(root Box, sheets []*style.Sheet) {
 		// 从全局获取默认
 		styles := root.Base().Document.defaultStyles
 
-		// 从样式表更新
-		for d := range declarations(matches) {
-			if err := styles.Set(d.Name, d.Value); err != nil {
-				panic(err)
-			}
-		}
-
-		// 从父母继承
 		inlines := &node.Base().inlineStyles
 		inlineValue := reflect.ValueOf(inlines)
 		stylesValue := reflect.ValueOf(&styles)
+
+		// 从父母继承
 		for field, value := range stylesValue.Elem().Fields() {
+			if !style.ShouldInherit(strings.ToLower(field.Name)) {
+				continue
+			}
 			if field.Type == reflect.TypeFor[style.Value]() {
-				value2 := value.Interface().(style.Value)
-				if !value2.Empty() {
-					continue
-				}
-				if !style.ShouldInherit(strings.ToLower(field.Name)) {
-					continue
-				}
 				for parent := node.Base().Parent; parent != nil; parent = parent.Base().Parent {
 					parentValue := reflect.ValueOf(&parent.Base().computedStyles)
 					parentField := parentValue.Elem().FieldByIndex(field.Index)
 					value3 := parentField.Interface().(style.Value)
 					if !value3.Empty() {
 						value.Set(parentField)
+						// 从最近的祖先那里获取一次即可。
+						break
 					}
 				}
+			}
+		}
+
+		// 从样式表更新
+		for d := range declarations(matches) {
+			if err := styles.Set(d.Name, d.Value); err != nil {
+				panic(err)
 			}
 		}
 

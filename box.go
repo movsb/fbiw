@@ -212,7 +212,7 @@ func (b *BaseBox) Draw(canvas *Canvas) {
 	borderWidth := b.computedStyles.BorderWidth.Number
 
 	// 默认都是 border-box，所以以实际的宽和高为准。
-	if borderWidth > 0 && !b.computedStyles.BorderColor.Empty() {
+	if borderWidth > 0 && !b.computedStyles.BorderColor.Empty() && !b.computedStyles.BorderColor.Color.None() {
 		drawBorder(canvas,
 			b.computedStyles.BorderColor.Color,
 			b.calcPos.Width, b.calcPos.Height,
@@ -228,7 +228,7 @@ func (b *BaseBox) Draw(canvas *Canvas) {
 			b.calcPos.Width-borderWidth*2,
 			b.calcPos.Height-borderWidth*2,
 		)
-	} else if !b.computedStyles.BackgroundColor.Empty() {
+	} else if !b.computedStyles.BackgroundColor.Empty() && !b.computedStyles.BackgroundColor.Color.None() {
 		drawBackgroundColor(
 			canvas.Offset(borderWidth, borderWidth),
 			b.computedStyles.BackgroundColor.Color,
