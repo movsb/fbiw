@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"testing/fstest"
 )
 
 type BoxTest struct {
@@ -20,6 +21,7 @@ func TestCalc(t *testing.T) {
 	cases := LoadTestCases[BoxTest](`testdata/box.yaml`)
 	for i, tc := range cases {
 		fontManager := NewFontManager()
+		imageManager := NewImageManager()
 
 		// 早期非标准页面兼容
 		if strings.HasPrefix(tc.HTML, `<block`) {
@@ -31,8 +33,16 @@ func TestCalc(t *testing.T) {
 			tc.HTML = updated
 		}
 
-		doc, err := NewDocument(fontManager, strings.NewReader(tc.HTML))
-		if err != nil {
+		doc := NewDocument(
+			fstest.MapFS{
+				`main.html`: &fstest.MapFile{
+					Data: []byte(tc.HTML),
+					Mode: 0644,
+				},
+			},
+			fontManager, imageManager,
+		)
+		if err := doc.Load(`main.html`, `.`); err != nil {
 			t.Errorf(`文档解析失败：#%d: %v`, i, err)
 			continue
 		}

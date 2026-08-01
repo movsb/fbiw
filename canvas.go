@@ -1,9 +1,18 @@
 package main
 
 import (
+	"context"
+	"fmt"
+	"image"
 	"image/color"
 	"image/draw"
+	_ "image/png"
+	"io/fs"
+	"log"
+	"time"
 	"unsafe"
+
+	"github.com/phuslu/lru"
 )
 
 // 绘图层。
@@ -45,7 +54,7 @@ func (c *Canvas) Offset(x, y int) *Canvas {
 	}
 }
 
-func (c *Canvas) DrawImage(img *DecodedImage, width, height int) {
+func (c *Canvas) DrawImage(img DecodedImage, width, height int) {
 	// 右下角限制在屏幕内。
 	if c.x+width > c.width {
 		width = c.width - c.x
@@ -143,8 +152,7 @@ func (c *Canvas) FillRect(x, y, width, height int, color Color) {
 		if yy == y0 {
 			line0 = c.buffer[offset : offset+(x1-x0)*c.bytesPerPixel]
 			for i := 0; i < (x1-x0)*c.bytesPerPixel; i += c.bytesPerPixel {
-				p := c.buffer[offset+i:]
-				_ = p[3]
+				p := c.buffer[offset+i : offset+i+4]
 				p[0] = color.B() // TODO 确定被内联
 				p[1] = color.G()
 				p[2] = color.R()
@@ -155,26 +163,6 @@ func (c *Canvas) FillRect(x, y, width, height int, color Color) {
 		}
 	}
 }
-
-/*
-// 批量写，自动折行。
-func (c *Canvas) Writer(x, y int) io.Writer {
-	return _BatchWriter{c: c, x: x, y: y}
-}
-
-type _BatchWriter struct {
-	c    *Canvas
-	x, y int
-
-	offsetX, offsetY int
-}
-
-func (w _BatchWriter) Write(p []byte) (int, error) {
-	if len(p)&3 > 0 {
-		panic(`应该为4字节颜色数据`)
-	}
-}
-*/
 
 func (c *Canvas) ToDrawable(width, height int) draw.Image {
 	fc := FontCanvas{
@@ -191,6 +179,7 @@ func (c *Canvas) ToDrawable(width, height int) draw.Image {
 	return fc
 }
 
+// TODO 去掉。换成画矩形。
 func (c *Canvas) DrawBorder(cr Color, w, h int, borderWidth int) {
 	c.FillRect(0, 0, w, borderWidth, cr)
 	c.FillRect(0, h-borderWidth, w, borderWidth, cr)
@@ -198,17 +187,101 @@ func (c *Canvas) DrawBorder(cr Color, w, h int, borderWidth int) {
 	c.FillRect(w-borderWidth, borderWidth, borderWidth, h-borderWidth*2, cr)
 }
 
-func (c *Canvas) DrawBackgroundColor(cr Color, w, h int) {
-	c.FillRect(0, 0, w, h, cr)
+type _ImageCacheKey struct {
+	fsys fs.FS
+	path string
 }
 
-func (c *Canvas) DrawBackgroundImage(path string, width, height int) {
-	if path == `` {
-		return
+// 用标准库的 draw.Draw 造成了极多不必要的计算，
+// 而目标屏幕的内存格式是确定的（B、G、R、A），都不是 [image.RGBA] 或
+// [image.NRGBA] 的格式（它们是 R、G、B、A），每次渲染的时候都转换实在没有意义。
+// 所以这里直接在内存中保存目标格式，加快渲染效率。
+type DecodedImage struct {
+	Pixels        []byte // 内存格式：B G R A，长度：width*height*4
+	Width, Height int
+}
+
+type ImageManager struct {
+	cache *lru.TTLCache[_ImageCacheKey, DecodedImage]
+}
+
+func NewImageManager() *ImageManager {
+	return &ImageManager{
+		// https://github.com/phuslu/lru/issues/32
+		cache: lru.NewTTLCache[_ImageCacheKey, DecodedImage](
+			1024, lru.WithShards[_ImageCacheKey, DecodedImage](1)),
 	}
-	img, err := loadImageCached(path)
+}
+
+func (m *ImageManager) Close() {
+	m.cache = nil
+}
+
+func (m *ImageManager) decodeImage(fsys fs.FS, path string) (DecodedImage, error) {
+	log.Println(`重新解码：`, path)
+
+	fp, err := fsys.Open(path)
 	if err != nil {
-		return
+		log.Println(err, path)
+		return DecodedImage{}, err
 	}
-	c.DrawImage(img, width, height)
+	defer fp.Close()
+
+	img, _, err := image.Decode(fp)
+	if err != nil {
+		log.Println(`图片解码错误`, err, path)
+		return DecodedImage{}, err
+	}
+
+	width, height := img.Bounds().Dx(), img.Bounds().Dy()
+
+	decoded := DecodedImage{
+		Width:  width,
+		Height: height,
+		Pixels: make([]byte, width*height*4),
+	}
+
+	var pixels []byte
+	var stride int
+
+	switch m := img.(type) {
+	case *image.RGBA:
+		pixels = m.Pix
+		stride = m.Stride
+	case *image.NRGBA:
+		pixels = m.Pix
+		stride = m.Stride
+	default:
+		log.Printf(`暂不支持的图片解码格式：%T`, img)
+		return DecodedImage{}, fmt.Errorf(`不支持的图片格式`)
+	}
+
+	for y := range decoded.Height {
+		p := pixels[y*stride:]
+		for x := range decoded.Width {
+			offset := (y*decoded.Width + x) * 4
+			d := decoded.Pixels[offset : offset+4]
+			d[0] = p[2+x*4]
+			d[1] = p[1+x*4]
+			d[2] = p[0+x*4]
+			d[3] = p[3+x*4]
+		}
+	}
+
+	return decoded, nil
+}
+
+func (m *ImageManager) GetImageCached(fsys fs.FS, path string) (DecodedImage, error) {
+	img, err, _ := m.cache.GetOrLoad(
+		context.Background(),
+		_ImageCacheKey{
+			fsys: fsys,
+			path: path,
+		},
+		func(ctx context.Context, _ _ImageCacheKey) (DecodedImage, time.Duration, error) {
+			decoded, err := m.decodeImage(fsys, path)
+			return decoded, time.Minute * 30, err
+		},
+	)
+	return img, err
 }

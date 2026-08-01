@@ -5,7 +5,6 @@ import (
 	"log"
 	"net/http"
 	_ "net/http/pprof"
-	"os"
 	"time"
 )
 
@@ -19,23 +18,17 @@ func init() {
 func initFonts() *FontManager {
 	fontManager := NewFontManager()
 	if err := fontManager.AddFont(defaultFontFileRegular, `system`, false, false); err != nil {
-		log.Fatalln(`加载默认字体失败：`, err)
+		log.Panic(`加载默认字体失败：`, err)
 	}
 	if defaultFontFileBold != `` {
 		if err := fontManager.AddFont(defaultFontFileBold, `system`, true, false); err != nil {
-			log.Fatalln(`加载默认字体失败：`, err)
+			log.Panic(`加载默认字体失败：`, err)
 		}
 	}
 	if err := loadFonts(fontManager); err != nil {
 		panic(`字体加载失败：` + err.Error())
 	}
 	return fontManager
-}
-
-func initDocument(fm *FontManager) *Document {
-	fp := Must1(os.Open(`main.html`))
-	defer fp.Close()
-	return Must1(NewDocument(fm, fp))
 }
 
 func main() {
@@ -45,20 +38,26 @@ func main() {
 	fontManager := initFonts()
 	defer fontManager.Close()
 
-	mainDoc := initDocument(fontManager)
+	imageManager := NewImageManager()
+	defer imageManager.Close()
+
 	canvas := NewCanvas(display)
 
+	mainDoc := NewDocument(fileSystem, fontManager, imageManager)
+	if err := mainDoc.Load(`main.html`, `skin`); err != nil {
+		log.Fatalln(err)
+	}
 	mainDoc.Resize(canvas.width, canvas.height)
-	Must(mainDoc.Style())
+	mainDoc.StyleNoError()
 	mainDoc.Layout()
 	mainDoc.Paint(canvas)
-	display.Sync()
 
-	ctx, cancel := context.WithCancel(context.Background())
+	display.Sync()
 
 	menuPressed := false
 	startPressed := false
 
+	ctx, cancel := context.WithCancel(context.Background())
 	pollEvents(ctx, func(event Event) {
 		if event.Type == QuitEvent {
 			cancel()

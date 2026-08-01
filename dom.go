@@ -4,7 +4,10 @@ import (
 	_ "embed"
 	"fmt"
 	"io"
+	"io/fs"
 	"iter"
+	"log"
+	"path"
 	"reflect"
 	"slices"
 	"strings"
@@ -14,7 +17,13 @@ import (
 )
 
 type Document struct {
-	fontManager *FontManager
+	// 资源包
+	fsys fs.FS
+	// HTML内引用的所有资源文件基于此目录。
+	skinDir string
+
+	fontManager  *FontManager
+	imageManager *ImageManager
 
 	// 默认样式总是用于初始化拷贝，所以不需要用指针，方便拷贝并覆盖。
 	defaultStyles Styles
@@ -28,20 +37,42 @@ type Document struct {
 	width, height int
 }
 
-func NewDocument(fontManager *FontManager, content io.Reader) (*Document, error) {
+func NewDocument(
+	fileSystem fs.FS,
+	fontManager *FontManager,
+	imageManager *ImageManager,
+) *Document {
 	doc := &Document{
-		fontManager: fontManager,
+		fsys:         fileSystem,
+		fontManager:  fontManager,
+		imageManager: imageManager,
 		defaultStyles: Styles{
 			Color:      ColorValueFromString(`black`),
 			FontFamily: StringValue(`system`),
 			FontSize:   NumberValue(25),
 		},
 	}
-	if err := doc.parse(content); err != nil {
-		return nil, fmt.Errorf(`文档解析失败：%w`, err)
+	return doc
+}
+
+// 从指定文件加载内容。
+//
+// 文件来源于初始化时的文件系统。
+func (doc *Document) Load(name string, skinDir string) error {
+	fp, err := doc.fsys.Open(name)
+	if err != nil {
+		return err
 	}
+	defer fp.Close()
+	if err := doc.parse(fp); err != nil {
+		return fmt.Errorf(`文档解析失败：%w`, err)
+	}
+	if skinDir == `` {
+		skinDir = `.`
+	}
+	doc.skinDir = skinDir
 	doc.SetDirty()
-	return doc, nil
+	return nil
 }
 
 // html parser 的问题：
@@ -213,6 +244,12 @@ func (doc *Document) Style() error {
 	return styler.Style(doc.styleSheet)
 }
 
+func (doc *Document) StyleNoError() {
+	if err := doc.Style(); err != nil {
+		log.Println(err)
+	}
+}
+
 // 重新布局整个文档。
 //
 // TODO 把计算方式从元素自身拆解到这里来。
@@ -239,6 +276,10 @@ func (doc *Document) walkRoot(callback func(box Box) bool) {
 		return true
 	}
 	walk(doc.root, callback)
+}
+
+func (doc *Document) loadImage(src string) (DecodedImage, error) {
+	return doc.imageManager.GetImageCached(doc.fsys, path.Join(doc.skinDir, src))
 }
 
 // 这个类的存在只是不想document下有太多不相关的方法。

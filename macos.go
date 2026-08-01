@@ -5,12 +5,14 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 
 	"github.com/veandco/go-sdl2/sdl"
 )
 
-const skinDir = `./skin`
+var fileSystem = os.DirFS(`.`)
+
 const defaultFontFileRegular = `./fonts/MapleMonoNormalNL-NF-CN-Regular.ttf`
 const defaultFontFileBold = `./fonts/MapleMonoNormalNL-NF-CN-Bold.ttf`
 

@@ -4,11 +4,7 @@ import (
 	_ "embed"
 	"errors"
 	"fmt"
-	"image"
 	"iter"
-	"log"
-	"os"
-	"path/filepath"
 	"unicode/utf8"
 
 	_ "image/jpeg"
@@ -230,18 +226,18 @@ func (b *BaseBox) Draw(canvas *Canvas) {
 		)
 	}
 
-	// 背景位于边框内，要减掉。
 	if src := b.computedStyles.BackgroundImage.String; src != `` {
-		canvas.Offset(borderWidth, borderWidth).DrawBackgroundImage(
-			src,
+		canvas.Offset(borderWidth, borderWidth).DrawImage(
+			DropLast1(b.Document.loadImage(src)),
 			b.calcPos.Width-borderWidth*2,
 			b.calcPos.Height-borderWidth*2,
 		)
 	} else if !b.computedStyles.BackgroundColor.Empty() && !b.computedStyles.BackgroundColor.Color.None() {
-		canvas.Offset(borderWidth, borderWidth).DrawBackgroundColor(
-			b.computedStyles.BackgroundColor.Color,
+		canvas.Offset(borderWidth, borderWidth).FillRect(
+			0, 0,
 			b.calcPos.Width-borderWidth*2,
 			b.calcPos.Height-borderWidth*2,
+			b.computedStyles.BackgroundColor.Color,
 		)
 	}
 
@@ -503,72 +499,6 @@ func (b *Image) ApplyAttributes(key string, val string) error {
 	}
 }
 
-var imgCache = map[string]*DecodedImage{}
-
-// 用标准库的 draw.Draw 造成了极多不必要的计算，
-// 而目标屏幕的内存格式是确定的（B、G、R、A），都不是 [image.RGBA] 或
-// [image.NRGBA] 的格式（它们是 R、G、B、A），每次渲染的时候都转换实在没有意义。
-// 所以这里直接在内存中保存目标格式，加快渲染效率。
-type DecodedImage struct {
-	Pixels        []byte // 内存格式：B G R A，长度：width*height*4
-	Width, Height int
-}
-
-func loadImageCached(path string) (*DecodedImage, error) {
-	if img, ok := imgCache[path]; ok {
-		return img, nil
-	}
-
-	log.Println(`重新解码：`, path)
-	fp, err := os.Open(filepath.Join(skinDir, path))
-	if err != nil {
-		log.Println(err, path)
-		return nil, err
-	}
-	defer fp.Close()
-	img, _, err := image.Decode(fp)
-	if err != nil {
-		log.Println(`图片解码错误`, err, path)
-		return nil, err
-	}
-
-	decoded := &DecodedImage{
-		Width:  img.Bounds().Dx(),
-		Height: img.Bounds().Dy(),
-	}
-	decoded.Pixels = make([]byte, decoded.Width*decoded.Height*4)
-
-	var pixels []byte
-	var stride int
-
-	switch m := img.(type) {
-	case *image.RGBA:
-		pixels = m.Pix
-		stride = m.Stride
-	case *image.NRGBA:
-		pixels = m.Pix
-		stride = m.Stride
-	default:
-		log.Printf(`暂不支持的图片解码格式：%T`, img)
-		return nil, fmt.Errorf(`不支持的图片格式`)
-	}
-
-	for y := range decoded.Height {
-		p := pixels[y*stride:]
-		for x := range decoded.Width {
-			d := decoded.Pixels[y*decoded.Width*4+x*4:]
-			d[0] = p[2+x*4]
-			d[1] = p[1+x*4]
-			d[2] = p[0+x*4]
-			d[3] = p[3+x*4]
-		}
-	}
-
-	imgCache[path] = decoded
-
-	return decoded, nil
-}
-
 func (b *Image) Calc(availWidth, availHeight int) {
 	if !b.computedStyles.Width.Empty() && !b.computedStyles.Height.Empty() {
 		b.calcPos.Width = b.computedStyles.Width.Number
@@ -581,7 +511,7 @@ func (b *Image) Calc(availWidth, availHeight int) {
 		return
 	}
 
-	img, err := loadImageCached(b.Src)
+	img, err := b.Document.loadImage(b.Src)
 	if err != nil {
 		b.calcPos = Rect{}
 		return
@@ -598,7 +528,7 @@ func (b *Image) Draw(canvas *Canvas) {
 		return
 	}
 
-	img, err := loadImageCached(b.Src)
+	img, err := b.Document.loadImage(b.Src)
 	if err != nil {
 		return
 	}

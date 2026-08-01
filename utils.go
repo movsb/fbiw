@@ -23,6 +23,10 @@ func Must1[T any](t T, err error) T {
 	return t
 }
 
+func DropLast1[T1 any, T2 any](t1 T1, t2 T2) T1 {
+	return t1
+}
+
 func MustParseInt(s string) int {
 	return Must1(strconv.Atoi(s))
 }

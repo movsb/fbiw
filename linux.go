@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"embed"
 	"encoding/binary"
 	"fmt"
 	"os"
@@ -16,7 +17,9 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-const skinDir = `/usr/trimui/res/skin`
+//go:embed main.html skin
+var fileSystem embed.FS
+
 const defaultFontFileRegular = `/usr/trimui/res/full.ttf`
 const defaultFontFileBold = ``
 
