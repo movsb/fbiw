@@ -34,6 +34,9 @@ func openDisplay() *Display {
 	}
 	// defer sdl.Quit()
 
+	// 启动即关闭输入法。
+	sdl.StopTextInput()
+
 	window, err := sdl.CreateWindow("gofb",
 		sdl.WINDOWPOS_CENTERED, sdl.WINDOWPOS_CENTERED,
 		windowWidth, windowHeight, sdl.WINDOW_SHOWN,
