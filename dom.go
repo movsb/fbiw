@@ -282,6 +282,15 @@ func (doc *Document) loadImage(src string) (DecodedImage, error) {
 	return doc.imageManager.GetImageCached(doc.fsys, path.Join(doc.skinDir, src))
 }
 
+func (doc *Document) loadFaceWithFallback(box Box) FontFace {
+	return doc.fontManager.GetFaceWithFallback(
+		box.Base().computedStyles.FontFamily.String,
+		box.Base().computedStyles.FontSize.Number,
+		box.Base().computedStyles.FontBold.Bool,
+		box.Base().computedStyles.FontItalic.Bool,
+	)
+}
+
 // 这个类的存在只是不想document下有太多不相关的方法。
 type _Styler struct {
 	doc *Document

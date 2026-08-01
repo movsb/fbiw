@@ -59,12 +59,12 @@ func openDisplay() *Display {
 
 	d.Data = make([]byte, len(data))
 
-	d.Close = func() {
+	d.close = func() {
 		unix.Munmap(data)
 		unix.Close(fd)
 	}
 
-	d.Sync = func() {
+	d.sync = func() {
 		// 应该等垂直同步，但是我不知道怎么等。
 		copy(data, d.Data)
 	}

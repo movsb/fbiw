@@ -126,6 +126,49 @@ func (b *BaseBox) presetWidth(parentTotalAvailWidth int) {
 	}
 }
 
+func (b *BaseBox) Calc(availWidth, availHeight int) {
+	b.calcPos = Rect{
+		0, 0,
+		b.computedStyles.Width.Number,
+		b.computedStyles.Height.Number,
+	}
+}
+
+func (b *BaseBox) Draw(canvas *Canvas) {
+	defer b.SetNoDirty()
+
+	borderWidth := b.computedStyles.BorderWidth.Number
+
+	// 默认都是 border-box，所以以实际的宽和高为准。
+	if borderWidth > 0 && !b.computedStyles.BorderColor.Empty() && !b.computedStyles.BorderColor.Color.None() {
+		canvas.DrawBorder(
+			b.computedStyles.BorderColor.Color,
+			b.calcPos.Width, b.calcPos.Height,
+			borderWidth,
+		)
+	}
+
+	if src := b.computedStyles.BackgroundImage.String; src != `` {
+		canvas.Offset(borderWidth, borderWidth).DrawImage(
+			DropLast1(b.Document.loadImage(src)),
+			b.calcPos.Width-borderWidth*2,
+			b.calcPos.Height-borderWidth*2,
+		)
+	} else if !b.computedStyles.BackgroundColor.Empty() && !b.computedStyles.BackgroundColor.Color.None() {
+		canvas.Offset(borderWidth, borderWidth).FillRect(
+			0, 0,
+			b.calcPos.Width-borderWidth*2,
+			b.calcPos.Height-borderWidth*2,
+			b.computedStyles.BackgroundColor.Color,
+		)
+	}
+
+	for _, child := range b.Children {
+		p := child.Base().calcPos
+		child.Draw(canvas.Offset(p.X, p.Y))
+	}
+}
+
 type Block struct {
 	BaseBox
 }
@@ -202,49 +245,6 @@ func (b *Block) Calc(availWidth, availHeight int) {
 		b.computedWidth.IsNumber(), computed.Width.IsNumber(),
 		b.computedWidth.Number, computed.Width.Number, boxMaxWidth)
 	b.calcPos.Height = Iif(computed.Height.IsNumber(), computed.Height.Number, contentHeight+ncWidth*2)
-}
-
-func (b *BaseBox) Calc(availWidth, availHeight int) {
-	b.calcPos = Rect{
-		0, 0,
-		b.computedStyles.Width.Number,
-		b.computedStyles.Height.Number,
-	}
-}
-
-func (b *BaseBox) Draw(canvas *Canvas) {
-	defer b.SetNoDirty()
-
-	borderWidth := b.computedStyles.BorderWidth.Number
-
-	// 默认都是 border-box，所以以实际的宽和高为准。
-	if borderWidth > 0 && !b.computedStyles.BorderColor.Empty() && !b.computedStyles.BorderColor.Color.None() {
-		canvas.DrawBorder(
-			b.computedStyles.BorderColor.Color,
-			b.calcPos.Width, b.calcPos.Height,
-			borderWidth,
-		)
-	}
-
-	if src := b.computedStyles.BackgroundImage.String; src != `` {
-		canvas.Offset(borderWidth, borderWidth).DrawImage(
-			DropLast1(b.Document.loadImage(src)),
-			b.calcPos.Width-borderWidth*2,
-			b.calcPos.Height-borderWidth*2,
-		)
-	} else if !b.computedStyles.BackgroundColor.Empty() && !b.computedStyles.BackgroundColor.Color.None() {
-		canvas.Offset(borderWidth, borderWidth).FillRect(
-			0, 0,
-			b.calcPos.Width-borderWidth*2,
-			b.calcPos.Height-borderWidth*2,
-			b.computedStyles.BackgroundColor.Color,
-		)
-	}
-
-	for _, child := range b.Children {
-		p := child.Base().calcPos
-		child.Draw(canvas.Offset(p.X, p.Y))
-	}
 }
 
 type Button struct {
@@ -388,12 +388,11 @@ func NewSpacer(doc *Document) *Spacer {
 	}
 }
 
-// 只用于嵌入。
 type Text struct {
 	BaseBox
 	Data string
 
-	// calc后保存的face，避免重复计算
+	// calc后保存的face，draw可以直接用，避免重复计算
 	face FontFace
 }
 
@@ -407,15 +406,8 @@ func NewText(doc *Document) *Text {
 }
 
 func (t *Text) Calc(availWidth, availHeight int) {
-	face := t.BaseBox.Document.fontManager.GetFaceWithFallback(
-		t.computedStyles.FontFamily.String,
-		t.computedStyles.FontSize.Number,
-		t.computedStyles.FontBold.Bool,
-		t.computedStyles.FontItalic.Bool,
-	)
-	t.face = face
-
-	metrics := face.Metrics()
+	t.face = t.Document.loadFaceWithFallback(t)
+	metrics := t.face.Metrics()
 	textHeight := (metrics.Ascent + metrics.Descent).Ceil()
 
 	segment := func(s string) (int, string) {
@@ -426,7 +418,7 @@ func (t *Text) Calc(availWidth, availHeight int) {
 			if r == utf8.RuneError {
 				return 0, ``
 			}
-			rw := face.MeasureString(s[p : p+n])
+			rw := t.face.MeasureString(s[p : p+n])
 			if width+rw > availWidth {
 				return width, s[p:]
 			}

@@ -76,9 +76,19 @@ type Display struct {
 	Data []byte
 
 	// 写完后调用此方法同步到屏幕。
-	Sync func()
+	sync func()
 
-	Close func()
+	close func()
+}
+
+// 把数据同步到屏幕显示。
+func (d *Display) Sync() {
+	d.sync()
+}
+
+// 关闭屏幕（断开与屏幕的连接）。
+func (d *Display) Close() {
+	d.close()
 }
 
 type EventType uint

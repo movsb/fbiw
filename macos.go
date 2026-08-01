@@ -60,13 +60,13 @@ func openDisplay() *Display {
 	originRect := sdl.Rect{X: 0, Y: 0, W: windowWidth, H: windowHeight}
 	scaledRect := sdl.Rect{X: 0, Y: 0, W: windowWidth, H: windowHeight}
 
-	d.Sync = func() {
+	d.sync = func() {
 		copy(buffer.Pixels(), d.Data)
 		buffer.Blit(&originRect, surface, &scaledRect)
 		window.UpdateSurface()
 	}
 
-	d.Close = func() {
+	d.close = func() {
 		window.Destroy()
 		sdl.Quit()
 	}
