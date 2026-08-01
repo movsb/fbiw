@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"iter"
-	"unicode/utf8"
 
 	_ "image/jpeg"
 	_ "image/png"
@@ -65,10 +64,6 @@ func (b *BaseBox) IsDirty() bool {
 		return true
 	}
 	for _, c := range b.Children {
-		// 文本会设置给父对象。
-		if _, ok := c.(*Text); ok {
-			continue
-		}
 		if c.Base().IsDirty() {
 			return true
 		}
@@ -86,7 +81,7 @@ func (b *BaseBox) Ancestors() iter.Seq[Box] {
 	}
 }
 
-func (b *BaseBox) appendChild(self, child Box) {
+func (b *BaseBox) appendChild(child Box) {
 	b.Children = append(b.Children, child)
 	child.Base().Parent = b
 }
@@ -406,50 +401,30 @@ func NewText(doc *Document) *Text {
 }
 
 func (t *Text) Calc(availWidth, availHeight int) {
-	t.face = t.Document.loadFaceWithFallback(t)
-	metrics := t.face.Metrics()
-	textHeight := (metrics.Ascent + metrics.Descent).Ceil()
-
-	segment := func(s string) (int, string) {
-		width := 0
-		p := 0
-		for {
-			r, n := utf8.DecodeRuneInString(s[p:])
-			if r == utf8.RuneError {
-				return 0, ``
-			}
-			rw := t.face.MeasureString(s[p : p+n])
-			if width+rw > availWidth {
-				return width, s[p:]
-			}
-			if width+rw < availWidth {
-				width += rw
-				p += n
-				if p == len(s) {
-					return width, ``
-				}
-				continue
-			}
-			width += rw
-			p += n
-			return width, s[p:]
-		}
+	if t.Data == `` {
+		t.calcPos = Rect{}
+		return
 	}
 
-	s := t.Data
+	t.face = t.Document.loadFaceWithFallback(t)
+	textHeight := t.face.TextHeight()
 
-	maxWidth := 0
-	lines := 0
+	var (
+		maxWidth = 0
+		lines    = 0
+		text     = t.Data
+	)
 
 	for {
-		w, r := segment(s)
-		if w == 0 {
-			return // 出错了
+		index, width, err := t.face.Segment(text, availWidth)
+		if err != nil {
+			t.calcPos = Rect{}
+			return
 		}
-		maxWidth = max(maxWidth, w)
-		s = r
+		maxWidth = max(maxWidth, width)
 		lines++
-		if s == `` {
+		text = text[index:]
+		if len(text) == 0 {
 			break
 		}
 	}
@@ -460,10 +435,27 @@ func (t *Text) Calc(availWidth, availHeight int) {
 
 func (t *Text) Draw(canvas *Canvas) {
 	t.Base().SetNoDirty()
-	drawString(canvas,
-		t.Data, t.face, t.computedStyles.Color.Color,
-		t.calcPos.Width, t.calcPos.Height,
-	)
+
+	textHeight := t.face.TextHeight()
+	offsetY := 0
+
+	for text := t.Data; ; {
+		index, _, err := t.face.Segment(text, t.calcPos.Width)
+		if err != nil {
+			return
+		}
+		canvas.Offset(0, offsetY).drawString(
+			text[:index], t.face,
+			t.computedStyles.Color.Color,
+			// 这里的参数其实不对，但是也不关紧要。
+			t.calcPos.Width, t.calcPos.Height,
+		)
+		text = text[index:]
+		offsetY += textHeight
+		if len(text) == 0 {
+			break
+		}
+	}
 }
 
 type Image struct {

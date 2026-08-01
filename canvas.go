@@ -10,7 +10,6 @@ import (
 	"io/fs"
 	"log"
 	"time"
-	"unicode/utf8"
 	"unsafe"
 
 	"github.com/phuslu/lru"
@@ -167,7 +166,7 @@ func (c *Canvas) FillRect(x, y, width, height int, color Color) {
 	}
 }
 
-func (c *Canvas) ToDrawable(width, height int) draw.Image {
+func (c *Canvas) toDrawable(width, height int) draw.Image {
 	fc := FontCanvas{
 		underlying: c,
 		width:      width,
@@ -188,6 +187,17 @@ func (c *Canvas) DrawBorder(cr Color, w, h int, borderWidth int) {
 	c.FillRect(0, h-borderWidth, w, borderWidth, cr)
 	c.FillRect(0, borderWidth, borderWidth, h-borderWidth*2, cr)
 	c.FillRect(w-borderWidth, borderWidth, borderWidth, h-borderWidth*2, cr)
+}
+
+// 内部方法：只是简单地在当前位置画完字符串。
+func (c *Canvas) drawString(text string, face FontFace, color Color, width, height int) {
+	drawer := font.Drawer{
+		Dst:  c.toDrawable(width, height),
+		Src:  image.NewUniform(color.NRGBA()),
+		Face: face,
+		Dot:  fixed.Point26_6{X: 0, Y: face.Metrics().Ascent},
+	}
+	drawer.DrawString(text)
 }
 
 type _ImageCacheKey struct {
@@ -308,71 +318,4 @@ func (c FontCanvas) At(x, y int) color.Color {
 func (c FontCanvas) Set(x, y int, clr color.Color) {
 	cc := c.ColorModel().Convert(clr).(color.NRGBA)
 	c.underlying.SetPixel(x, y, cc)
-}
-
-func drawString(canvas *Canvas, text string, face FontFace, color Color, width, height int) {
-	metrics := face.Metrics()
-	accent := metrics.Ascent.Ceil()
-	decent := metrics.Descent.Ceil()
-	textHeight := accent + decent
-
-	segment := func(s string) (int, int) {
-		w := 0
-		p := 0
-		for {
-			r, n := utf8.DecodeRuneInString(s[p:])
-			if r == utf8.RuneError {
-				return 0, 0
-			}
-			rw := face.MeasureString(s[p : p+n])
-			if w+rw > width {
-				return width, p
-			}
-			if w+rw < width {
-				w += rw
-				p += n
-				if p == len(s) {
-					return w, p
-				}
-				continue
-			}
-			w += rw
-			p += n
-			return w, p
-		}
-	}
-
-	lines := []string{}
-	maxWidth := 0
-
-	for text != `` {
-		w, p := segment(text)
-		if w == 0 {
-			return
-		}
-		maxWidth = max(maxWidth, w)
-		lines = append(lines, text[:p])
-		text = text[p:]
-	}
-
-	allHeight := textHeight * len(lines) //+ (len(lines)-1)*metrics.Height.Ceil()
-	y := accent + (height-allHeight)/2
-	x := (width - maxWidth) / 2
-
-	for _, line := range lines {
-		drawer := font.Drawer{
-			Dst:  canvas.ToDrawable(width, height),
-			Src:  image.NewUniform(color.NRGBA()),
-			Face: face,
-			Dot: fixed.Point26_6{
-				X: 0,
-				Y: 0,
-			},
-		}
-
-		drawer.Dot = fixed.P(x, y)
-		drawer.DrawString(line)
-
-		y += textHeight //+ metrics.Height.Ceil()
-	}
 }

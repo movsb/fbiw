@@ -21,7 +21,6 @@ import (
 var fileSystem embed.FS
 
 const defaultFontFileRegular = `/usr/trimui/res/full.ttf`
-const defaultFontFileBold = ``
 
 func openDisplay() *Display {
 	d := &Display{}
@@ -207,6 +206,6 @@ func _pollEvents(ctx context.Context, handler func(Event)) {
 	}
 }
 
-func loadFonts(fontManager *FontManager) error {
+func loadFonts(_ *FontManager) error {
 	return nil
 }

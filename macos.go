@@ -14,7 +14,6 @@ import (
 var fileSystem = os.DirFS(`.`)
 
 const defaultFontFileRegular = `./fonts/MapleMonoNormalNL-NF-CN-Regular.ttf`
-const defaultFontFileBold = `./fonts/MapleMonoNormalNL-NF-CN-Bold.ttf`
 
 func openDisplay() *Display {
 	const (
@@ -135,26 +134,20 @@ func loadFonts(fontManager *FontManager) error {
 	}{
 		`fonts/`: {
 			{
-				FileName: `MapleMonoNormalNL-NF-CN-Regular.ttf`,
-				Family:   `MapleMono`,
-				Bold:     false,
-				Italic:   false,
-			},
-			{
 				FileName: `MapleMonoNormalNL-NF-CN-Italic.ttf`,
-				Family:   `MapleMono`,
+				Family:   `system`,
 				Bold:     false,
 				Italic:   true,
 			},
 			{
 				FileName: `MapleMonoNormalNL-NF-CN-Bold.ttf`,
-				Family:   `MapleMono`,
+				Family:   `system`,
 				Bold:     true,
 				Italic:   false,
 			},
 			{
 				FileName: `MapleMonoNormalNL-NF-CN-BoldItalic.ttf`,
-				Family:   `MapleMono`,
+				Family:   `system`,
 				Bold:     true,
 				Italic:   true,
 			},

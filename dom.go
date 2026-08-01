@@ -194,7 +194,7 @@ func transformFromHTMLNodes(doc *Document, node *html.Node) (Box, error) {
 			if child == nil {
 				continue
 			}
-			box.Base().appendChild(box, child)
+			box.Base().appendChild(child)
 		}
 		return box, nil
 	}

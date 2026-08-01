@@ -20,11 +20,6 @@ func initFonts() *FontManager {
 	if err := fontManager.AddFont(defaultFontFileRegular, `system`, false, false); err != nil {
 		log.Panic(`加载默认字体失败：`, err)
 	}
-	if defaultFontFileBold != `` {
-		if err := fontManager.AddFont(defaultFontFileBold, `system`, true, false); err != nil {
-			log.Panic(`加载默认字体失败：`, err)
-		}
-	}
 	if err := loadFonts(fontManager); err != nil {
 		panic(`字体加载失败：` + err.Error())
 	}
