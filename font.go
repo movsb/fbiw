@@ -7,6 +7,7 @@ import (
 
 	"golang.org/x/image/font"
 	"golang.org/x/image/font/opentype"
+	"golang.org/x/image/math/fixed"
 )
 
 type FontManager struct {
@@ -33,8 +34,8 @@ type FontFace struct {
 }
 
 // 测试文本 text 使用此字体时所占据的宽度。
-func (ff FontFace) MeasureString(text string) int {
-	return font.MeasureString(ff, text).Ceil()
+func (ff FontFace) MeasureString(text string) fixed.Int26_6 {
+	return font.MeasureString(ff, text)
 }
 
 func (ff FontFace) TextHeight() int {
@@ -44,10 +45,11 @@ func (ff FontFace) TextHeight() int {
 // 把文本 text 按最大宽度切割成子串。
 // 返回子串结束点索引（不含此位置），子串宽度。
 func (ff FontFace) Segment(text string, maxWidth int) (int, int, error) {
-	var width, index int
+	var width fixed.Int26_6
+	var index int
 	for {
 		if index == len(text) {
-			return index, width, nil
+			return index, width.Ceil(), nil
 		}
 		char, size := utf8.DecodeRuneInString(text[index:])
 		if char == utf8.RuneError {
@@ -56,8 +58,8 @@ func (ff FontFace) Segment(text string, maxWidth int) (int, int, error) {
 		// NOTE 此处的 MeasureString 方法返回的不是精确整数值（ceil过），
 		// 每次只算一个字符然后再在一起作为总宽度可能会导致误差越来越大。
 		nextCharWidth := ff.MeasureString(text[index : index+size])
-		if width+nextCharWidth > maxWidth {
-			return index, width, nil
+		if width+nextCharWidth > fixed.I(maxWidth) {
+			return index, width.Ceil(), nil
 		}
 		width += nextCharWidth
 		index += size

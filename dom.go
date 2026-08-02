@@ -150,7 +150,7 @@ func (doc *Document) parse(content io.Reader) error {
 		return fmt.Errorf(`缺少block节点`)
 	}
 
-	box, err := transformFromHTMLNodes(doc, bodyNode)
+	box, err := _NodeTransformer{doc}.Transform(bodyNode)
 	if err != nil {
 		return fmt.Errorf(`文档内容节点解析失败：%w`, err)
 	}
@@ -163,7 +163,7 @@ func (doc *Document) parse(content io.Reader) error {
 // 获取指定ID的元素。
 func (doc *Document) GetElementByID(id string) Box {
 	var out Box
-	doc.walkRoot(func(box Box) bool {
+	doc.walkNode(doc.root, func(box Box) bool {
 		if box.Base().ID == id {
 			out = box
 			return false
@@ -173,57 +173,131 @@ func (doc *Document) GetElementByID(id string) Box {
 	return out
 }
 
-func transformFromHTMLNodes(doc *Document, node *html.Node) (Box, error) {
-	processNode := func(box Box, node *html.Node, voidElement bool) (Box, error) {
-		for _, a := range node.Attr {
-			// 所有的节点理应都是从BaseBox继承的，所以接口不可能为空。
-			// 但是也不能调BaseBox().Apply...，因为子类有方法覆盖。
-			if err := box.(AttributeApplier).ApplyAttributes(a.Key, a.Val); err != nil {
-				return nil, err
-			}
-		}
-		if voidElement && node.FirstChild != nil {
-			return nil, fmt.Errorf(`节点不能包含子节点：%s`, node.Data)
-		}
-		for c := range node.ChildNodes() {
-			child, err := transformFromHTMLNodes(doc, c)
-			if err != nil {
-				return nil, err
-			}
-			// 只有空白的文本节点暂时返回空。
-			if child == nil {
-				continue
-			}
-			box.Base().appendChild(child)
-		}
-		return box, nil
-	}
+type _NodeTransformer struct {
+	doc *Document
+}
+
+func (n _NodeTransformer) Transform(node *html.Node) (Box, error) {
+	return n.transform(nil, node)
+}
+
+func (n _NodeTransformer) transform(parent Box, node *html.Node) (Box, error) {
 	switch node.Type {
 	case html.ElementNode:
 		switch node.Data {
 		case `block`:
-			return processNode(NewBlock(doc), node, false)
+			return n.transformNode(NewBlock(n.doc), node, false, false)
 		case `inline`:
-			return processNode(NewInline(doc), node, false)
+			return n.transformNode(NewInline(n.doc), node, false, false)
 		case `spacer`:
-			return processNode(NewSpacer(doc), node, true)
+			return n.transformNode(NewSpacer(n.doc), node, true, false)
 		case `button`:
-			return processNode(NewButton(doc), node, false)
+			return n.transformNode(NewButton(n.doc), node, false, false)
 		case `img`:
-			return processNode(NewImage(doc), node, true)
-		case `space`:
-			return processNode(NewSpacer(doc), node, true)
+			return n.transformNode(NewImage(n.doc), node, true, false)
+		case `text`:
+			text, err := n.transformNode(NewText(n.doc), node, false, true)
+			if err == nil {
+				n.expandTextNodes(text.(*Text))
+			}
+			return text, err
+		case `b`:
+			if parent == nil {
+				return nil, fmt.Errorf(`此处不能有元素：%s`, node.Data)
+			}
+			switch parent.Base().Tag {
+			case `text`, `b`:
+			default:
+				return nil, fmt.Errorf(`父子关系不正确：%s -> %s`, parent.Base().Tag, node.Data)
+			}
+			var box Box
+			switch node.Data {
+			case `b`:
+				box = NewBoldText(n.doc)
+			default:
+				panic(`未处理的节点`)
+			}
+			return n.transformNode(box, node, false, true)
 		}
-	case html.TextNode:
-		trimmed := strings.TrimSpace(node.Data)
-		if trimmed == `` {
-			return nil, nil
-		}
-		t := NewText(doc)
-		t.Data = trimmed
-		return t, nil
 	}
 	return nil, fmt.Errorf(`未识别的标签：%v`, node.Data)
+}
+
+// 只处理元素节点，文本节点此内部处理了，不会调用自身。
+func (n _NodeTransformer) transformNode(box Box, node *html.Node, voidElement bool, allowText bool) (Box, error) {
+	for _, a := range node.Attr {
+		// 所有的节点理应都是从BaseBox继承的，所以接口不可能为空。
+		// 但是也不能调BaseBox().Apply...，因为子类有方法覆盖。
+		if err := box.(AttributeApplier).ApplyAttributes(a.Key, a.Val); err != nil {
+			return nil, err
+		}
+	}
+	// 不能有子节点的节点
+	if voidElement && node.FirstChild != nil {
+		return nil, fmt.Errorf(`节点不能包含子节点：%s`, node.Data)
+	}
+	// 看起来全部合法了？开始处理。
+	for childNode := range node.ChildNodes() {
+		var childBoxOrString any
+		if childNode.Type == html.TextNode {
+			trimmed := strings.TrimSpace(childNode.Data)
+			if !allowText && trimmed != `` {
+				return nil, fmt.Errorf(`此处不能有文本节点：%s`, childNode.Data)
+			}
+			// 空文本总是忽略。
+			if trimmed == `` {
+				continue
+			}
+			childBoxOrString = trimmed
+		} else if childNode.Type == html.CommentNode {
+			continue
+		} else {
+			child, err := n.transform(box, childNode)
+			if err != nil {
+				return nil, err
+			}
+			childBoxOrString = child
+		}
+
+		if text, ok := box.(interface {
+			appendChild(child any)
+		}); ok {
+			text.appendChild(childBoxOrString)
+		} else {
+			box.Base().appendChild(childBoxOrString.(Box))
+		}
+	}
+	return box, nil
+}
+
+// 把 <text> 的树形节点平铺展开方便排版。
+func (n _NodeTransformer) expandTextNodes(text *Text) {
+	text.textRuns = nil
+
+	var processParts func(box Box)
+	processParts = func(box Box) {
+		var children []any
+		switch typed := box.(type) {
+		case *Text:
+			children = typed.textParts.children
+		case *BoldText:
+			children = typed.textParts.children
+		}
+		for _, child := range children {
+			// 如果支持图文混排，类型在这里case吗？
+			switch typed := child.(type) {
+			case string:
+				text.textRuns = append(text.textRuns, _TextRun{
+					Data:  typed,
+					Owner: box,
+				})
+			default:
+				processParts(child.(Box))
+			}
+		}
+	}
+
+	processParts(text)
 }
 
 // 手动弄脏。
@@ -262,20 +336,16 @@ func (doc *Document) Paint(canvas *Canvas) {
 	doc.root.Draw(canvas)
 }
 
-func (doc *Document) walkRoot(callback func(box Box) bool) {
-	var walk func(box Box, callback func(Box) bool) bool
-	walk = func(box Box, callback func(Box) bool) bool {
-		if !callback(box) {
+func (doc *Document) walkNode(box Box, callback func(box Box) bool) bool {
+	if !callback(box) {
+		return false
+	}
+	for _, child := range box.Base().Children {
+		if !doc.walkNode(child, callback) {
 			return false
 		}
-		for _, child := range box.Base().Children {
-			if !walk(child, callback) {
-				return false
-			}
-		}
-		return true
 	}
-	walk(doc.root, callback)
+	return true
 }
 
 func (doc *Document) loadImage(src string) (DecodedImage, error) {
@@ -297,7 +367,7 @@ type _Styler struct {
 }
 
 func (s _Styler) Style(sheet *Sheet) (outErr error) {
-	s.doc.walkRoot(func(box Box) bool {
+	s.doc.walkNode(s.doc.root, func(box Box) bool {
 		rules := s.findRulesFor(box, sheet)
 		if err := s.computeStyles(box, rules); err != nil {
 			outErr = fmt.Errorf(`样式应用失败：%w`, err)

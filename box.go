@@ -198,8 +198,12 @@ func (b *Block) Calc(availWidth, availHeight int) {
 	contentHeight := 0
 
 	for _, child := range b.Children {
-		child.Base().presetWidth(contentAvailWidth)
-		child.Calc(contentAvailWidth, contentAvailHeight-contentHeight)
+		if text, ok := child.(*Text); ok {
+			text.SegmentBlock(contentAvailWidth, contentAvailHeight-contentHeight)
+		} else {
+			child.Base().presetWidth(contentAvailWidth)
+			child.Calc(contentAvailWidth, contentAvailHeight-contentHeight)
+		}
 		child.Base().calcPos.X = ncWidth
 		contentHeight += child.Base().calcPos.Height
 
@@ -304,8 +308,14 @@ func (b *Inline) Calc(availWidth, availHeight int) {
 	contentMaxHeight := 0
 
 	for _, child := range b.Children {
-		child.Base().presetWidth(contentAvailWidth)
-		child.Calc(contentAvailWidth-contentWidth, contentAvailHeight)
+		if text, ok := child.(*Text); ok {
+			// 只处理了一行，如果要wrap，才能继续处理。
+			text.ClearStates()
+			text.SegmentInline(contentAvailWidth-contentWidth, contentAvailHeight)
+		} else {
+			child.Base().presetWidth(contentAvailWidth)
+			child.Calc(contentAvailWidth-contentWidth, contentAvailHeight)
+		}
 		child.Base().calcPos.Y = ncWidth
 		contentWidth += child.Base().calcPos.Width
 		contentMaxHeight = max(contentMaxHeight, child.Base().calcPos.Height)
@@ -369,7 +379,7 @@ func (b *Inline) ApplyAttributes(key string, val string) error {
 
 // 用来代替 margin 的使用。
 //
-// <spacer>是旧html标签，如果使用会被标红，且 html.Parse 错乱。
+// <spacer>是旧html标签，如果使用会被标红，写 `<spacer/>` html.Parse 会错乱。
 type Spacer struct {
 	BaseBox
 }
@@ -378,17 +388,86 @@ func NewSpacer(doc *Document) *Spacer {
 	return &Spacer{
 		BaseBox: BaseBox{
 			Document: doc,
-			Tag:      `space`,
+			Tag:      `spacer`,
 		},
+	}
+}
+
+// 一段奔跑/连续的文本数据/文本块。
+//
+// 这里还不会切割，只是解析结果。切割发生在排版过程中，是下一个阶段。
+// 参考 Text.Calc
+/*
+比如：<text>hello<b>world</b></text>
+得到：[
+		{data:"hello",style:normal},
+		{data:"world",style:bold},
+	  ]
+*/
+// https://blog.twofei.com/2321/
+type _TextRun struct {
+	Data  string // 于文档解析时生成
+	Owner Box    //
+}
+
+type _TextRunFragment struct {
+	Run   *_TextRun
+	Start int
+	End   int
+
+	calcPos Rect
+}
+type _TextLine struct {
+	Fragments []_TextRunFragment
+	// 每个片段的face可能不一样
+	MaxHeight int
+}
+
+type _TextParts struct {
+	// 副本一份子节点，方便把纯文本节点也保存进来，
+	// 这样可以维护原始顺序，而不用把纯文本节点挂
+	// 在真实的dom树上。
+	//
+	// 注意：Box也保存这里，所以它的样式也在这里。
+	children []any // string | Box
+}
+
+func (p *_TextParts) appendChildOrText(owner Box, child any) {
+	p.children = append(p.children, child)
+	if box, ok := child.(Box); ok {
+		owner.Base().appendChild(box)
 	}
 }
 
 type Text struct {
 	BaseBox
-	Data string
 
-	// calc后保存的face，draw可以直接用，避免重复计算
-	face FontFace
+	// 形如 <text>before<b>123</b></text>
+	// 会被解析成：
+	//  - part: before
+	//  - <b>
+	//  -   part: 123
+	//  - part: ""
+	// 这样才能保留结构信息：指文本和元素节点的顺序。
+	// 因为文本节点不保存到树上（因此也不能选中，和 浏览器行为一样）
+	textParts _TextParts
+
+	// 从 textParts 中拆出来的纯文本，用于计算排版。
+	// 只能 <text> 有，bold 这些子元素的文本会合并到这里。
+	// 参考 expandTextNodes 方法。
+	// 用于 Calc。
+	// 除非更新 text 节点，否则不要修改。
+	textRuns []_TextRun
+
+	// 当前使用到哪个 textRuns 了
+	textRunIndex int
+	// 当前使用到 Data 的哪部分了
+	textRunDataIndex int
+
+	// 上面的 textRuns 中的单个不一定能占据整行，所以会被拆成几个片段分成多行显示。
+	// 用于 Draw。
+	textLines        []_TextLine
+	textLineMaxWidth int
 }
 
 func NewText(doc *Document) *Text {
@@ -400,62 +479,156 @@ func NewText(doc *Document) *Text {
 	}
 }
 
-func (t *Text) Calc(availWidth, availHeight int) {
-	if t.Data == `` {
-		t.calcPos = Rect{}
-		return
+// 这个方法重写了基类的方法，只在 transform 中被调用。
+func (t *Text) appendChild(child any) {
+	t.textParts.appendChildOrText(t, child)
+}
+
+// ≈ 给 block 的子元素 calc用的
+// x y 在外面设置。
+func (t *Text) SegmentBlock(availWidth, availHeight int) {
+	t.ClearStates()
+	for t.SegmentInline(availWidth, availHeight) {
 	}
+	t.calcPos = Rect{
+		Width:  t.textLineMaxWidth,
+		Height: t.BlockHeight(),
+	}
+}
 
-	t.face = t.Document.loadFaceWithFallback(t)
-	textHeight := t.face.TextHeight()
-
-	var (
-		maxWidth = 0
-		lines    = 0
-		text     = t.Data
-	)
+// 文本排版很特殊：
+//   - 它要能自动折行
+//   - 起点不一定从0开始（比如图文混排）（暂不支持）
+//   - <text>内部有其它像是<b>之类的样式节点，但是是
+//     连续的内容，不能分开排版，所以必须基于 textRuns。
+//
+// availWidth 在被父节点水平排版的时候可能是变化的（比如inline），
+// 因此不能一次性排版完成所有行。
+//
+// 所以这个函数是每调用一次返回一行内容。
+// 会有内部状态维护剩余未排版的 runs。
+//
+// 这个版本先简单处理、不太计性能。
+//
+// 返回是否还有行宽度、行高度，更多内容。
+//
+// calcPos 只表示当前行。
+func (t *Text) SegmentInline(availWidth, availHeight int) bool {
+	line := _TextLine{}
+	width := 0
 
 	for {
-		index, width, err := t.face.Segment(text, availWidth)
-		if err != nil {
-			t.calcPos = Rect{}
-			return
-		}
-		maxWidth = max(maxWidth, width)
-		lines++
-		text = text[index:]
-		if len(text) == 0 {
+		if t.textRunIndex >= len(t.textRuns) {
 			break
 		}
+		// 换下一个继续Run。
+		if t.textRunDataIndex >= len(t.textRuns[t.textRunIndex].Data) {
+			t.textRunIndex++
+			t.textRunDataIndex = 0
+			if t.textRunIndex >= len(t.textRuns) {
+				break
+			}
+		}
+
+		face := t.Document.loadFaceWithFallback(t.textRuns[t.textRunIndex].Owner)
+		end, runWidth, err := face.Segment(
+			t.textRuns[t.textRunIndex].Data[t.textRunDataIndex:],
+			availWidth-width)
+		if err != nil {
+			// 好像啥也干不了
+			return false
+		}
+
+		// 挤不了了，真的满了
+		if runWidth == 0 {
+			break
+		}
+
+		// 成功塞了一点东西
+		line.Fragments = append(line.Fragments, _TextRunFragment{
+			Run:     &t.textRuns[t.textRunIndex],
+			Start:   t.textRunDataIndex,
+			End:     t.textRunDataIndex + end,
+			calcPos: Rect{Width: runWidth, Height: face.TextHeight()},
+		})
+		line.MaxHeight = max(line.MaxHeight, face.TextHeight())
+
+		// 更新到索引，下次循环会自动切换到一下，如果有必要。
+		t.textRunDataIndex = t.textRunDataIndex + end
+
+		width += runWidth
 	}
 
-	t.calcPos.Width = maxWidth
-	t.calcPos.Height = textHeight * lines
+	t.textLines = append(t.textLines, line)
+	t.textLineMaxWidth = max(t.textLineMaxWidth, width)
+
+	t.calcPos = Rect{Width: width, Height: line.MaxHeight}
+
+	return t.textRunIndex < len(t.textRuns)-1 ||
+		t.textRunIndex == len(t.textRuns)-1 && t.textRunDataIndex < len(t.textRuns[t.textRunIndex].Data)
+}
+
+// 清空分行的内部状态。用于样式更新、内容更新后调用。
+func (t *Text) ClearStates() {
+	t.textRunIndex = 0
+	t.textRunDataIndex = 0
+	t.textLines = nil
+	t.textLineMaxWidth = 0
+}
+
+func (t *Text) BlockHeight() int {
+	h := 0
+	for _, l := range t.textLines {
+		h += l.MaxHeight
+	}
+	return h
 }
 
 func (t *Text) Draw(canvas *Canvas) {
 	t.Base().SetNoDirty()
 
-	textHeight := t.face.TextHeight()
-	offsetY := 0
-
-	for text := t.Data; ; {
-		index, _, err := t.face.Segment(text, t.calcPos.Width)
-		if err != nil {
-			return
-		}
-		canvas.Offset(0, offsetY).drawString(
-			text[:index], t.face,
-			t.computedStyles.Color.Color,
-			// 这里的参数其实不对，但是也不关紧要。
-			t.calcPos.Width, t.calcPos.Height,
-		)
-		text = text[index:]
-		offsetY += textHeight
-		if len(text) == 0 {
-			break
-		}
+	if len(t.textLines) <= 0 {
+		return
 	}
+
+	offsetY := 0
+	for _, line := range t.textLines {
+		offsetX := 0
+		for _, fragment := range line.Fragments {
+			rc := fragment.calcPos
+			text := fragment.Run.Data[fragment.Start:fragment.End]
+			canvas := canvas.Offset(offsetX, offsetY)
+			canvas.drawString(text,
+				t.Document.loadFaceWithFallback(fragment.Run.Owner),
+				fragment.Run.Owner.Base().computedStyles.Color.Color,
+				rc.Width, rc.Height,
+			)
+			offsetX += rc.Width
+		}
+		offsetY += line.MaxHeight
+	}
+}
+
+type BoldText struct {
+	BaseBox
+
+	textParts _TextParts
+}
+
+func NewBoldText(doc *Document) *BoldText {
+	return &BoldText{
+		BaseBox: BaseBox{
+			Document: doc,
+			Tag:      `b`,
+			inlineStyles: Styles{
+				FontBold: BoolValue(true),
+			},
+		},
+	}
+}
+
+func (t *BoldText) appendChild(child any) {
+	t.textParts.appendChildOrText(t, child)
 }
 
 type Image struct {

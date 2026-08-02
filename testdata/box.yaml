@@ -1,6 +1,6 @@
 - html: |
     <block id="t">
-      <space></space>
+      <spacer></spacer>
     </block>
   calc:
     t: [0,0,1024,768]
@@ -8,7 +8,7 @@
 - html: |
     <block>
       <inline id="t"></inline>
-      <space></space>
+      <spacer></spacer>
     </block>
   calc:
     t: [0,0,0,0]
@@ -18,7 +18,7 @@
       <inline id="t">
         <img id=img width=100 height=50>
       </inline>
-      <space></space>
+      <spacer></spacer>
     </block>
   calc:
     img: [0,0,100,50]
@@ -48,9 +48,9 @@
 - html: |
     <block>
       <inline></inline>
-      <space height=50></space>
+      <spacer height=50></spacer>
       <block height=50></block>
-      <space id=s></space>
+      <spacer id=s></spacer>
       <inline></inline>
     </block>
   calc:
