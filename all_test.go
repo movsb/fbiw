@@ -92,3 +92,65 @@ func TestCalc(t *testing.T) {
 		}
 	}
 }
+
+type StyleParseTest struct {
+	Style string
+	Rules []Rule
+}
+
+func TestParseStyle(t *testing.T) {
+	cases := LoadTestCases[StyleParseTest](`testdata/style.yaml`)
+	for i, tc := range cases {
+		sheet, err := ParseStyle([]byte(tc.Style))
+		if err != nil {
+			t.Error(err)
+			continue
+		}
+		if i == 6 {
+			i += 0
+		}
+		for i, r := range tc.Rules {
+			if len(r.Declarations) == 0 {
+				tc.Rules[i].Declarations = nil
+			}
+		}
+		if !reflect.DeepEqual(tc.Rules, sheet.Rules) {
+			t.Errorf("解析不一致：\nwant: %v\ngot:  %v", tc.Rules, sheet.Rules)
+			continue
+		}
+	}
+}
+
+func BenchmarkDrawString(b *testing.B) {
+	b.SkipNow()
+	fm := NewFontManager()
+	if err := fm.AddFont(`fonts/MapleMonoNormalNL-NF-CN-Regular.ttf`, `system`, false, false); err != nil {
+		b.Fatal(err)
+	}
+	face, err := fm.GetFace(`system`, 30, false, false)
+	if err != nil {
+		b.Fatal(err)
+	}
+	b.Run(`dev`, func(b *testing.B) {
+		canvas := Canvas{
+			buffer:        make([]byte, 1024*768*4),
+			bytesPerPixel: 4,
+			width:         1024,
+			height:        768,
+		}
+		for b.Loop() {
+			canvas.drawStringDevice(`想测试一下字符串绘制`, face, ColorValueFromString(`red`).Color, 1024, 768)
+		}
+	})
+	b.Run(`std`, func(b *testing.B) {
+		canvas := Canvas{
+			buffer:        make([]byte, 1024*768*4),
+			bytesPerPixel: 4,
+			width:         1024,
+			height:        768,
+		}
+		for b.Loop() {
+			canvas.drawStringStd(`想测试一下字符串绘制`, face, ColorValueFromString(`red`).Color, 1024, 768)
+		}
+	})
+}

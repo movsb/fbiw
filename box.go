@@ -598,7 +598,7 @@ func (t *Text) Draw(canvas *Canvas) {
 			rc := fragment.calcPos
 			text := fragment.Run.Data[fragment.Start:fragment.End]
 			canvas := canvas.Offset(offsetX, offsetY)
-			canvas.drawString(text,
+			canvas.drawStringDevice(text,
 				t.Document.loadFaceWithFallback(fragment.Run.Owner),
 				fragment.Run.Owner.Base().computedStyles.Color.Color,
 				rc.Width, rc.Height,

@@ -189,8 +189,8 @@ func (c *Canvas) DrawBorder(cr Color, w, h int, borderWidth int) {
 	c.FillRect(w-borderWidth, borderWidth, borderWidth, h-borderWidth*2, cr)
 }
 
-// 内部方法：只是简单地在当前位置画完字符串。
-func (c *Canvas) drawString(text string, face FontFace, color Color, width, height int) {
+// 内部方法：只是简单地调用官方库在当前位置画完字符串。
+func (c *Canvas) drawStringStd(text string, face FontFace, color Color, width, height int) {
 	drawer := font.Drawer{
 		Dst:  c.toDrawable(width, height),
 		Src:  image.NewUniform(color.NRGBA()),
@@ -198,6 +198,55 @@ func (c *Canvas) drawString(text string, face FontFace, color Color, width, heig
 		Dot:  fixed.Point26_6{X: 0, Y: face.Metrics().Ascent},
 	}
 	drawer.DrawString(text)
+}
+
+// 按设备要求直接写显存。
+//
+/*
+ go test -bench=. -benchmem
+goos: darwin
+goarch: arm64
+pkg: gofb
+cpu: Apple M2 Pro
+BenchmarkDrawString/dev-12                 14042             84548 ns/op              22 B/op          2 allocs/op
+BenchmarkDrawString/std-12                  5272            222231 ns/op           29424 B/op       7334 allocs/op
+*/
+func (c *Canvas) drawStringDevice(text string, face FontFace, color Color, width, height int) {
+	prev := rune(-1)
+	dot := fixed.Point26_6{X: 0, Y: face.Metrics().Ascent}
+	src := image.NewUniform(color.NRGBA())
+	for _, next := range text {
+		if prev >= 0 {
+			dot.X += face.Kern(prev, next)
+		}
+		dstRect, mask, maskPoint, advance, _ := face.Glyph(dot, next)
+		drawn := false
+		if !dstRect.Empty() && maskPoint.X == 0 && maskPoint.Y == 0 {
+			if alphaImage, ok := mask.(*image.Alpha); ok {
+				for y := dstRect.Min.Y; y < dstRect.Max.Y; y++ {
+					for x := dstRect.Min.X; x < dstRect.Max.X; x++ {
+						alphaOffset := (y-dstRect.Min.Y)*alphaImage.Stride + (x-dstRect.Min.X)*1
+						alpha := int(alphaImage.Pix[alphaOffset])
+						inverted := 255 - alpha
+						if c.x+x < c.width && c.y+y < c.height {
+							dstOffset := (c.y+y)*c.width*c.bytesPerPixel + (c.x+x)*c.bytesPerPixel
+							pixel := c.buffer[dstOffset : dstOffset+4]
+							pixel[0] = uint8((int(color.B())*alpha + int(pixel[0])*inverted) / 255)
+							pixel[1] = uint8((int(color.G())*alpha + int(pixel[1])*inverted) / 255)
+							pixel[2] = uint8((int(color.R())*alpha + int(pixel[2])*inverted) / 255)
+							pixel[3] = 255
+						}
+					}
+				}
+				drawn = true
+			}
+		}
+		if !drawn {
+			draw.DrawMask(c.toDrawable(width, height), dstRect, src, image.Point{}, mask, maskPoint, draw.Over)
+		}
+		dot.X += advance
+		prev = next
+	}
 }
 
 type _ImageCacheKey struct {
