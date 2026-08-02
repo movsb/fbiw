@@ -631,6 +631,28 @@ func (t *BoldText) appendChild(child any) {
 	t.textParts.appendChildOrText(t, child)
 }
 
+type ItalicText struct {
+	BaseBox
+
+	textParts _TextParts
+}
+
+func NewItalicText(doc *Document) *ItalicText {
+	return &ItalicText{
+		BaseBox: BaseBox{
+			Document: doc,
+			Tag:      `i`,
+			inlineStyles: Styles{
+				FontItalic: BoolValue(true),
+			},
+		},
+	}
+}
+
+func (t *ItalicText) appendChild(child any) {
+	t.textParts.appendChildOrText(t, child)
+}
+
 type Image struct {
 	BaseBox
 

@@ -201,12 +201,12 @@ func (n _NodeTransformer) transform(parent Box, node *html.Node) (Box, error) {
 				n.expandTextNodes(text.(*Text))
 			}
 			return text, err
-		case `b`:
+		case `b`, `i`:
 			if parent == nil {
 				return nil, fmt.Errorf(`此处不能有元素：%s`, node.Data)
 			}
 			switch parent.Base().Tag {
-			case `text`, `b`:
+			case `text`, `b`, `i`:
 			default:
 				return nil, fmt.Errorf(`父子关系不正确：%s -> %s`, parent.Base().Tag, node.Data)
 			}
@@ -214,6 +214,8 @@ func (n _NodeTransformer) transform(parent Box, node *html.Node) (Box, error) {
 			switch node.Data {
 			case `b`:
 				box = NewBoldText(n.doc)
+			case `i`:
+				box = NewItalicText(n.doc)
 			default:
 				panic(`未处理的节点`)
 			}
@@ -281,6 +283,8 @@ func (n _NodeTransformer) expandTextNodes(text *Text) {
 		case *Text:
 			children = typed.textParts.children
 		case *BoldText:
+			children = typed.textParts.children
+		case *ItalicText:
 			children = typed.textParts.children
 		}
 		for _, child := range children {
