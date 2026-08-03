@@ -19,6 +19,11 @@ type BoxTest struct {
 
 func TestCalc(t *testing.T) {
 	cases := LoadTestCases[BoxTest](`testdata/box.yaml`)
+	canvas := Canvas{
+		buffer: make([]byte, 1024*768*4),
+		width:  1024,
+		height: 768,
+	}
 	for i, tc := range cases {
 		fontManager := NewFontManager()
 		imageManager := NewImageManager()
@@ -52,12 +57,8 @@ func TestCalc(t *testing.T) {
 			doc.defaultStyles = Styles{}
 		}
 
-		doc.Resize(1024, 768)
-		if err := doc.Style(); err != nil {
-			t.Error(err)
-			continue
-		}
-		doc.Layout()
+		doc.SetCanvas(&canvas)
+		doc.layout()
 
 		for id, rect := range tc.Calc {
 			box := doc.GetElementByID(id)

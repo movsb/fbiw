@@ -6,7 +6,6 @@ import (
 	"io"
 	"io/fs"
 	"iter"
-	"log"
 	"path"
 	"reflect"
 	"slices"
@@ -31,10 +30,19 @@ type Document struct {
 	// 文档内 <style> 元素提供的样式
 	styleSheet *Sheet
 
-	// 文档body根节点
+	// 文档body根节点。
+	// parse完成后写入。
 	root Box
 
-	width, height int
+	// 是否脏了（需要排版或重绘）
+	// 修改了影响排版的属性。比如大小、隐藏、删减。
+	layoutDirty bool
+	// 是否只影响绘制。
+	// 如果只影响了绘制，不应该重新排版。
+	// 比如只修改了背景色。
+	paintDirty bool
+
+	canvas *Canvas
 }
 
 func NewDocument(
@@ -67,11 +75,15 @@ func (doc *Document) Load(name string, skinDir string) error {
 	if err := doc.parse(fp); err != nil {
 		return fmt.Errorf(`文档解析失败：%w`, err)
 	}
+	if err := doc.style(doc.root, true); err != nil {
+		return err
+	}
 	if skinDir == `` {
 		skinDir = `.`
 	}
 	doc.skinDir = skinDir
-	doc.SetDirty()
+	doc.layoutDirty = true
+	doc.paintDirty = true
 	return nil
 }
 
@@ -160,6 +172,27 @@ func (doc *Document) parse(content io.Reader) error {
 	return nil
 }
 
+func (doc *Document) Dirty() bool {
+	return doc.layoutDirty || doc.paintDirty
+}
+
+func (doc *Document) Sync() {
+	if doc.layoutDirty {
+		doc.layout()
+		doc.paintDirty = true
+	}
+	if doc.paintDirty {
+		doc.paint()
+	}
+	doc.layoutDirty = false
+	doc.paintDirty = false
+}
+
+// 使绘制完全失效并重绘。
+func (doc *Document) Invalidate() {
+
+}
+
 // 获取指定ID的元素。
 func (doc *Document) GetElementByID(id string) Box {
 	var out Box
@@ -171,6 +204,29 @@ func (doc *Document) GetElementByID(id string) Box {
 		return true
 	})
 	return out
+}
+
+// 根据CSS选元素。
+// 找不到返回空，错误的selector直接崩溃。
+func (doc *Document) QuerySelector(selector string) Box {
+	var outBox Box
+	sel := ParseSelector(selector)
+	doc.walkNode(doc.root, func(box Box) bool {
+		if (_Styler{doc}).match(box, sel) {
+			outBox = box
+			return false
+		}
+		return true
+	})
+	return outBox
+}
+
+func QuerySelector[T Box](doc *Document, selector string) T {
+	box := doc.QuerySelector(selector)
+	if t, ok := box.(T); ok {
+		return t
+	}
+	panic(`类型不正确`)
 }
 
 type _NodeTransformer struct {
@@ -229,8 +285,8 @@ func (n _NodeTransformer) transform(parent Box, node *html.Node) (Box, error) {
 func (n _NodeTransformer) transformNode(box Box, node *html.Node, voidElement bool, allowText bool) (Box, error) {
 	for _, a := range node.Attr {
 		// 所有的节点理应都是从BaseBox继承的，所以接口不可能为空。
-		// 但是也不能调BaseBox().Apply...，因为子类有方法覆盖。
-		if err := box.(AttributeApplier).ApplyAttributes(a.Key, a.Val); err != nil {
+		// 但是也不能调BaseBox().Set...，因为子类有方法覆盖。
+		if err := box.(Setter).Set(a.Key, a.Val); err != nil {
 			return nil, err
 		}
 	}
@@ -304,40 +360,27 @@ func (n _NodeTransformer) expandTextNodes(text *Text) {
 	processParts(text)
 }
 
-// 手动弄脏。
-func (doc *Document) SetDirty() {
-	doc.root.Base().Dirty = true
-}
-func (doc *Document) IsDirty() bool {
-	return doc.root.Base().IsDirty()
+// 设置画板。
+func (doc *Document) SetCanvas(canvas *Canvas) {
+	doc.canvas = canvas
 }
 
-func (doc *Document) Resize(width, height int) {
-	doc.width, doc.height = width, height
-}
-
-// 对每个节点计算样式。
-func (doc *Document) Style() error {
+// 为节点计算样式。
+func (doc *Document) style(box Box, descendents bool) error {
 	styler := _Styler{doc: doc}
-	return styler.Style(doc.styleSheet)
-}
-
-func (doc *Document) StyleNoError() {
-	if err := doc.Style(); err != nil {
-		log.Println(err)
-	}
+	return styler.Style(box, descendents, doc.styleSheet)
 }
 
 // 重新布局整个文档。
 //
 // TODO 把计算方式从元素自身拆解到这里来。
-func (doc *Document) Layout() {
-	doc.root.Calc(doc.width, doc.height)
+func (doc *Document) layout() {
+	doc.root.Calc(doc.canvas.width, doc.canvas.height)
 }
 
 // 绘制文档。
-func (doc *Document) Paint(canvas *Canvas) {
-	doc.root.Draw(canvas)
+func (doc *Document) paint() {
+	doc.root.Draw(doc.canvas)
 }
 
 func (doc *Document) walkNode(box Box, callback func(box Box) bool) bool {
@@ -370,14 +413,14 @@ type _Styler struct {
 	doc *Document
 }
 
-func (s _Styler) Style(sheet *Sheet) (outErr error) {
-	s.doc.walkNode(s.doc.root, func(box Box) bool {
+func (s _Styler) Style(box Box, descendents bool, sheet *Sheet) (outErr error) {
+	s.doc.walkNode(box, func(box Box) bool {
 		rules := s.findRulesFor(box, sheet)
 		if err := s.computeStyles(box, rules); err != nil {
 			outErr = fmt.Errorf(`样式应用失败：%w`, err)
 			return false
 		}
-		return true
+		return descendents
 	})
 	return
 }
@@ -449,7 +492,8 @@ func (s _Styler) computeStyles(node Box, rules []RuleMatch) error {
 
 	// 从样式表更新
 	for d := range declarations(rules) {
-		if err := styles.Set(d.Name, d.Value); err != nil {
+		// 处理样式计算过程中，结果可以直接丢。
+		if _, _, _, err := styles.Set(d.Name, d.Value); err != nil {
 			return fmt.Errorf(`样式应用错误：%w`, err)
 		}
 	}

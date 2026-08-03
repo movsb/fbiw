@@ -28,8 +28,6 @@ type BaseBox struct {
 	Tag   string
 	Class Class
 
-	Dirty bool
-
 	Document *Document
 	Parent   Box
 	Children []Box
@@ -55,22 +53,6 @@ func (b *BaseBox) Base() *BaseBox {
 	return b
 }
 
-func (b *BaseBox) SetNoDirty() {
-	b.Dirty = false
-}
-
-func (b *BaseBox) IsDirty() bool {
-	if b.Dirty {
-		return true
-	}
-	for _, c := range b.Children {
-		if c.Base().IsDirty() {
-			return true
-		}
-	}
-	return false
-}
-
 func (b *BaseBox) Ancestors() iter.Seq[Box] {
 	return func(yield func(Box) bool) {
 		for p := b.Parent; p != nil; p = p.Base().Parent {
@@ -86,12 +68,23 @@ func (b *BaseBox) appendChild(child Box) {
 	child.Base().Parent = b
 }
 
-type AttributeApplier interface {
-	ApplyAttributes(key string, val string) error
+type Setter interface {
+	Set(key string, val string) error
 }
 
-func (b *BaseBox) ApplyAttributes(key string, val string) error {
-	if err := b.inlineStyles.Set(key, val); err == nil {
+func (b *BaseBox) Set(key string, val string) error {
+	reInherit, reLayout, rePaint, err := b.inlineStyles.Set(key, val)
+	if err == nil {
+		// 文档解析过程中也会调用进来，所以需要判断。
+		if b.Document.root != nil {
+			b.Document.style(b, reInherit)
+		}
+		if reLayout {
+			b.Document.layoutDirty = true
+		}
+		if rePaint {
+			b.Document.paintDirty = true
+		}
 		return nil
 	} else {
 		if !errors.Is(err, ErrUnknownStyleProperty) {
@@ -103,9 +96,13 @@ func (b *BaseBox) ApplyAttributes(key string, val string) error {
 	default:
 		return fmt.Errorf(`不认识的属性：%s`, key)
 	case `id`:
+		// 改ID也会影响样式选择，所以需要重新排版
 		b.ID = val
+		b.Document.layoutDirty = true
 	case `class`:
+		// 改class也会影响样式选择，所以需要重新排版
 		b.Class.Set(val)
+		b.Document.layoutDirty = true
 	}
 
 	return nil
@@ -130,8 +127,6 @@ func (b *BaseBox) Calc(availWidth, availHeight int) {
 }
 
 func (b *BaseBox) Draw(canvas *Canvas) {
-	defer b.SetNoDirty()
-
 	borderWidth := b.computedStyles.BorderWidth.Number
 
 	// 默认都是 border-box，所以以实际的宽和高为准。
@@ -259,13 +254,6 @@ func NewButton(doc *Document) *Button {
 	}
 }
 
-func (b *Button) ApplyAttributes(key string, val string) error {
-	switch key {
-	default:
-		return b.BaseBox.ApplyAttributes(key, val)
-	}
-}
-
 type Inline struct {
 	BaseBox
 }
@@ -367,13 +355,6 @@ func (b *Inline) Calc(availWidth, availHeight int) {
 		for _, child := range b.Children {
 			child.Base().calcPos.Y += (contentHeight - child.Base().calcPos.Height) / 2
 		}
-	}
-}
-
-func (b *Inline) ApplyAttributes(key string, val string) error {
-	switch key {
-	default:
-		return b.BaseBox.ApplyAttributes(key, val)
 	}
 }
 
@@ -585,8 +566,6 @@ func (t *Text) BlockHeight() int {
 }
 
 func (t *Text) Draw(canvas *Canvas) {
-	t.Base().SetNoDirty()
-
 	if len(t.textLines) <= 0 {
 		return
 	}
@@ -668,13 +647,13 @@ func NewImage(doc *Document) *Image {
 	}
 }
 
-func (b *Image) ApplyAttributes(key string, val string) error {
+func (b *Image) Set(key string, val string) error {
 	switch key {
 	case `src`:
 		b.Src = val
 		return nil
 	default:
-		return b.BaseBox.ApplyAttributes(key, val)
+		return b.BaseBox.Set(key, val)
 	}
 }
 
@@ -701,8 +680,6 @@ func (b *Image) Calc(availWidth, availHeight int) {
 }
 
 func (b *Image) Draw(canvas *Canvas) {
-	defer b.SetNoDirty()
-
 	if b.Src == `` {
 		return
 	}

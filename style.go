@@ -51,7 +51,12 @@ func ShouldInherit(name string) bool {
 
 var ErrUnknownStyleProperty = errors.New(`未知样式属性`)
 
-func (s *Styles) Set(name string, raw string) error {
+// 设置样式。
+//
+//   - 影响继承会导致重新计算自己以及所有后代。
+//   - 影响布局会导致整个文档重新布局。
+//   - 影响绘制导致整个文档重绘。
+func (s *Styles) Set(name string, raw string) (affectInherit, affectLayout, affectPaint bool, outErr error) {
 	setNumberOrPercentage := func(v *Value, raw string) error {
 		if before, ok := strings.CutSuffix(raw, `%`); ok {
 			n, err := strconv.Atoi(before)
@@ -91,43 +96,74 @@ func (s *Styles) Set(name string, raw string) error {
 
 	switch name {
 	default:
-		return ErrUnknownStyleProperty
+		outErr = ErrUnknownStyleProperty
+		return
 	case `align`:
 		if raw == `` || raw == `center` || raw == `middle` {
 			s.Align = StringValue(raw)
-			return nil
+			affectLayout = true
+			return
 		}
-		return fmt.Errorf(`不认识的对齐方式：%s`, raw)
+		outErr = fmt.Errorf(`不认识的对齐方式：%s`, raw)
+		return
 	case `background-color`:
-		return setColor(&s.BackgroundColor, raw)
+		affectPaint = true
+		outErr = setColor(&s.BackgroundColor, raw)
+		return
 	case `background-image`:
 		s.BackgroundImage = StringValue(raw)
-		return nil
+		affectPaint = true
+		return
 	case `border-color`:
-		return setColor(&s.BorderColor, raw)
+		affectPaint = true
+		outErr = setColor(&s.BorderColor, raw)
+		return
 	case `border-width`:
-		return setNumber(&s.BorderWidth, raw)
+		affectLayout = true
+		outErr = setNumber(&s.BorderWidth, raw)
+		return
 	case `color`:
-		return setColor(&s.Color, raw)
+		affectInherit = true
+		affectPaint = true
+		outErr = setColor(&s.Color, raw)
+		return
 	case `height`:
-		return setNumberOrPercentage(&s.Height, raw)
+		affectLayout = true
+		outErr = setNumberOrPercentage(&s.Height, raw)
+		return
 	case `padding`:
-		return setNumber(&s.Padding, raw)
+		affectLayout = true
+		outErr = setNumber(&s.Padding, raw)
+		return
 	case `width`:
-		return setNumberOrPercentage(&s.Width, raw)
-
+		affectLayout = true
+		outErr = setNumberOrPercentage(&s.Width, raw)
+		return
 	case `font-family`:
+		// 不同字体大小不一样，所以也会影响布局
+		affectInherit = true
+		affectLayout = true
 		s.FontFamily = StringValue(raw)
-		return nil
+		return
 	case `font-size`:
-		return setNumber(&s.FontSize, raw)
+		affectInherit = true
+		affectLayout = true
+		outErr = setNumber(&s.FontSize, raw)
+		return
 	case `bold`, `font-bold`:
-		return setBoolean(&s.FontBold, raw, false)
+		affectInherit = true
+		affectLayout = true
+		outErr = setBoolean(&s.FontBold, raw, false)
+		return
 	case `italic`, `font-italic`:
-		return setBoolean(&s.FontItalic, raw, false)
-
+		affectInherit = true
+		affectLayout = true
+		outErr = setBoolean(&s.FontItalic, raw, false)
+		return
 	case `spacer`:
-		return setBoolean(&s.Spacer, raw, true)
+		affectLayout = true
+		outErr = setBoolean(&s.Spacer, raw, true)
+		return
 	}
 }
 
@@ -527,6 +563,13 @@ func (b *BufioReader) peekByte() byte {
 		return 0
 	}
 	return c[0]
+}
+
+func ParseSelector(selector string) Selector {
+	buf := BufioReader{
+		Reader: bufio.NewReader(strings.NewReader(selector)),
+	}
+	return parseSelector(&buf)
 }
 
 // 解析选择器。

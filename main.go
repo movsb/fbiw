@@ -36,21 +36,20 @@ func main() {
 	imageManager := NewImageManager()
 	defer imageManager.Close()
 
-	canvas := NewCanvas(display)
-
 	mainDoc := NewDocument(fileSystem, fontManager, imageManager)
 	if err := mainDoc.Load(`main.html`, `skin`); err != nil {
 		log.Fatalln(err)
 	}
-	mainDoc.Resize(canvas.width, canvas.height)
-	mainDoc.StyleNoError()
-	mainDoc.Layout()
-	mainDoc.Paint(canvas)
 
+	canvas := NewCanvas(display)
+	mainDoc.SetCanvas(canvas)
+	mainDoc.Sync()
 	display.Sync()
 
 	menuPressed := false
 	startPressed := false
+
+	toggle := false
 
 	ctx, cancel := context.WithCancel(context.Background())
 	pollEvents(ctx, func(event Event) {
@@ -69,14 +68,16 @@ func main() {
 				cancel()
 				return
 			}
-			// 在linux上测试总是跟随按键更新重绘。
-			mainDoc.SetDirty()
 		}
-		// 在MacOS上更方便观察帧率。
-		if mainDoc.IsDirty() {
+		if event.Type == KeyboardEvent && event.Keyboard.Name == Up && event.Keyboard.Pressed {
+			buttons := QuerySelector[*Inline](mainDoc, `#buttons`)
+			first := buttons.Children[0].(*Block)
+			first.Set(`background-color`, Iif(toggle, `red`, `blue`))
+			toggle = !toggle
+		}
+		if mainDoc.Dirty() {
 			now := time.Now()
-			mainDoc.Layout()
-			mainDoc.Paint(canvas)
+			mainDoc.Sync()
 			log.Println(`帧绘制时长：`, time.Since(now).Round(time.Microsecond*100))
 			display.Sync()
 		}
