@@ -133,10 +133,9 @@ func BenchmarkDrawString(b *testing.B) {
 	}
 	b.Run(`dev`, func(b *testing.B) {
 		canvas := Canvas{
-			buffer:        make([]byte, 1024*768*4),
-			bytesPerPixel: 4,
-			width:         1024,
-			height:        768,
+			buffer: make([]byte, 1024*768*4),
+			width:  1024,
+			height: 768,
 		}
 		for b.Loop() {
 			canvas.drawStringDevice(`想测试一下字符串绘制`, face, ColorValueFromString(`red`).Color, 1024, 768)
@@ -144,10 +143,9 @@ func BenchmarkDrawString(b *testing.B) {
 	})
 	b.Run(`std`, func(b *testing.B) {
 		canvas := Canvas{
-			buffer:        make([]byte, 1024*768*4),
-			bytesPerPixel: 4,
-			width:         1024,
-			height:        768,
+			buffer: make([]byte, 1024*768*4),
+			width:  1024,
+			height: 768,
 		}
 		for b.Loop() {
 			canvas.drawStringStd(`想测试一下字符串绘制`, face, ColorValueFromString(`red`).Color, 1024, 768)

@@ -21,8 +21,7 @@ import (
 //
 // 提供基础绘制工具。
 type Canvas struct {
-	buffer        []byte
-	bytesPerPixel int
+	buffer []byte
 
 	// 渲染的偏移坐标。
 	x, y int
@@ -33,12 +32,11 @@ type Canvas struct {
 
 func NewCanvas(display *Display) *Canvas {
 	return &Canvas{
-		buffer:        display.Data,
-		bytesPerPixel: 4,
-		x:             0,
-		y:             0,
-		width:         display.Width,
-		height:        display.Height,
+		buffer: display.Data,
+		x:      0,
+		y:      0,
+		width:  display.Width,
+		height: display.Height,
 	}
 }
 
@@ -47,12 +45,11 @@ func (c *Canvas) Offset(x, y int) *Canvas {
 		return c
 	}
 	return &Canvas{
-		buffer:        c.buffer,
-		bytesPerPixel: c.bytesPerPixel,
-		x:             c.x + x,
-		y:             c.y + y,
-		width:         c.width,
-		height:        c.height,
+		buffer: c.buffer,
+		x:      c.x + x,
+		y:      c.y + y,
+		width:  c.width,
+		height: c.height,
 	}
 }
 
@@ -70,8 +67,8 @@ func (c *Canvas) DrawImage(img DecodedImage, width, height int) {
 	height = min(height, img.Height)
 
 	for y := range height {
-		offset := (c.y + y) * c.width * c.bytesPerPixel
-		offset += c.x * c.bytesPerPixel
+		offset := (c.y + y) * c.width * 4
+		offset += c.x * 4
 		dst := c.buffer[offset:]
 		src := img.Pixels[y*img.Width*4:]
 		// len := width * 4
@@ -100,7 +97,7 @@ func (c *Canvas) DrawImage(img DecodedImage, width, height int) {
 
 func (c *Canvas) getPixel(x, y int) color.NRGBA {
 	xx, yy := c.x+x, c.y+y
-	offset := c.width*c.bytesPerPixel*yy + xx*c.bytesPerPixel
+	offset := c.width*4*yy + xx*4
 
 	p := c.buffer[offset:]
 	return color.NRGBA{p[2], p[1], p[0], p[3]}
@@ -115,7 +112,7 @@ func (c *Canvas) SetPixel(x, y int, color color.NRGBA) {
 	}
 
 	xx, yy := c.x+x, c.y+y
-	offset := c.width*c.bytesPerPixel*yy + xx*c.bytesPerPixel
+	offset := c.width*yy*4 + xx*4
 
 	p := c.buffer[offset:]
 	_ = p[3]
@@ -150,10 +147,10 @@ func (c *Canvas) FillRect(x, y, width, height int, color Color) {
 
 	var line0 []byte
 	for yy := y0; yy < y1; yy++ {
-		offset := c.width*c.bytesPerPixel*yy + x0*c.bytesPerPixel
+		offset := c.width*4*yy + x0*4
 		if yy == y0 {
-			line0 = c.buffer[offset : offset+(x1-x0)*c.bytesPerPixel]
-			for i := 0; i < (x1-x0)*c.bytesPerPixel; i += c.bytesPerPixel {
+			line0 = c.buffer[offset : offset+(x1-x0)*4]
+			for i := 0; i < (x1-x0)*4; i += 4 {
 				p := c.buffer[offset+i : offset+i+4]
 				*(*uint32)(unsafe.Pointer(&p[0])) = uint32(color)
 			}
@@ -251,7 +248,7 @@ func (c *Canvas) drawStringDevice(text string, face *FontFace, color Color, widt
 					continue
 				}
 
-				dstOffset := sy*c.width*c.bytesPerPixel + sx*c.bytesPerPixel
+				dstOffset := sy*c.width*4 + sx*4
 				pixel := c.buffer[dstOffset : dstOffset+4]
 
 				if alpha == 255 {
