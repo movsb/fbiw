@@ -95,6 +95,7 @@ type EventType uint
 
 const (
 	UnknownEvent EventType = iota + 1
+	AsyncCallback
 	QuitEvent
 	KeyboardEvent
 )
@@ -107,5 +108,6 @@ type KeyboardEventArgs struct {
 type Event struct {
 	Type EventType
 
-	Keyboard KeyboardEventArgs
+	Keyboard      KeyboardEventArgs
+	AsyncCallback func()
 }

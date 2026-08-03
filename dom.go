@@ -237,6 +237,8 @@ func (n _NodeTransformer) transform(parent Box, node *html.Node) (Box, error) {
 			return n.transformNode(NewBlock(n.doc), node, false, false)
 		case `inline`:
 			return n.transformNode(NewInline(n.doc), node, false, false)
+		case `stack`:
+			return n.transformNode(NewStack(n.doc), node, false, false)
 		case `spacer`:
 			return n.transformNode(NewSpacer(n.doc), node, true, false)
 		case `button`:

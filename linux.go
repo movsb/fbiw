@@ -71,7 +71,7 @@ func openDisplay() *Display {
 	return d
 }
 
-func pollEvents(ctx context.Context, handler func(Event)) {
+func pollEvents(ctx context.Context, system chan Event, sync func(), handler func(Event)) {
 	ch := make(chan Event)
 	go _pollEvents(ctx, func(e Event) {
 		select {
@@ -85,7 +85,15 @@ func pollEvents(ctx context.Context, handler func(Event)) {
 			return
 		case e := <-ch:
 			handler(e)
+		case e := <-system:
+			switch e.Type {
+			case AsyncCallback:
+				e.AsyncCallback()
+			default:
+				handler(e)
+			}
 		}
+		sync()
 	}
 }
 

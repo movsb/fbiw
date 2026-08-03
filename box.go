@@ -379,6 +379,71 @@ func (b *Inline) Calc(availWidth, availHeight int) {
 	}
 }
 
+type Stack struct {
+	BaseBox
+}
+
+func NewStack(doc *Document) *Stack {
+	b := &Stack{
+		BaseBox: BaseBox{
+			Document: doc,
+			Tag:      `stack`,
+		},
+	}
+	b.Class.box = b
+	return b
+}
+
+func (b *Stack) Calc(availWidth, availHeight int) {
+	computed := &b.computedStyles
+
+	// 自身不可用区域。
+	ncWidth := computed.BorderWidth.Number + computed.Padding.Number
+
+	// 根据自身大小及可用空间大小取最佳值。
+	boxMaxWidth := Iiif(
+		b.computedWidth.IsNumber(), computed.Width.IsNumber(),
+		b.computedWidth.Number, computed.Width.Number, availWidth,
+	)
+	boxMaxHeight := Iif(computed.Width.IsNumber(), computed.Width.Number, availHeight)
+
+	// 内容区域可用的大小。
+	contentAvailWidth := boxMaxWidth - ncWidth*2
+	contentAvailHeight := boxMaxHeight - ncWidth*2
+
+	// 当前实际占用高度
+	contentHeight := 0
+
+	for _, child := range b.Children {
+		if text, ok := child.(*Text); ok {
+			text.SegmentBlock(contentAvailWidth, contentAvailHeight-contentHeight)
+		} else {
+			child.Base().presetWidth(contentAvailWidth)
+			child.Calc(contentAvailWidth, contentAvailHeight-contentHeight)
+		}
+		child.Base().calcPos.X = ncWidth
+		contentHeight = max(contentHeight, child.Base().calcPos.Height)
+
+		// 启用对齐。
+		// 纵向排列的时候需要对每个元素进行设置。
+		if computed.Align.String == `center` {
+			child.Base().calcPos.X += (contentAvailWidth - child.Base().calcPos.Width) / 2
+		}
+	}
+
+	// 最后再重新调整 Y
+	offsetY := ncWidth
+	for _, child := range b.Children {
+		p := &child.Base().calcPos
+		p.Y = offsetY
+	}
+
+	b.calcPos.Width = Iiif(
+		b.computedWidth.IsNumber(), computed.Width.IsNumber(),
+		b.computedWidth.Number, computed.Width.Number, boxMaxWidth)
+	b.calcPos.Height = Iif(computed.Height.IsNumber(), computed.Height.Number, contentHeight+ncWidth*2)
+}
+
 // 用来代替 margin 的使用。
 //
 // <spacer>是旧html标签，如果使用会被标红，写 `<spacer/>` html.Parse 会错乱。
@@ -440,6 +505,10 @@ func (p *_TextParts) appendChildOrText(owner Box, child any) {
 	p.children = append(p.children, child)
 	if box, ok := child.(Box); ok {
 		owner.Base().appendChild(box)
+	} else {
+		if doc := owner.Base().Document; doc != nil {
+			doc.layoutDirty = true
+		}
 	}
 }
 
@@ -488,6 +557,7 @@ func NewText(doc *Document) *Text {
 // 设置普通文本。
 func (t *Text) SetText(text string) {
 	t.textParts.children = nil
+	t.Children = nil
 	t.appendChild(text)
 	t.expandTextNodes()
 }
