@@ -49,8 +49,6 @@ func main() {
 	menuPressed := false
 	startPressed := false
 
-	toggle := false
-
 	ctx, cancel := context.WithCancel(context.Background())
 	pollEvents(ctx, func(event Event) {
 		if event.Type == QuitEvent {
@@ -72,8 +70,7 @@ func main() {
 		if event.Type == KeyboardEvent && event.Keyboard.Name == Up && event.Keyboard.Pressed {
 			buttons := QuerySelector[*Inline](mainDoc, `#buttons`)
 			first := buttons.Children[0].(*Block)
-			first.Set(`background-color`, Iif(toggle, `red`, `blue`))
-			toggle = !toggle
+			first.Class.Toggle(`last`)
 		}
 		if mainDoc.Dirty() {
 			now := time.Now()

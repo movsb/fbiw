@@ -99,13 +99,23 @@ func (b *BaseBox) Set(key string, val string) error {
 		// 改ID也会影响样式选择，所以需要重新排版
 		b.ID = val
 		b.Document.layoutDirty = true
+		if b.Document.root != nil {
+			b.Document.style(b, true)
+		}
 	case `class`:
 		// 改class也会影响样式选择，所以需要重新排版
+		// 会自动调用classChanged
 		b.Class.Set(val)
-		b.Document.layoutDirty = true
 	}
 
 	return nil
+}
+
+func (b *BaseBox) classChanged() {
+	b.Document.layoutDirty = true
+	if b.Document.root != nil {
+		b.Document.style(b, true)
+	}
 }
 
 // 如果宽度指定了百分比，其百分比是相对于父元素的，不能等到其它元素占用（并减去）后再计算。

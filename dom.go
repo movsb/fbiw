@@ -283,6 +283,9 @@ func (n _NodeTransformer) transform(parent Box, node *html.Node) (Box, error) {
 
 // 只处理元素节点，文本节点此内部处理了，不会调用自身。
 func (n _NodeTransformer) transformNode(box Box, node *html.Node, voidElement bool, allowText bool) (Box, error) {
+	// class中的box没有初始化。
+	box.Base().Class.box = box.Base()
+
 	for _, a := range node.Attr {
 		// 所有的节点理应都是从BaseBox继承的，所以接口不可能为空。
 		// 但是也不能调BaseBox().Set...，因为子类有方法覆盖。

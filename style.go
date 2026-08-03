@@ -278,6 +278,9 @@ func (c Color) NRGBA() color.NRGBA {
 
 // 用结构体而不是直接type为[]string的原因是修改的时候不想重新赋值。
 type Class struct {
+	// 类名改变的时候需要通知到元素，所以暂时放这里？
+	// 感觉代码耦合度有点高了。
+	box   *BaseBox
 	class []string
 }
 
@@ -286,6 +289,7 @@ func ParseClass(raw string) Class {
 }
 func (c *Class) Set(class string) {
 	c.class = strings.Fields(class)
+	c.box.classChanged()
 }
 func (c Class) Contains(class string) bool {
 	return slices.Contains(c.class, class)
@@ -301,10 +305,25 @@ func (c Class) ContainsAll(class ...string) bool {
 func (c *Class) Add(class string) {
 	if !c.Contains(class) {
 		c.class = append(c.class, class)
+		c.box.classChanged()
 	}
 }
 func (c *Class) Remove(class string) {
 	c.class = slices.DeleteFunc(c.class, func(each string) bool { return each == class })
+	c.box.classChanged()
+}
+func (c *Class) Toggle(class string, force ...any) {
+	var add bool
+	if len(force) > 0 {
+		add = force[0].(bool)
+	} else {
+		add = !c.Contains(class)
+	}
+	if add {
+		c.Add(class)
+	} else {
+		c.Remove(class)
+	}
 }
 
 // 表示匹配到的规则。
