@@ -1,4 +1,4 @@
-module gofb
+module github.com/movsb/fbiw
 
 go 1.26.5
 

@@ -1,4 +1,4 @@
-package main
+package fbiw
 
 import (
 	"reflect"
@@ -19,11 +19,6 @@ type BoxTest struct {
 
 func TestCalc(t *testing.T) {
 	cases := LoadTestCases[BoxTest](`testdata/box.yaml`)
-	canvas := Canvas{
-		buffer: make([]byte, 1024*768*4),
-		width:  1024,
-		height: 768,
-	}
 	for i, tc := range cases {
 		fontManager := NewFontManager()
 		imageManager := NewImageManager()
@@ -38,7 +33,8 @@ func TestCalc(t *testing.T) {
 			tc.HTML = updated
 		}
 
-		doc := NewDocument(
+		doc := _NewDocument(
+			1024, 768,
 			fstest.MapFS{
 				`main.html`: &fstest.MapFile{
 					Data: []byte(tc.HTML),
@@ -47,7 +43,7 @@ func TestCalc(t *testing.T) {
 			},
 			fontManager, imageManager,
 		)
-		if err := doc.Load(`main.html`, `.`); err != nil {
+		if err := doc.load(`main.html`, `.`); err != nil {
 			t.Errorf(`文档解析失败：#%d: %v`, i, err)
 			continue
 		}
@@ -57,7 +53,6 @@ func TestCalc(t *testing.T) {
 			doc.defaultStyles = Styles{}
 		}
 
-		doc.SetCanvas(&canvas)
 		doc.layout()
 
 		for id, rect := range tc.Calc {

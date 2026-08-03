@@ -1,4 +1,4 @@
-package main
+package fbiw
 
 import (
 	_ "embed"
@@ -16,10 +16,15 @@ import (
 )
 
 type Document struct {
+	app     *App
+	display bool
+
 	// 资源包
 	fsys fs.FS
 	// HTML内引用的所有资源文件基于此目录。
 	skinDir string
+
+	width, height int
 
 	fontManager  *FontManager
 	imageManager *ImageManager
@@ -41,16 +46,17 @@ type Document struct {
 	// 如果只影响了绘制，不应该重新排版。
 	// 比如只修改了背景色。
 	paintDirty bool
-
-	canvas *Canvas
 }
 
-func NewDocument(
+func _NewDocument(
+	width, height int,
 	fileSystem fs.FS,
 	fontManager *FontManager,
 	imageManager *ImageManager,
 ) *Document {
 	doc := &Document{
+		width:        width,
+		height:       height,
 		fsys:         fileSystem,
 		fontManager:  fontManager,
 		imageManager: imageManager,
@@ -63,10 +69,16 @@ func NewDocument(
 	return doc
 }
 
+func (doc *Document) Close() {
+	if doc.app != nil {
+		doc.app._CloseDocument(doc)
+	}
+}
+
 // 从指定文件加载内容。
 //
 // 文件来源于初始化时的文件系统。
-func (doc *Document) Load(name string, skinDir string) error {
+func (doc *Document) load(name string, skinDir string) error {
 	fp, err := doc.fsys.Open(name)
 	if err != nil {
 		return err
@@ -172,25 +184,20 @@ func (doc *Document) parse(content io.Reader) error {
 	return nil
 }
 
-func (doc *Document) Dirty() bool {
+func (doc *Document) dirty() bool {
 	return doc.layoutDirty || doc.paintDirty
 }
 
-func (doc *Document) Sync() {
+func (doc *Document) sync(canvas *Canvas) {
 	if doc.layoutDirty {
 		doc.layout()
 		doc.paintDirty = true
 	}
 	if doc.paintDirty {
-		doc.paint()
+		doc.paint(canvas)
 	}
 	doc.layoutDirty = false
 	doc.paintDirty = false
-}
-
-// 使绘制完全失效并重绘。
-func (doc *Document) Invalidate() {
-
 }
 
 // 获取指定ID的元素。
@@ -322,11 +329,6 @@ func (n _NodeTransformer) transformNode(box Box, node *html.Node, voidElement bo
 	return box, nil
 }
 
-// 设置画板。
-func (doc *Document) SetCanvas(canvas *Canvas) {
-	doc.canvas = canvas
-}
-
 // 为节点计算样式。
 func (doc *Document) style(box Box, descendents bool) error {
 	styler := _Styler{doc: doc}
@@ -337,12 +339,12 @@ func (doc *Document) style(box Box, descendents bool) error {
 //
 // TODO 把计算方式从元素自身拆解到这里来。
 func (doc *Document) layout() {
-	doc.root.Calc(doc.canvas.width, doc.canvas.height)
+	doc.root.Calc(doc.width, doc.height)
 }
 
 // 绘制文档。
-func (doc *Document) paint() {
-	doc.root.Draw(doc.canvas)
+func (doc *Document) paint(canvas *Canvas) {
+	doc.root.Draw(canvas)
 }
 
 func (doc *Document) walkNode(box Box, callback func(box Box) bool) bool {

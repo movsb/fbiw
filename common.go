@@ -1,4 +1,4 @@
-package main
+package fbiw
 
 type KeyName uint8
 
@@ -95,7 +95,9 @@ type EventType uint
 
 const (
 	UnknownEvent EventType = iota + 1
-	AsyncCallback
+
+	asyncCallback
+
 	QuitEvent
 	KeyboardEvent
 )
@@ -108,6 +110,7 @@ type KeyboardEventArgs struct {
 type Event struct {
 	Type EventType
 
-	Keyboard      KeyboardEventArgs
-	AsyncCallback func()
+	asyncCallback func()
+
+	Keyboard KeyboardEventArgs
 }

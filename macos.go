@@ -1,19 +1,12 @@
 //go:build darwin
 
-package main
+package fbiw
 
 import (
 	"context"
-	"fmt"
-	"os"
-	"path/filepath"
 
 	"github.com/veandco/go-sdl2/sdl"
 )
-
-var fileSystem = os.DirFS(`.`)
-
-const defaultFontFileRegular = `./fonts/MapleMonoNormalNL-NF-CN-Regular.ttf`
 
 func openDisplay() *Display {
 	const (
@@ -36,7 +29,7 @@ func openDisplay() *Display {
 	// 启动即关闭输入法。
 	sdl.StopTextInput()
 
-	window, err := sdl.CreateWindow("gofb",
+	window, err := sdl.CreateWindow("fbiw",
 		sdl.WINDOWPOS_CENTERED, sdl.WINDOWPOS_CENTERED,
 		windowWidth, windowHeight, sdl.WINDOW_SHOWN,
 	)
@@ -109,8 +102,8 @@ func pollEvents(ctx context.Context, system chan Event, sync func(), handler fun
 			return
 		case event := <-system:
 			switch event.Type {
-			case AsyncCallback:
-				event.AsyncCallback()
+			case asyncCallback:
+				event.asyncCallback()
 			default:
 				handler(event)
 			}
@@ -131,44 +124,4 @@ func pollEvents(ctx context.Context, system chan Event, sync func(), handler fun
 		}
 		sync()
 	}
-}
-
-func loadFonts(fontManager *FontManager) error {
-	for dir, faces := range map[string][]struct {
-		FileName string
-		Family   string
-		Bold     bool
-		Italic   bool
-	}{
-		`fonts/`: {
-			{
-				FileName: `MapleMonoNormalNL-NF-CN-Italic.ttf`,
-				Family:   `system`,
-				Bold:     false,
-				Italic:   true,
-			},
-			{
-				FileName: `MapleMonoNormalNL-NF-CN-Bold.ttf`,
-				Family:   `system`,
-				Bold:     true,
-				Italic:   false,
-			},
-			{
-				FileName: `MapleMonoNormalNL-NF-CN-BoldItalic.ttf`,
-				Family:   `system`,
-				Bold:     true,
-				Italic:   true,
-			},
-		},
-	} {
-		for _, face := range faces {
-			if err := fontManager.AddFont(
-				filepath.Join(dir, face.FileName),
-				face.Family, face.Bold, face.Italic,
-			); err != nil {
-				return fmt.Errorf(`加载字体失败：%w`, err)
-			}
-		}
-	}
-	return nil
 }

@@ -1,10 +1,9 @@
 //go:build linux
 
-package main
+package fbiw
 
 import (
 	"context"
-	"embed"
 	"encoding/binary"
 	"fmt"
 	"os"
@@ -17,10 +16,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-//go:embed main.html skin
-var fileSystem embed.FS
-
-const defaultFontFileRegular = `/usr/trimui/res/full.ttf`
+const DefaultFontFileRegular = `/usr/trimui/res/full.ttf`
 
 func openDisplay() *Display {
 	d := &Display{}
@@ -87,8 +83,8 @@ func pollEvents(ctx context.Context, system chan Event, sync func(), handler fun
 			handler(e)
 		case e := <-system:
 			switch e.Type {
-			case AsyncCallback:
-				e.AsyncCallback()
+			case asyncCallback:
+				e.asyncCallback()
 			default:
 				handler(e)
 			}
@@ -212,8 +208,4 @@ func _pollEvents(ctx context.Context, handler func(Event)) {
 		}
 		// fmt.Printf("Keyboard: type=%d code=%d value=%d\n", ev.Type, ev.Code, ev.Value)
 	}
-}
-
-func loadFonts(_ *FontManager) error {
-	return nil
 }
