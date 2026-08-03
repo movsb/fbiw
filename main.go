@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net/http"
 	_ "net/http/pprof"
@@ -41,6 +42,15 @@ func main() {
 		log.Fatalln(err)
 	}
 
+	list := mainDoc.QuerySelector(`#list`).(*Block)
+	for i := range 10 {
+		block := NewBlock(mainDoc)
+		text := NewText(mainDoc)
+		text.SetText(fmt.Sprintf(`测试内容: %d`, i))
+		block.appendChild(text)
+		list.appendChild(block)
+	}
+
 	canvas := NewCanvas(display)
 	mainDoc.SetCanvas(canvas)
 	mainDoc.Sync()
@@ -48,6 +58,8 @@ func main() {
 
 	menuPressed := false
 	startPressed := false
+
+	index := -1
 
 	ctx, cancel := context.WithCancel(context.Background())
 	pollEvents(ctx, func(event Event) {
@@ -67,10 +79,22 @@ func main() {
 				return
 			}
 		}
-		if event.Type == KeyboardEvent && event.Keyboard.Name == Up && event.Keyboard.Pressed {
-			buttons := QuerySelector[*Inline](mainDoc, `#buttons`)
-			first := buttons.Children[0].(*Block)
-			first.Class.Toggle(`last`)
+		if event.Type == KeyboardEvent && event.Keyboard.Pressed {
+			if index >= 0 && index <= len(list.Children)-1 {
+				list.Children[index].Base().Class.Remove(`selected`)
+			}
+			if event.Keyboard.Name == Up {
+				if index >= 0 {
+					index--
+				}
+			} else if event.Keyboard.Name == Down {
+				if index < len(list.Children) {
+					index++
+				}
+			}
+			if index >= 0 && index <= len(list.Children)-1 {
+				list.Children[index].Base().Class.Add(`selected`)
+			}
 		}
 		if mainDoc.Dirty() {
 			now := time.Now()

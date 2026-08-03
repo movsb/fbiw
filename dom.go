@@ -246,7 +246,7 @@ func (n _NodeTransformer) transform(parent Box, node *html.Node) (Box, error) {
 		case `text`:
 			text, err := n.transformNode(NewText(n.doc), node, false, true)
 			if err == nil {
-				n.expandTextNodes(text.(*Text))
+				text.(*Text).expandTextNodes()
 			}
 			return text, err
 		case `b`, `i`:
@@ -275,9 +275,6 @@ func (n _NodeTransformer) transform(parent Box, node *html.Node) (Box, error) {
 
 // 只处理元素节点，文本节点此内部处理了，不会调用自身。
 func (n _NodeTransformer) transformNode(box Box, node *html.Node, voidElement bool, allowText bool) (Box, error) {
-	// class中的box没有初始化。
-	box.Base().Class.box = box.Base()
-
 	for _, a := range node.Attr {
 		// 所有的节点理应都是从BaseBox继承的，所以接口不可能为空。
 		// 但是也不能调BaseBox().Set...，因为子类有方法覆盖。
@@ -321,38 +318,6 @@ func (n _NodeTransformer) transformNode(box Box, node *html.Node, voidElement bo
 		}
 	}
 	return box, nil
-}
-
-// 把 <text> 的树形节点平铺展开方便排版。
-func (n _NodeTransformer) expandTextNodes(text *Text) {
-	text.textRuns = nil
-
-	var processParts func(box Box)
-	processParts = func(box Box) {
-		var children []any
-		switch typed := box.(type) {
-		case *Text:
-			children = typed.textParts.children
-		case *BoldText:
-			children = typed.textParts.children
-		case *ItalicText:
-			children = typed.textParts.children
-		}
-		for _, child := range children {
-			// 如果支持图文混排，类型在这里case吗？
-			switch typed := child.(type) {
-			case string:
-				text.textRuns = append(text.textRuns, _TextRun{
-					Data:  typed,
-					Owner: box,
-				})
-			default:
-				processParts(child.(Box))
-			}
-		}
-	}
-
-	processParts(text)
 }
 
 // 设置画板。

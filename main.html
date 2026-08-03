@@ -6,12 +6,12 @@
 	b {
 		color: coral;
 	}
-	#buttons .last {
-		background-color: hotpink;
+	#list .selected {
+		color: green;
 	}
 </style>
-<block background-image="bg.png" padding="10">
-	<inline>
+<block background-image="bg.png">
+	<!-- <inline>
 		<img src="nav-logo.png">
 		<spacer></spacer>
 		<inline align="middle" id="status-bar">
@@ -25,34 +25,9 @@
 			<spacer width="10"></spacer>
 			<text bold="true">12:34</text>
 		</inline>
-	</inline>
-	<spacer height="50"></spacer>
-	<inline>
-		<spacer></spacer>
-		<img src="nav-search-n.png">
-		<spacer></spacer>
-	</inline>
-	<spacer></spacer>
-	<text id="test">这是一段非常长的文本测试字符串。1234 100%这是一段非常长的文本测试字符串。这是一段非常长的文本测试字符串。这是一段非常长的文本测试字符串。这是一段非常长的文本测试字符串。这是一段非常长的文本测试字符串。</text>
-	<text>一些<i>斜体有有<b>加粗</b>的</i>文本。</text>
-	<spacer></spacer>
-	<inline id="buttons" width="100%" border-width="10" border-color="cyan" padding="10">
-		<block width="25%" align="center">
-			<img src="nav-icon-favorites-n.png">
-			<text>收藏</text>
-		</block>
-		<block width="25%" align="center">
-			<img src="nav-icon-recent-n.png">
-			<text>最近</text>
-		</block>
-		<block width="25%" align="center">
-			<img src="nav-icon-games-n.png">
-			<text>游戏</text>
-		</block>
-		<block class="last" width="25%" align="center">
-			<img src="nav-icon-ports-n.png">
-			<text>独立</text>
-		</block>
-	</inline>
+	</inline> -->
+	<block id=list spacer background-color="yellow" padding="10">
+		
+	</block>
 </block>
 </document>

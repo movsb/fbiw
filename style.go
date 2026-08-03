@@ -53,9 +53,9 @@ var ErrUnknownStyleProperty = errors.New(`未知样式属性`)
 
 // 设置样式。
 //
-//   - 影响继承会导致重新计算自己以及所有后代。
+//   - 影响继承会导致重新计算自己以及所有后代的样式。
 //   - 影响布局会导致整个文档重新布局。
-//   - 影响绘制导致整个文档重绘。
+//   - 影响绘制导致整个文档重绘（但不一定重新布局）。
 func (s *Styles) Set(name string, raw string) (affectInherit, affectLayout, affectPaint bool, outErr error) {
 	setNumberOrPercentage := func(v *Value, raw string) error {
 		if before, ok := strings.CutSuffix(raw, `%`); ok {
@@ -280,7 +280,7 @@ func (c Color) NRGBA() color.NRGBA {
 type Class struct {
 	// 类名改变的时候需要通知到元素，所以暂时放这里？
 	// 感觉代码耦合度有点高了。
-	box   *BaseBox
+	box   Box
 	class []string
 }
 
@@ -289,7 +289,7 @@ func ParseClass(raw string) Class {
 }
 func (c *Class) Set(class string) {
 	c.class = strings.Fields(class)
-	c.box.classChanged()
+	c.box.Base().classChanged()
 }
 func (c Class) Contains(class string) bool {
 	return slices.Contains(c.class, class)
@@ -305,12 +305,12 @@ func (c Class) ContainsAll(class ...string) bool {
 func (c *Class) Add(class string) {
 	if !c.Contains(class) {
 		c.class = append(c.class, class)
-		c.box.classChanged()
+		c.box.Base().classChanged()
 	}
 }
 func (c *Class) Remove(class string) {
 	c.class = slices.DeleteFunc(c.class, func(each string) bool { return each == class })
-	c.box.classChanged()
+	c.box.Base().classChanged()
 }
 func (c *Class) Toggle(class string, force ...any) {
 	var add bool

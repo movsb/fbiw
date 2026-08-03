@@ -66,6 +66,10 @@ func (b *BaseBox) Ancestors() iter.Seq[Box] {
 func (b *BaseBox) appendChild(child Box) {
 	b.Children = append(b.Children, child)
 	child.Base().Parent = b
+	if b.Document != nil {
+		b.Document.layoutDirty = true
+		b.Document.style(b, true)
+	}
 }
 
 type Setter interface {
@@ -174,12 +178,14 @@ type Block struct {
 }
 
 func NewBlock(doc *Document) *Block {
-	return &Block{
+	b := &Block{
 		BaseBox: BaseBox{
 			Document: doc,
 			Tag:      `block`,
 		},
 	}
+	b.Class.box = b
+	return b
 }
 
 func (b *Block) Calc(availWidth, availHeight int) {
@@ -257,12 +263,14 @@ type Button struct {
 }
 
 func NewButton(doc *Document) *Button {
-	return &Button{
+	b := &Button{
 		BaseBox: BaseBox{
 			Document: doc,
 			Tag:      `button`,
 		},
 	}
+	b.Class.box = b
+	return b
 }
 
 type Inline struct {
@@ -270,12 +278,14 @@ type Inline struct {
 }
 
 func NewInline(doc *Document) *Inline {
-	return &Inline{
+	b := &Inline{
 		BaseBox: BaseBox{
 			Document: doc,
 			Tag:      `inline`,
 		},
 	}
+	b.Class.box = b
+	return b
 }
 
 func (b *Inline) Calc(availWidth, availHeight int) {
@@ -377,12 +387,14 @@ type Spacer struct {
 }
 
 func NewSpacer(doc *Document) *Spacer {
-	return &Spacer{
+	b := &Spacer{
 		BaseBox: BaseBox{
 			Document: doc,
 			Tag:      `spacer`,
 		},
 	}
+	b.Class.box = b
+	return b
 }
 
 // 一段奔跑/连续的文本数据/文本块。
@@ -463,17 +475,58 @@ type Text struct {
 }
 
 func NewText(doc *Document) *Text {
-	return &Text{
+	b := &Text{
 		BaseBox: BaseBox{
 			Document: doc,
 			Tag:      `text`,
 		},
 	}
+	b.Class.box = b
+	return b
+}
+
+// 设置普通文本。
+func (t *Text) SetText(text string) {
+	t.textParts.children = nil
+	t.appendChild(text)
+	t.expandTextNodes()
 }
 
 // 这个方法重写了基类的方法，只在 transform 中被调用。
 func (t *Text) appendChild(child any) {
 	t.textParts.appendChildOrText(t, child)
+}
+
+// 把 <text> 的树形节点平铺展开方便排版。
+func (t *Text) expandTextNodes() {
+	t.textRuns = nil
+
+	var processParts func(box Box)
+	processParts = func(box Box) {
+		var children []any
+		switch typed := box.(type) {
+		case *Text:
+			children = typed.textParts.children
+		case *BoldText:
+			children = typed.textParts.children
+		case *ItalicText:
+			children = typed.textParts.children
+		}
+		for _, child := range children {
+			// 如果支持图文混排，类型在这里case吗？
+			switch typed := child.(type) {
+			case string:
+				t.textRuns = append(t.textRuns, _TextRun{
+					Data:  typed,
+					Owner: box,
+				})
+			default:
+				processParts(child.(Box))
+			}
+		}
+	}
+
+	processParts(t)
 }
 
 // ≈ 给 block 的子元素 calc用的
@@ -606,7 +659,7 @@ type BoldText struct {
 }
 
 func NewBoldText(doc *Document) *BoldText {
-	return &BoldText{
+	b := &BoldText{
 		BaseBox: BaseBox{
 			Document: doc,
 			Tag:      `b`,
@@ -615,6 +668,8 @@ func NewBoldText(doc *Document) *BoldText {
 			},
 		},
 	}
+	b.Class.box = b
+	return b
 }
 
 func (t *BoldText) appendChild(child any) {
@@ -628,7 +683,7 @@ type ItalicText struct {
 }
 
 func NewItalicText(doc *Document) *ItalicText {
-	return &ItalicText{
+	b := &ItalicText{
 		BaseBox: BaseBox{
 			Document: doc,
 			Tag:      `i`,
@@ -637,6 +692,8 @@ func NewItalicText(doc *Document) *ItalicText {
 			},
 		},
 	}
+	b.Class.box = b
+	return b
 }
 
 func (t *ItalicText) appendChild(child any) {
@@ -650,12 +707,14 @@ type Image struct {
 }
 
 func NewImage(doc *Document) *Image {
-	return &Image{
+	b := &Image{
 		BaseBox: BaseBox{
 			Document: doc,
 			Tag:      `image`,
 		},
 	}
+	b.Class.box = b
+	return b
 }
 
 func (b *Image) Set(key string, val string) error {
