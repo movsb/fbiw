@@ -2,10 +2,11 @@ package main
 
 import (
 	"context"
+	"embed"
+	_ "embed"
 	"log"
 	"net/http"
 	_ "net/http/pprof"
-	"os"
 	"path/filepath"
 	"time"
 
@@ -24,7 +25,9 @@ func initFonts(app *fbiw.App) {
 		`system`, false, false,
 		`./fonts/MapleMonoNormalNL-NF-CN-Regular.ttf`,
 	); err != nil {
-		log.Panic(`加载默认字体失败：`, err)
+		if err := app.AddFont(`system`, false, false, `/usr/trimui/res/full.ttf`); err != nil {
+			log.Panic(`加载默认字体失败：`, err)
+		}
 	}
 	for dir, faces := range map[string][]struct {
 		FileName string
@@ -58,14 +61,17 @@ func initFonts(app *fbiw.App) {
 				face.Family, face.Bold, face.Italic,
 				filepath.Join(dir, face.FileName),
 			); err != nil {
-				log.Printf(`加载字体失败：%w`, err)
+				log.Printf(`加载字体失败：%v`, err)
 			}
 		}
 	}
 }
 
+//go:embed main.html skin
+var embedded embed.FS
+
 func main() {
-	app := fbiw.NewApp(context.Background(), os.DirFS(`.`))
+	app := fbiw.NewApp(context.Background(), embedded)
 	defer app.Close()
 
 	initFonts(app)

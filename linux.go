@@ -16,8 +16,6 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-const DefaultFontFileRegular = `/usr/trimui/res/full.ttf`
-
 func openDisplay() *Display {
 	d := &Display{}
 
