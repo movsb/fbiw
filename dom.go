@@ -356,7 +356,7 @@ func (doc *Document) loadImage(src string) (DecodedImage, error) {
 	return doc.imageManager.GetImageCached(doc.fsys, path.Join(doc.skinDir, src))
 }
 
-func (doc *Document) loadFaceWithFallback(box Box) FontFace {
+func (doc *Document) loadFaceWithFallback(box Box) *FontFace {
 	return doc.fontManager.GetFaceWithFallback(
 		box.Base().computedStyles.FontFamily.String,
 		box.Base().computedStyles.FontSize.Number,

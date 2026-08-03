@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"image"
 	"os"
 	"unicode/utf8"
 
@@ -11,14 +12,15 @@ import (
 )
 
 type FontManager struct {
-	fonts map[_FontKey]*_FontValue
-	faces map[_FontFaceKey]font.Face
+	fonts      map[_FontKey]*_FontValue
+	faces      map[_FontFaceKey]*FontFace
+	nextFaceID uint32
 }
 
 func NewFontManager() *FontManager {
 	return &FontManager{
 		fonts: map[_FontKey]*_FontValue{},
-		faces: map[_FontFaceKey]font.Face{},
+		faces: map[_FontFaceKey]*FontFace{},
 	}
 }
 
@@ -27,43 +29,6 @@ func (fm *FontManager) Close() {
 		f.File.Close()
 	}
 	clear(fm.fonts)
-}
-
-type FontFace struct {
-	font.Face
-}
-
-// 测试文本 text 使用此字体时所占据的宽度。
-func (ff FontFace) MeasureString(text string) fixed.Int26_6 {
-	return font.MeasureString(ff, text)
-}
-
-func (ff FontFace) TextHeight() int {
-	return (ff.Metrics().Ascent + ff.Metrics().Descent).Ceil()
-}
-
-// 把文本 text 按最大宽度切割成子串。
-// 返回子串结束点索引（不含此位置），子串宽度。
-func (ff FontFace) Segment(text string, maxWidth int) (int, int, error) {
-	var width fixed.Int26_6
-	var index int
-	for {
-		if index == len(text) {
-			return index, width.Ceil(), nil
-		}
-		char, size := utf8.DecodeRuneInString(text[index:])
-		if char == utf8.RuneError {
-			return 0, 0, fmt.Errorf(`无效字符`)
-		}
-		// NOTE 此处的 MeasureString 方法返回的不是精确整数值（ceil过），
-		// 每次只算一个字符然后再在一起作为总宽度可能会导致误差越来越大。
-		nextCharWidth := ff.MeasureString(text[index : index+size])
-		if width+nextCharWidth > fixed.I(maxWidth) {
-			return index, width.Ceil(), nil
-		}
-		width += nextCharWidth
-		index += size
-	}
 }
 
 type _FontKey struct {
@@ -123,7 +88,7 @@ func (fm *FontManager) AddFont(path string, family string, bold, italic bool) er
 
 // 尝试找字体，找不到返回系统字体。
 // 如果系统字体也找不到，直接崩溃。
-func (fm *FontManager) GetFaceWithFallback(family string, size int, bold bool, italic bool) FontFace {
+func (fm *FontManager) GetFaceWithFallback(family string, size int, bold bool, italic bool) *FontFace {
 	face, err := fm.GetFace(family, size, bold, italic)
 	if err == nil {
 		return face
@@ -144,9 +109,7 @@ func (fm *FontManager) GetFaceWithFallback(family string, size int, bold bool, i
 	panic(`没有任何可用的系统字体，没救了。`)
 }
 
-func (fm *FontManager) GetFace(family string, size int, bold bool, italic bool) (FontFace, error) {
-	out := FontFace{}
-
+func (fm *FontManager) GetFace(family string, size int, bold bool, italic bool) (*FontFace, error) {
 	faceKey := _FontFaceKey{
 		Family: family,
 		Size:   size,
@@ -154,8 +117,7 @@ func (fm *FontManager) GetFace(family string, size int, bold bool, italic bool) 
 		Italic: italic,
 	}
 	if face, ok := fm.faces[faceKey]; ok {
-		out.Face = face
-		return out, nil
+		return face, nil
 	}
 
 	fontKey := _FontKey{
@@ -165,7 +127,7 @@ func (fm *FontManager) GetFace(family string, size int, bold bool, italic bool) 
 	}
 	fontValue, ok := fm.fonts[fontKey]
 	if !ok {
-		return out, fmt.Errorf(`字体家族未找到：%v`, fontKey)
+		return nil, fmt.Errorf(`字体家族未找到：%v`, fontKey)
 	}
 
 	theFace, err := opentype.NewFace(fontValue.Font, &opentype.FaceOptions{
@@ -174,11 +136,114 @@ func (fm *FontManager) GetFace(family string, size int, bold bool, italic bool) 
 		Hinting: font.HintingFull,
 	})
 	if err != nil {
-		return out, fmt.Errorf(`无法创建字体样式：%w`, err)
+		return nil, fmt.Errorf(`无法创建字体样式：%w`, err)
 	}
 
-	fm.faces[faceKey] = theFace
-	out.Face = theFace
+	fm.nextFaceID++
+	fontFace := &FontFace{
+		ID:    fm.nextFaceID,
+		Face:  theFace,
+		cache: map[rune]GlyphValue{},
+	}
 
-	return out, nil
+	fm.faces[faceKey] = fontFace
+
+	return fontFace, nil
+}
+
+type FontFace struct {
+	ID uint32
+	font.Face
+
+	cache map[rune]GlyphValue
+}
+
+// 测试文本 text 使用此字体时所占据的宽度。
+func (ff FontFace) MeasureString(text string) fixed.Int26_6 {
+	return font.MeasureString(ff, text)
+}
+
+func (ff FontFace) TextHeight() int {
+	return (ff.Metrics().Ascent + ff.Metrics().Descent).Ceil()
+}
+
+// 文字渲染过程的光栅化非常消耗，所以缓存一下。
+type _GlyphKey rune
+
+// golang.org/x/image/font/opentype/opentype.go
+/*
+	nPixels := width * height
+	if cap(f.mask.Pix) < nPixels {
+		f.mask.Pix = make([]uint8, 2*nPixels)
+	}
+	f.mask.Pix = f.mask.Pix[:nPixels]
+	f.mask.Stride = width
+	f.mask.Rect.Min.X = 0
+	f.mask.Rect.Min.Y = 0
+	f.mask.Rect.Max.X = width
+	f.mask.Rect.Max.Y = height
+*/
+type GlyphValue struct {
+	Masks []byte
+
+	Width  uint16
+	Height uint16
+
+	OffsetX int16
+	OffsetY int16
+
+	Advance fixed.Int26_6
+}
+
+func (ff *FontFace) GlyphCached(r rune) GlyphValue {
+	if mask, ok := ff.cache[r]; ok {
+		return mask
+	}
+
+	dot := fixed.Point26_6{X: 0, Y: ff.Metrics().Ascent}
+	rect, mask, _, advance, _ := ff.Glyph(dot, r)
+	alpha := mask.(*image.Alpha)
+
+	value := GlyphValue{
+		Width:   uint16(rect.Dx()),
+		Height:  uint16(rect.Dy()),
+		OffsetX: int16(rect.Min.X - dot.X.Round()),
+		OffsetY: int16(rect.Min.Y - dot.Y.Round()),
+		Advance: advance,
+	}
+
+	value.Masks = make([]byte, int(value.Width)*int(value.Height))
+	for y := 0; y < rect.Dy(); y++ {
+		copy(
+			value.Masks[y*rect.Dx():(y+1)*rect.Dx()],
+			alpha.Pix[y*alpha.Stride:y*alpha.Stride+rect.Dx()],
+		)
+	}
+
+	ff.cache[r] = value
+	return value
+}
+
+// 把文本 text 按最大宽度切割成子串。
+// 返回子串结束点索引（不含此位置），子串宽度。
+func (ff FontFace) Segment(text string, maxWidth int) (int, int, error) {
+	var width fixed.Int26_6
+	var index int
+	for {
+		if index == len(text) {
+			return index, width.Ceil(), nil
+		}
+		char, size := utf8.DecodeRuneInString(text[index:])
+		if char == utf8.RuneError {
+			return 0, 0, fmt.Errorf(`无效字符`)
+		}
+		// NOTE 此处的 MeasureString 方法返回的不是精确整数值（ceil过），
+		// 每次只算一个字符然后再在一起作为总宽度可能会导致误差越来越大。
+		nextCharWidth := ff.MeasureString(text[index : index+size])
+		if width+nextCharWidth > fixed.I(maxWidth) {
+			return index, width.Ceil(), nil
+		}
+		width += nextCharWidth
+		index += size
+	}
 }

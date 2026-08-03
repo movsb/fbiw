@@ -155,10 +155,7 @@ func (c *Canvas) FillRect(x, y, width, height int, color Color) {
 			line0 = c.buffer[offset : offset+(x1-x0)*c.bytesPerPixel]
 			for i := 0; i < (x1-x0)*c.bytesPerPixel; i += c.bytesPerPixel {
 				p := c.buffer[offset+i : offset+i+4]
-				p[0] = color.B() // TODO 确定被内联
-				p[1] = color.G()
-				p[2] = color.R()
-				p[3] = color.A()
+				*(*uint32)(unsafe.Pointer(&p[0])) = uint32(color)
 			}
 		} else {
 			copy(c.buffer[offset:], line0)
@@ -190,7 +187,7 @@ func (c *Canvas) DrawBorder(cr Color, w, h int, borderWidth int) {
 }
 
 // 内部方法：只是简单地调用官方库在当前位置画完字符串。
-func (c *Canvas) drawStringStd(text string, face FontFace, color Color, width, height int) {
+func (c *Canvas) drawStringStd(text string, face *FontFace, color Color, width, height int) {
 	drawer := font.Drawer{
 		Dst:  c.toDrawable(width, height),
 		Src:  image.NewUniform(color.NRGBA()),
@@ -202,7 +199,7 @@ func (c *Canvas) drawStringStd(text string, face FontFace, color Color, width, h
 
 // 按设备要求直接写显存。
 //
-/*
+/* 版本1 无glyph缓存
  go test -bench=. -benchmem
 goos: darwin
 goarch: arm64
@@ -211,40 +208,66 @@ cpu: Apple M2 Pro
 BenchmarkDrawString/dev-12                 14042             84548 ns/op              22 B/op          2 allocs/op
 BenchmarkDrawString/std-12                  5272            222231 ns/op           29424 B/op       7334 allocs/op
 */
-func (c *Canvas) drawStringDevice(text string, face FontFace, color Color, width, height int) {
+/* 版本2 有glyph缓存、手写kerning、bearing、advance计算，可能有bug
+goos: darwin
+goarch: arm64
+pkg: gofb
+cpu: Apple M2 Pro
+BenchmarkDrawString/dev-12                102585             10063 ns/op               0 B/op          0 allocs/op
+BenchmarkDrawString/std-12                  4749            225611 ns/op           29408 B/op       7333 allocs/op
+*/
+func (c *Canvas) drawStringDevice(text string, face *FontFace, color Color, width, height int) {
 	prev := rune(-1)
 	dot := fixed.Point26_6{X: 0, Y: face.Metrics().Ascent}
-	src := image.NewUniform(color.NRGBA())
 	for _, next := range text {
 		if prev >= 0 {
 			dot.X += face.Kern(prev, next)
 		}
-		dstRect, mask, maskPoint, advance, _ := face.Glyph(dot, next)
-		drawn := false
-		if !dstRect.Empty() && maskPoint.X == 0 && maskPoint.Y == 0 {
-			if alphaImage, ok := mask.(*image.Alpha); ok {
-				for y := dstRect.Min.Y; y < dstRect.Max.Y; y++ {
-					for x := dstRect.Min.X; x < dstRect.Max.X; x++ {
-						alphaOffset := (y-dstRect.Min.Y)*alphaImage.Stride + (x-dstRect.Min.X)*1
-						alpha := int(alphaImage.Pix[alphaOffset])
-						inverted := 255 - alpha
-						if c.x+x < c.width && c.y+y < c.height {
-							dstOffset := (c.y+y)*c.width*c.bytesPerPixel + (c.x+x)*c.bytesPerPixel
-							pixel := c.buffer[dstOffset : dstOffset+4]
-							pixel[0] = uint8((int(color.B())*alpha + int(pixel[0])*inverted) / 255)
-							pixel[1] = uint8((int(color.G())*alpha + int(pixel[1])*inverted) / 255)
-							pixel[2] = uint8((int(color.R())*alpha + int(pixel[2])*inverted) / 255)
-							pixel[3] = 255
-						}
-					}
+
+		glyph := face.GlyphCached(next)
+		if glyph.Width == 0 || glyph.Height == 0 {
+			dot.X += glyph.Advance
+			prev = next
+			continue
+		}
+
+		dstX := dot.X.Round() + int(glyph.OffsetX)
+		dstY := dot.Y.Round() + int(glyph.OffsetY)
+
+		for y := 0; y < int(glyph.Height); y++ {
+			sy := c.y + dstY + y
+			if sy < 0 || sy >= c.height {
+				continue
+			}
+
+			for x := 0; x < int(glyph.Width); x++ {
+				sx := c.x + dstX + x
+				if sx < 0 || sx >= c.width {
+					continue
 				}
-				drawn = true
+
+				alpha := int(glyph.Masks[y*int(glyph.Width)+x])
+				if alpha == 0 {
+					continue
+				}
+
+				dstOffset := sy*c.width*c.bytesPerPixel + sx*c.bytesPerPixel
+				pixel := c.buffer[dstOffset : dstOffset+4]
+
+				if alpha == 255 {
+					*(*uint32)(unsafe.Pointer(&pixel[0])) = uint32(color)
+					continue
+				}
+
+				inverted := 255 - alpha
+				pixel[0] = uint8((int(color.B())*alpha + int(pixel[0])*inverted) / 255)
+				pixel[1] = uint8((int(color.G())*alpha + int(pixel[1])*inverted) / 255)
+				pixel[2] = uint8((int(color.R())*alpha + int(pixel[2])*inverted) / 255)
+				pixel[3] = 255
 			}
 		}
-		if !drawn {
-			draw.DrawMask(c.toDrawable(width, height), dstRect, src, image.Point{}, mask, maskPoint, draw.Over)
-		}
-		dot.X += advance
+
+		dot.X += glyph.Advance
 		prev = next
 	}
 }

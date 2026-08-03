@@ -147,7 +147,7 @@ type Value struct {
 	Type _ValueType
 
 	String string
-	Color  Color // 0xRR_GG_BB_AA
+	Color  Color
 	Number int
 	Bool   bool
 }
@@ -205,6 +205,8 @@ func BoolValue(v bool) Value {
 	}
 }
 
+// 0xAA_RR_GG_BB
+// 与设备的像素格式匹配（低端序）
 type Color uint32
 
 const ColorNone = Color(0x01010101)
@@ -218,16 +220,16 @@ func (c Color) None() bool {
 	return c == ColorNone
 }
 func (c Color) R() uint8 {
-	return uint8(c >> 24)
-}
-func (c Color) G() uint8 {
 	return uint8(c >> 16)
 }
-func (c Color) B() uint8 {
+func (c Color) G() uint8 {
 	return uint8(c >> 8)
 }
+func (c Color) B() uint8 {
+	return uint8(c >> 0)
+}
 func (c Color) A() uint8 {
-	return uint8(c)
+	return uint8(c >> 24)
 }
 func (c Color) NRGBA() color.NRGBA {
 	return color.NRGBA{
@@ -338,66 +340,66 @@ func ParseColor(c string) (_ Value, outErr error) {
 		}
 	} else if c, ok := presetColors[string(c)]; ok {
 		cr = color.NRGBA{
-			R: uint8(c >> 24),
-			G: uint8(c >> 16),
-			B: uint8(c >> 8),
-			A: uint8(c),
+			R: uint8(c >> 16),
+			G: uint8(c >> 8),
+			B: uint8(c >> 0),
+			A: uint8(c >> 24),
 		}
 	} else {
 		panic(`未知颜色`)
 	}
 
 	out := uint32(0)
-	out |= uint32(cr.A) << 0
-	out |= uint32(cr.B) << 8
-	out |= uint32(cr.G) << 16
-	out |= uint32(cr.R) << 24
+	out |= uint32(cr.B) << 0
+	out |= uint32(cr.G) << 8
+	out |= uint32(cr.R) << 16
+	out |= uint32(cr.A) << 24
 
 	return ColorValue(Color(out)), nil
 }
 
 var presetColors = map[string]uint32{
-	`coral`:          0xF08080FF,
-	`salmon`:         0xE9967AFF,
-	`red`:            0xFF325BFF,
-	`hotpink`:        0xFF69B4FF,
-	`deeppink`:       0xFF1493FF,
-	`palevioletred`:  0xDB7093FF,
-	`tomato`:         0xFF6347FF,
-	`darkorange`:     0xFF8C00FF,
-	`orange`:         0xFFA500FF,
-	`yellow`:         0xFFD800FF,
-	`darkkhaki`:      0xBDB76BFF,
-	`magenta`:        0xDA70D6FF,
-	`purple`:         0x9932CCFF,
-	`slateblue`:      0x6A5ACDFF,
-	`mediumseagreen`: 0x3CB371FF,
-	`green`:          0x17A817FF,
-	`yellowgreen`:    0x9ACD32FF,
-	`olive`:          0x6B8E23FF,
-	`darkseagreen`:   0x8FBC8BFF,
-	`lightseagreen`:  0x20B2AAFF,
-	`teal`:           0x008080FF,
-	`cyan`:           0x00CED1FF,
-	`aqua`:           0x00CED1FF,
-	`cadetblue`:      0x5F9EA0FF,
-	`steelblue`:      0x4682B4FF,
-	`deepskyblue`:    0x00BFFFFF,
-	`blue`:           0x1E90FFFF,
-	`burlywood`:      0xDEB887FF,
-	`tan`:            0xD2B48CFF,
-	`rosybrown`:      0xBC8F8FFF,
-	`sandybrown`:     0xF4A460FF,
-	`goldenrod`:      0xDAA520FF,
-	`darkgoldenrod`:  0xB8860BFF,
-	`peru`:           0xCD853FFF,
-	`chocolate`:      0xD2691EFF,
+	`coral`:          0xFFF08080,
+	`salmon`:         0xFFE9967A,
+	`red`:            0xFFFF325B,
+	`hotpink`:        0xFFFF69B4,
+	`deeppink`:       0xFFFF1493,
+	`palevioletred`:  0xFFDB7093,
+	`tomato`:         0xFFFF6347,
+	`darkorange`:     0xFFFF8C00,
+	`orange`:         0xFFFFA500,
+	`yellow`:         0xFFFFD800,
+	`darkkhaki`:      0xFFBDB76B,
+	`magenta`:        0xFFDA70D6,
+	`purple`:         0xFF9932CC,
+	`slateblue`:      0xFF6A5ACD,
+	`mediumseagreen`: 0xFF3CB371,
+	`green`:          0xFF17A817,
+	`yellowgreen`:    0xFF9ACD32,
+	`olive`:          0xFF6B8E23,
+	`darkseagreen`:   0xFF8FBC8B,
+	`lightseagreen`:  0xFF20B2AA,
+	`teal`:           0xFF008080,
+	`cyan`:           0xFF00CED1,
+	`aqua`:           0xFF00CED1,
+	`cadetblue`:      0xFF5F9EA0,
+	`steelblue`:      0xFF4682B4,
+	`deepskyblue`:    0xFF00BFFF,
+	`blue`:           0xFF1E90FF,
+	`burlywood`:      0xFFDEB887,
+	`tan`:            0xFFD2B48C,
+	`rosybrown`:      0xFFBC8F8F,
+	`sandybrown`:     0xFFF4A460,
+	`goldenrod`:      0xFFDAA520,
+	`darkgoldenrod`:  0xFFB8860B,
+	`peru`:           0xFFCD853F,
+	`chocolate`:      0xFFD2691E,
 	`white`:          0xFFFFFFFF,
-	`silver`:         0xC0C0C0FF,
-	`darkgray`:       0xA9A9A9FF,
-	`gray`:           0x808080FF,
-	`slategray`:      0x708090FF,
-	`black`:          0x000000FF,
+	`silver`:         0xFFC0C0C0,
+	`darkgray`:       0xFFA9A9A9,
+	`gray`:           0xFF808080,
+	`slategray`:      0xFF708090,
+	`black`:          0xFF000000,
 }
 
 type Rule struct {

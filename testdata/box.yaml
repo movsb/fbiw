@@ -81,7 +81,7 @@
     i:
       Color:
         type: 2
-        color: 4281490431 # 0xFF325BFF
+        color: 4294914651
 
 #8 非Spacer作为Spacer自动布局。
 - html: |
@@ -112,11 +112,11 @@
     status-bar:
       Color:
         type: 2
-        color: 396892159
+        color: 4279740439
     img:
       Color:
         type: 2
-        color: 396892159
+        color: 4279740439
 
 #10 有默认值的情况下，如果父元素设置了，仍然应该从（最近有设置的）父元素继承
 - html: |
@@ -132,7 +132,7 @@
     img:
       Color:
         type: 2
-        color: 396892159
+        color: 4279740439
 
 #11 后代选择器继承
 - html: |
