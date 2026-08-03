@@ -233,7 +233,8 @@ func (b *Block) Calc(availWidth, availHeight int) {
 		avgHeight := (contentAvailHeight - contentHeight) / len(zeroSpacers)
 		contentHeight = contentAvailHeight
 		for _, spacer := range zeroSpacers {
-			spacer.Base().calcPos.Height = avgHeight
+			// spacer本身有高度的，不能直接赋值。见测试 #12
+			spacer.Base().calcPos.Height += avgHeight
 		}
 	}
 
@@ -333,7 +334,7 @@ func (b *Inline) Calc(availWidth, availHeight int) {
 		avgWidth := (contentAvailWidth - contentWidth) / len(zeroSpacers)
 		contentWidth = contentAvailWidth
 		for _, spacer := range zeroSpacers {
-			spacer.Base().calcPos.Width = avgWidth
+			spacer.Base().calcPos.Width += avgWidth
 		}
 	}
 

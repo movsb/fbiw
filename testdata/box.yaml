@@ -164,3 +164,15 @@
       FontSize:
         type: 3
         number: 10
+
+#12 space本身有高度
+- html: |
+    <block background-image="bg.png">
+      <block spacer id=spacer background-color="yellow" padding="10">
+        <block id=inner>
+        </block>
+      </block>
+    </block>
+  calc:
+    spacer: [0,0,1024,768]
+    inner: [10,10,1004,0]

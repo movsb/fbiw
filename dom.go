@@ -221,14 +221,6 @@ func (doc *Document) QuerySelector(selector string) Box {
 	return outBox
 }
 
-func QuerySelector[T Box](doc *Document, selector string) T {
-	box := doc.QuerySelector(selector)
-	if t, ok := box.(T); ok {
-		return t
-	}
-	panic(`类型不正确`)
-}
-
 type _NodeTransformer struct {
 	doc *Document
 }
