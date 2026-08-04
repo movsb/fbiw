@@ -67,7 +67,7 @@ func (b *BaseBox) Ancestors() iter.Seq[Box] {
 	}
 }
 
-func (b *BaseBox) appendChild(child Box) {
+func (b *BaseBox) AppendChild(child Box) {
 	b.Children = append(b.Children, child)
 	child.Base().Parent = b
 	if b.Document != nil {
@@ -564,7 +564,7 @@ type _TextParts struct {
 func (p *_TextParts) appendChildOrText(owner Box, child any) {
 	p.children = append(p.children, child)
 	if box, ok := child.(Box); ok {
-		owner.Base().appendChild(box)
+		owner.Base().AppendChild(box)
 	} else {
 		if doc := owner.Base().Document; doc != nil {
 			doc.layoutDirty = true
@@ -618,12 +618,12 @@ func NewText(doc *Document) *Text {
 func (t *Text) SetText(text string) {
 	t.textParts.children = nil
 	t.Children = nil
-	t.appendChild(text)
+	t.AppendChild(text)
 	t.expandTextNodes()
 }
 
 // 这个方法重写了基类的方法，只在 transform 中被调用。
-func (t *Text) appendChild(child any) {
+func (t *Text) AppendChild(child any) {
 	t.textParts.appendChildOrText(t, child)
 }
 
@@ -805,7 +805,7 @@ func NewBoldText(doc *Document) *BoldText {
 	return b
 }
 
-func (t *BoldText) appendChild(child any) {
+func (t *BoldText) AppendChild(child any) {
 	t.textParts.appendChildOrText(t, child)
 }
 
@@ -829,7 +829,7 @@ func NewItalicText(doc *Document) *ItalicText {
 	return b
 }
 
-func (t *ItalicText) appendChild(child any) {
+func (t *ItalicText) AppendChild(child any) {
 	t.textParts.appendChildOrText(t, child)
 }
 
@@ -854,6 +854,9 @@ func (b *Image) Set(key string, val string) error {
 	switch key {
 	case `src`:
 		b.Src = val
+		if b.Document != nil {
+			b.Document.layoutDirty = true
+		}
 		return nil
 	default:
 		return b.BaseBox.Set(key, val)

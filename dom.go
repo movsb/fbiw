@@ -362,11 +362,11 @@ func (n _NodeTransformer) transformNode(box Box, node *html.Node, voidElement bo
 		}
 
 		if text, ok := box.(interface {
-			appendChild(child any)
+			AppendChild(child any)
 		}); ok {
-			text.appendChild(childBoxOrString)
+			text.AppendChild(childBoxOrString)
 		} else {
-			box.Base().appendChild(childBoxOrString.(Box))
+			box.Base().AppendChild(childBoxOrString.(Box))
 		}
 	}
 	return box, nil
