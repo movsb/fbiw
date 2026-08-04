@@ -49,6 +49,9 @@ type Document struct {
 	// 如果只影响了绘制，不应该重新排版。
 	// 比如只修改了背景色。
 	paintDirty bool
+
+	// 事件托管。
+	delegator Delegator
 }
 
 func _NewDocument(
@@ -205,6 +208,16 @@ func (doc *Document) sync(canvas *Canvas) {
 		doc.paint(canvas)
 	}
 	doc.clean()
+}
+
+func (doc *Document) SetDelegator(d Delegator) {
+	doc.delegator = d
+}
+func (doc *Document) handleKeyboardEvent(event KeyboardEventArgs) {
+	if doc.delegator == nil {
+		return
+	}
+	doc.delegator.HandleKeyboardEvent(event.Name, event.Pressed)
 }
 
 // 获取指定ID的元素。

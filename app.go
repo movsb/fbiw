@@ -75,6 +75,11 @@ func (app *App) Close() {
 	defer app.display.Close()
 	defer app.images.Close()
 	defer app.fonts.Close()
+	app.cancel()
+}
+
+func (app *App) Context() context.Context {
+	return app.ctx
 }
 
 func (app *App) New(name string, skinDir string) *Document {
@@ -135,6 +140,8 @@ func (app *App) Run() {
 			app.cancel()
 			return
 		case KeyboardEvent:
+			// 按“菜单”和“开始”可以退出。
+			// 暂时固定给所有APP。
 			switch event.Keyboard.Name {
 			case Menu:
 				menuPressed = event.Keyboard.Pressed
@@ -144,6 +151,14 @@ func (app *App) Run() {
 			if menuPressed && startPressed {
 				app.cancel()
 				return
+			}
+
+			// 发送给前台文档。
+			for _, doc := range slices.Backward(app.documents) {
+				if !doc.display {
+					continue
+				}
+				doc.handleKeyboardEvent(event.Keyboard)
 			}
 		}
 	})
@@ -169,4 +184,8 @@ func (app *App) sync() {
 		app.display.Sync()
 		app.dirty = false
 	}
+}
+
+type Delegator interface {
+	HandleKeyboardEvent(name KeyName, pressed bool)
 }
