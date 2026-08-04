@@ -700,22 +700,25 @@ func (t *Text) BlockHeight() int {
 }
 
 func (t *Text) Draw(canvas *Canvas) {
-	if len(t.textLines) <= 0 {
-		return
-	}
-
 	offsetY := 0
 	for _, line := range t.textLines {
 		offsetX := 0
 		for _, fragment := range line.Fragments {
 			rc := fragment.calcPos
-			text := fragment.Run.Data[fragment.Start:fragment.End]
+			owner := fragment.Run.Owner
 			canvas := canvas.Offset(offsetX, offsetY)
+
+			if cr := owner.Base().computedStyles.BackgroundColor; cr.IsColor() && !cr.Color.None() {
+				canvas.FillRect(0, 0, rc.Width, rc.Height, cr.Color)
+			}
+
+			text := fragment.Run.Data[fragment.Start:fragment.End]
 			canvas.drawStringDevice(text,
-				t.Document.loadFaceWithFallback(fragment.Run.Owner),
-				fragment.Run.Owner.Base().computedStyles.Color.Color,
+				t.Document.loadFaceWithFallback(owner),
+				owner.Base().computedStyles.Color.Color,
 				rc.Width, rc.Height,
 			)
+
 			offsetX += rc.Width
 		}
 		offsetY += line.MaxHeight

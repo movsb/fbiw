@@ -248,6 +248,19 @@ func (doc *Document) QuerySelector(selector string) Box {
 	return outBox
 }
 
+// 选择所有匹配的元素。
+func (doc *Document) QuerySelectorAll(selector string) []Box {
+	var outBoxes []Box
+	sel := ParseSelector(selector)
+	doc.walkNode(doc.root, func(box Box) bool {
+		if (_Styler{doc}).match(box, sel) {
+			outBoxes = append(outBoxes, box)
+		}
+		return true
+	})
+	return outBoxes
+}
+
 type _NodeTransformer struct {
 	doc *Document
 }

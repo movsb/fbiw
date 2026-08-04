@@ -203,6 +203,9 @@ func (v Value) IsNumber() bool {
 func (v Value) IsPercentage() bool {
 	return v.Type == VTPercentage
 }
+func (v Value) IsColor() bool {
+	return v.Type == VTColor
+}
 
 func StringValue(s string) Value {
 	return Value{
