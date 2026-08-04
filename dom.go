@@ -16,6 +16,9 @@ import (
 )
 
 type Document struct {
+	// 调试用的。
+	name string
+
 	app     *App
 	display bool
 
@@ -96,6 +99,7 @@ func (doc *Document) load(name string, skinDir string) error {
 	doc.skinDir = skinDir
 	doc.layoutDirty = true
 	doc.paintDirty = true
+	doc.name = name
 	return nil
 }
 
@@ -187,6 +191,10 @@ func (doc *Document) parse(content io.Reader) error {
 func (doc *Document) dirty() bool {
 	return doc.layoutDirty || doc.paintDirty
 }
+func (doc *Document) clean() {
+	doc.layoutDirty = false
+	doc.paintDirty = false
+}
 
 func (doc *Document) sync(canvas *Canvas) {
 	if doc.layoutDirty {
@@ -196,8 +204,7 @@ func (doc *Document) sync(canvas *Canvas) {
 	if doc.paintDirty {
 		doc.paint(canvas)
 	}
-	doc.layoutDirty = false
-	doc.paintDirty = false
+	doc.clean()
 }
 
 // 获取指定ID的元素。

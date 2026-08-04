@@ -97,6 +97,7 @@ const (
 	UnknownEvent EventType = iota + 1
 
 	asyncCallback
+	appDirty
 
 	QuitEvent
 	KeyboardEvent

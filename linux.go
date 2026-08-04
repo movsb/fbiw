@@ -83,6 +83,7 @@ func pollEvents(ctx context.Context, system chan Event, sync func(), handler fun
 			switch e.Type {
 			case asyncCallback:
 				e.asyncCallback()
+			case appDirty:
 			default:
 				handler(e)
 			}

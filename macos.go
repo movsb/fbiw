@@ -104,6 +104,7 @@ func pollEvents(ctx context.Context, system chan Event, sync func(), handler fun
 			switch event.Type {
 			case asyncCallback:
 				event.asyncCallback()
+			case appDirty:
 			default:
 				handler(event)
 			}
@@ -122,6 +123,7 @@ func pollEvents(ctx context.Context, system chan Event, sync func(), handler fun
 		default:
 			handler(Event{})
 		}
+		// SDL端是一直触发事件的，好像没有必要？
 		sync()
 	}
 }

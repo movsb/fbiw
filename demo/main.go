@@ -67,7 +67,7 @@ func initFonts(app *fbiw.App) {
 	}
 }
 
-//go:embed main.html skin
+//go:embed *.html skin
 var embedded embed.FS
 
 func main() {
@@ -78,12 +78,17 @@ func main() {
 
 	doc := app.New(`main.html`, `skin`)
 
+	doc2 := app.New(`1.html`, `skin`)
+
 	txtTime := doc.QuerySelector(`#time`).(*fbiw.Text)
 	go func() {
+		t := true
 		for range time.Tick(time.Second * 1) {
 			app.Async(func() {
 				now := time.Now().Format(`15:04:05`)
 				txtTime.SetText(now)
+				app.Show(doc2, t)
+				t = !t
 			})
 		}
 	}()
