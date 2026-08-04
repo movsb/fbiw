@@ -28,6 +28,10 @@ type BaseBox struct {
 	Tag   string
 	Class Class
 
+	// 不同于form元素的name，这个name不用于css。
+	// 不要求唯一，用于保存业务数据。
+	Name string
+
 	Document *Document
 	Parent   Box
 	Children []Box
@@ -110,6 +114,8 @@ func (b *BaseBox) Set(key string, val string) error {
 		// 改class也会影响样式选择，所以需要重新排版
 		// 会自动调用classChanged
 		b.Class.Set(val)
+	case `name`:
+		b.Name = val
 	}
 
 	return nil
@@ -168,9 +174,17 @@ func (b *BaseBox) Draw(canvas *Canvas) {
 	}
 
 	for _, child := range b.Children {
+		if !displaying(child) {
+			continue
+		}
 		p := child.Base().calcPos
 		child.Draw(canvas.Offset(p.X, p.Y))
 	}
+}
+
+func displaying(b Box) bool {
+	d := b.Base().computedStyles.Display
+	return d.Empty() || (d.IsBool() && d.Bool)
 }
 
 type Block struct {
@@ -209,6 +223,9 @@ func (b *Block) Calc(availWidth, availHeight int) {
 	contentHeight := 0
 
 	for _, child := range b.Children {
+		if !displaying(child) {
+			continue
+		}
 		if text, ok := child.(*Text); ok {
 			text.SegmentBlock(contentAvailWidth, contentAvailHeight-contentHeight)
 		} else {
@@ -228,6 +245,9 @@ func (b *Block) Calc(availWidth, availHeight int) {
 	// 如果有 Spacer（未设定大小的），则均匀地铺满。
 	zeroSpacers := []Box{}
 	for _, child := range b.Children {
+		if !displaying(child) {
+			continue
+		}
 		if spacer, ok := child.(*Spacer); ok && spacer.computedStyles.Height.Empty() {
 			zeroSpacers = append(zeroSpacers, spacer)
 		} else if child.Base().computedStyles.Spacer.Bool {
@@ -247,6 +267,9 @@ func (b *Block) Calc(availWidth, availHeight int) {
 	// 最后再重新调整 Y
 	offsetY := ncWidth
 	for _, child := range b.Children {
+		if !displaying(child) {
+			continue
+		}
 		p := &child.Base().calcPos
 		p.Y = offsetY
 		offsetY += p.Height
@@ -317,6 +340,9 @@ func (b *Inline) Calc(availWidth, availHeight int) {
 	contentMaxHeight := 0
 
 	for _, child := range b.Children {
+		if !displaying(child) {
+			continue
+		}
 		if text, ok := child.(*Text); ok {
 			// 只处理了一行，如果要wrap，才能继续处理。
 			text.ClearStates()
@@ -333,6 +359,9 @@ func (b *Inline) Calc(availWidth, availHeight int) {
 	// 如果有 Spacer（未设定大小的），则均匀地铺满。
 	zeroSpacers := []Box{}
 	for _, child := range b.Children {
+		if !displaying(child) {
+			continue
+		}
 		if spacer, ok := child.(*Spacer); ok && spacer.computedStyles.Width.Empty() {
 			zeroSpacers = append(zeroSpacers, spacer)
 		} else if child.Base().computedStyles.Spacer.Bool {
@@ -351,6 +380,9 @@ func (b *Inline) Calc(availWidth, availHeight int) {
 	// 最后再重新调整 X
 	offsetX := ncWidth
 	for _, child := range b.Children {
+		if !displaying(child) {
+			continue
+		}
 		p := &child.Base().calcPos
 		p.X = offsetX
 		offsetX += p.Width
@@ -415,6 +447,9 @@ func (b *Stack) Calc(availWidth, availHeight int) {
 	contentHeight := 0
 
 	for _, child := range b.Children {
+		if !displaying(child) {
+			continue
+		}
 		if text, ok := child.(*Text); ok {
 			text.SegmentBlock(contentAvailWidth, contentAvailHeight-contentHeight)
 		} else {
@@ -434,6 +469,9 @@ func (b *Stack) Calc(availWidth, availHeight int) {
 	// 最后再重新调整 Y
 	offsetY := ncWidth
 	for _, child := range b.Children {
+		if !displaying(child) {
+			continue
+		}
 		p := &child.Base().calcPos
 		p.Y = offsetY
 	}

@@ -66,11 +66,6 @@ func _NewDocument(
 		fsys:         fileSystem,
 		fontManager:  fontManager,
 		imageManager: imageManager,
-		defaultStyles: Styles{
-			Color:      ColorValueFromString(`black`),
-			FontFamily: StringValue(`system`),
-			FontSize:   NumberValue(25),
-		},
 	}
 	return doc
 }
@@ -93,9 +88,19 @@ func (doc *Document) load(name string, skinDir string) error {
 	if err := doc.parse(fp); err != nil {
 		return fmt.Errorf(`文档解析失败：%w`, err)
 	}
+
+	// 计算文档默认样式。
+	docBox := _DocBox{BaseBox: BaseBox{Tag: `document`}}
+	if err := doc.style(&docBox, false); err != nil {
+		return err
+	}
+	doc.defaultStyles = docBox.computedStyles
+
+	// 为所有子元素计算样式。
 	if err := doc.style(doc.root, true); err != nil {
 		return err
 	}
+
 	if skinDir == `` {
 		skinDir = `.`
 	}
@@ -104,6 +109,11 @@ func (doc *Document) load(name string, skinDir string) error {
 	doc.paintDirty = true
 	doc.name = name
 	return nil
+}
+
+// 只用于默认样式计算。
+type _DocBox struct {
+	BaseBox
 }
 
 // html parser 的问题：
@@ -412,7 +422,13 @@ type _Styler struct {
 
 func (s _Styler) Style(box Box, descendents bool, sheet *Sheet) (outErr error) {
 	s.doc.walkNode(box, func(box Box) bool {
-		rules := s.findRulesFor(box, sheet)
+		var rules []RuleMatch
+		if DefaultStyles != nil {
+			rules = append(rules, s.findRulesFor(box, DefaultStyles)...)
+		}
+		if sheet != nil {
+			rules = append(rules, s.findRulesFor(box, sheet)...)
+		}
 		if err := s.computeStyles(box, rules); err != nil {
 			outErr = fmt.Errorf(`样式应用失败：%w`, err)
 			return false
@@ -460,12 +476,13 @@ func (s _Styler) computeStyles(node Box, rules []RuleMatch) error {
 		}
 	}
 
-	// 从全局拷贝默认
-	styles := s.doc.defaultStyles
+	// 从空开始。
+	styles := Styles{}
 
 	inlines := &node.Base().inlineStyles
 	inlineValue := reflect.ValueOf(inlines)
 	stylesValue := reflect.ValueOf(&styles)
+	documentStylesValue := reflect.ValueOf(&s.doc.defaultStyles)
 
 	// 从父母继承
 	// TODO 优化：如果样式表或内联表有值，则无需再从父母继承。
@@ -474,14 +491,24 @@ func (s _Styler) computeStyles(node Box, rules []RuleMatch) error {
 			continue
 		}
 		if field.Type == reflect.TypeFor[Value]() {
+			setFromParent := false
 			for parent := node.Base().Parent; parent != nil; parent = parent.Base().Parent {
 				parentValue := reflect.ValueOf(&parent.Base().computedStyles)
 				parentField := parentValue.Elem().FieldByIndex(field.Index)
 				value3 := parentField.Interface().(Value)
 				if !value3.Empty() {
 					value.Set(parentField)
+					setFromParent = true
 					// 从最近的祖先那里获取一次即可。
 					break
+				}
+			}
+			// <document> 是所有元素的父节点。
+			if !setFromParent {
+				docField := documentStylesValue.Elem().FieldByIndex(field.Index)
+				docValue := docField.Interface().(Value)
+				if !docValue.Empty() {
+					value.Set(docField)
 				}
 			}
 		}

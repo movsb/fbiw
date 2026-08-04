@@ -35,7 +35,19 @@ type Styles struct {
 
 	// 是否当作Spacer可变大小布局。
 	Spacer Value
+
+	// 显示属性。布尔类型。
+	// 如果为true，参与排版；如果为false，完全隐藏。
+	Display Value
 }
+
+var DefaultStyles = Must1(ParseStyle([]byte(`
+document {
+	color: black;
+	font-family: system;
+	font-size: 25;
+}
+`)))
 
 // 直接传入的是结构体字段，原始名字，没有小写、没有中划线。
 func ShouldInherit(name string) bool {
@@ -54,7 +66,7 @@ var ErrUnknownStyleProperty = errors.New(`未知样式属性`)
 // 设置样式。
 //
 //   - 影响继承会导致重新计算自己以及所有后代的样式。
-//   - 影响布局会导致整个文档重新布局。
+//   - 影响布局会导致整个文档重新布局（并重绘）。
 //   - 影响绘制导致整个文档重绘（但不一定重新布局）。
 func (s *Styles) Set(name string, raw string) (affectInherit, affectLayout, affectPaint bool, outErr error) {
 	setNumberOrPercentage := func(v *Value, raw string) error {
@@ -164,6 +176,10 @@ func (s *Styles) Set(name string, raw string) (affectInherit, affectLayout, affe
 		affectLayout = true
 		outErr = setBoolean(&s.Spacer, raw, true)
 		return
+	case `display`:
+		affectLayout = true
+		outErr = setBoolean(&s.Display, raw, true)
+		return
 	}
 }
 
@@ -202,6 +218,9 @@ func (v Value) IsNumber() bool {
 }
 func (v Value) IsPercentage() bool {
 	return v.Type == VTPercentage
+}
+func (v Value) IsBool() bool {
+	return v.Type == VTBool
 }
 func (v Value) IsColor() bool {
 	return v.Type == VTColor
@@ -605,9 +624,9 @@ func parseSelector(buf *BufioReader) []NodeSelector {
 	selectors := []NodeSelector{}
 	current := NodeSelector{}
 
-	for {
-		buf.skipSpaces()
+	buf.skipSpaces()
 
+	for {
 		b := buf.peekByte()
 		if b == '#' {
 			buf.Discard(1)
@@ -625,8 +644,11 @@ func parseSelector(buf *BufioReader) []NodeSelector {
 		} else {
 			panic(`不认识的字符`)
 		}
-		selectors = append(selectors, current)
-		current = NodeSelector{}
+		if b := buf.peekByte(); b == ' ' || b == '\t' || b == 0 || b == '{' {
+			selectors = append(selectors, current)
+			current = NodeSelector{}
+			buf.skipSpaces()
+		}
 	}
 
 	if len(selectors) <= 0 {

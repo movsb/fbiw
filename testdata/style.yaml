@@ -13,3 +13,23 @@
         - tag: inline
           specificity: 1
       declarations: []
+
+#2
+- style: '#content block.selected {}'
+  rules:
+    - selector:
+        - id: content
+          specificity: 65536
+        - tag: block
+          class:
+            - selected
+          specificity: 257
+      declarations: []
+
+#3
+- style: '#id {}'
+  rules:
+    - selector:
+        - id: id
+          specificity: 65536
+      declarations: []

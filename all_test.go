@@ -97,13 +97,11 @@ type StyleParseTest struct {
 func TestParseStyle(t *testing.T) {
 	cases := LoadTestCases[StyleParseTest](`testdata/style.yaml`)
 	for i, tc := range cases {
+		_ = i
 		sheet, err := ParseStyle([]byte(tc.Style))
 		if err != nil {
 			t.Error(err)
 			continue
-		}
-		if i == 6 {
-			i += 0
 		}
 		for i, r := range tc.Rules {
 			if len(r.Declarations) == 0 {
