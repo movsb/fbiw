@@ -466,6 +466,28 @@ func (b *Stack) Calc(availWidth, availHeight int) {
 		}
 	}
 
+	// 如果有 Spacer（未设定大小的），则同等大小地拼满。
+	zeroSpacers := []Box{}
+	for _, child := range b.Children {
+		if !displaying(child) {
+			continue
+		}
+		if spacer, ok := child.(*Spacer); ok && spacer.computedStyles.Height.Empty() {
+			zeroSpacers = append(zeroSpacers, spacer)
+		} else if child.Base().computedStyles.Spacer.Bool {
+			zeroSpacers = append(zeroSpacers, child)
+		}
+	}
+	if len(zeroSpacers) > 0 {
+		// 铺满，然后均匀分布
+		avgHeight := contentAvailHeight - contentHeight
+		contentHeight = contentAvailHeight
+		for _, spacer := range zeroSpacers {
+			// spacer本身有高度的，不能直接赋值。见测试 #12
+			spacer.Base().calcPos.Height += avgHeight
+		}
+	}
+
 	// 最后再重新调整 Y
 	offsetY := ncWidth
 	for _, child := range b.Children {

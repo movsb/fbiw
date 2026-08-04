@@ -176,3 +176,17 @@
   calc:
     spacer: [0,0,1024,768]
     inner: [10,10,1004,0]
+
+#13
+- html: |
+    <block>
+      <stack spacer id=stack>
+        <block id=b1 spacer></block>
+        <block id=b2 spacer></block>
+      </stack>
+    </block>
+  calc:
+    stack: [0,0,1024,768]
+    b1: [0,0,1024,768]
+    b2: [0,0,1024,768]
+

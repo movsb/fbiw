@@ -165,12 +165,12 @@ func (s *Styles) Set(name string, raw string) (affectInherit, affectLayout, affe
 	case `bold`, `font-bold`:
 		affectInherit = true
 		affectLayout = true
-		outErr = setBoolean(&s.FontBold, raw, false)
+		outErr = setBoolean(&s.FontBold, raw, true)
 		return
 	case `italic`, `font-italic`:
 		affectInherit = true
 		affectLayout = true
-		outErr = setBoolean(&s.FontItalic, raw, false)
+		outErr = setBoolean(&s.FontItalic, raw, true)
 		return
 	case `spacer`:
 		affectLayout = true
