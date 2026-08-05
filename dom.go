@@ -410,18 +410,20 @@ func (doc *Document) walkNode(box Box, callback func(box Box) bool) bool {
 }
 
 // TODO 异步解码
-func (doc *Document) loadImage(src string) (DecodedImage, error) {
+// width, height 表示想要scale到的尺寸。
+// 如果均为0，则表示不scale。
+func (doc *Document) loadImage(src string, width, height int) (DecodedImage, error) {
 	if !strings.Contains(src, `:`) {
-		return doc.imageManager.GetImageCached(doc.fsys, path.Join(doc.skinDir, src))
+		return doc.imageManager.GetImageScaledCached(doc.fsys, path.Join(doc.skinDir, src), width, height)
 	}
 	if u, err := url.Parse(src); err == nil {
 		switch u.Scheme {
 		case `os`:
 			if u, err := url.PathUnescape(u.Opaque); err == nil {
 				if filepath.IsAbs(u) {
-					return doc.imageManager.GetImageCached(os.DirFS(`/`), u[1:])
+					return doc.imageManager.GetImageScaledCached(os.DirFS(`/`), u[1:], width, height)
 				} else {
-					return doc.imageManager.GetImageCached(os.DirFS(`.`), u)
+					return doc.imageManager.GetImageScaledCached(os.DirFS(`.`), u, width, height)
 				}
 			}
 		}

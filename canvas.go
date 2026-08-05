@@ -14,6 +14,7 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/anthonynsimon/bild/transform"
 	"github.com/phuslu/lru"
 	"golang.org/x/image/font"
 	"golang.org/x/image/math/fixed"
@@ -290,8 +291,9 @@ func (c *Canvas) drawStringDevice(text string, face *FontFace, color Color, widt
 }
 
 type _ImageCacheKey struct {
-	fsys fs.FS
-	path string
+	fsys          fs.FS
+	path          string
+	width, height int
 }
 
 // 用标准库的 draw.Draw 造成了极多不必要的计算，
@@ -318,7 +320,9 @@ func (m *ImageManager) Close() {
 	m.cache = nil
 }
 
-func (m *ImageManager) decodeImage(fsys fs.FS, path string) (DecodedImage, error) {
+// 如果 width和height均为0，返回原图大小。
+// 否则表示指定缩放到此大小。
+func (m *ImageManager) decodeImage(fsys fs.FS, path string, wantWidth, wantHeight int) (DecodedImage, error) {
 	log.Println(`重新解码：`, path)
 
 	fp, err := fsys.Open(path)
@@ -335,6 +339,11 @@ func (m *ImageManager) decodeImage(fsys fs.FS, path string) (DecodedImage, error
 	}
 
 	width, height := img.Bounds().Dx(), img.Bounds().Dy()
+	if wantWidth != 0 && wantHeight != 0 {
+		img = transform.Resize(img, wantWidth, wantHeight, transform.Lanczos)
+		width = wantWidth
+		height = wantHeight
+	}
 
 	decoded := DecodedImage{
 		Width:  width,
@@ -373,14 +382,24 @@ func (m *ImageManager) decodeImage(fsys fs.FS, path string) (DecodedImage, error
 }
 
 func (m *ImageManager) GetImageCached(fsys fs.FS, path string) (DecodedImage, error) {
+	return m.getImageCached(fsys, path, 0, 0)
+}
+
+func (m *ImageManager) GetImageScaledCached(fsys fs.FS, path string, width, height int) (DecodedImage, error) {
+	return m.getImageCached(fsys, path, width, height)
+}
+
+func (m *ImageManager) getImageCached(fsys fs.FS, path string, width, height int) (DecodedImage, error) {
 	img, err, _ := m.cache.GetOrLoad(
 		context.Background(),
 		_ImageCacheKey{
-			fsys: fsys,
-			path: path,
+			fsys:   fsys,
+			path:   path,
+			width:  width,
+			height: height,
 		},
 		func(ctx context.Context, _ _ImageCacheKey) (DecodedImage, time.Duration, error) {
-			decoded, err := m.decodeImage(fsys, path)
+			decoded, err := m.decodeImage(fsys, path, width, height)
 			return decoded, time.Minute * 30, err
 		},
 	)

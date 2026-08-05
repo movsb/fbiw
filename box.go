@@ -155,7 +155,7 @@ func (b *BaseBox) Draw(canvas *Canvas) {
 
 	if src := b.computedStyles.BackgroundImage.String; src != `` {
 		canvas.Offset(borderWidth, borderWidth).DrawImage(
-			DropLast1(b.Document.loadImage(src)),
+			DropLast1(b.Document.loadImage(src, 0, 0)),
 			computedWidth-borderWidth*2,
 			computedHeight-borderWidth*2,
 		)
@@ -868,17 +868,33 @@ func (b *Image) Calc(availWidth, availHeight int) {
 		return
 	}
 
+	if availWidth == 0 || availHeight == 0 {
+		return
+	}
+
 	if b.Src == `` {
 		return
 	}
 
-	img, err := b.Document.loadImage(b.Src)
+	img, err := b.Document.loadImage(b.Src, 0, 0)
 	if err != nil {
 		return
 	}
 
-	b.computedStyles.Width = NumberValue(img.Width)
-	b.computedStyles.Height = NumberValue(img.Height)
+	width, height := 0, 0
+
+	scaleW := float32(img.Width) / float32(availWidth)
+	scaleH := float32(img.Height) / float32(availHeight)
+	if scaleW > scaleH {
+		width = availWidth
+		height = int(float32(img.Height) / float32(scaleW))
+	} else {
+		width = int(float32(img.Width) / float32(scaleH))
+		height = availHeight
+	}
+
+	b.computedStyles.Width = NumberValue(width)
+	b.computedStyles.Height = NumberValue(height)
 }
 
 func (b *Image) Draw(canvas *Canvas) {
@@ -886,12 +902,15 @@ func (b *Image) Draw(canvas *Canvas) {
 		return
 	}
 
-	img, err := b.Document.loadImage(b.Src)
+	w := b.computedStyles.Width.Number
+	h := b.computedStyles.Height.Number
+
+	img, err := b.Document.loadImage(b.Src, w, h)
 	if err != nil {
 		return
 	}
 
-	canvas.DrawImage(img, b.computedStyles.Width.Number, b.computedStyles.Height.Number)
+	canvas.DrawImage(img, w, h)
 }
 
 type Scroll struct {
@@ -996,6 +1015,8 @@ func (b *_ScrollChild) forceCalc(x, y int, contentAvailWidth, avgHeight int) {
 	b.scroll.bind(child, index)
 
 	child.Calc(childContentAvailWidth, childContentAvailHeight)
+	child.Base().x = b.ncWidth()
+	child.Base().y = b.ncWidth()
 }
 
 func (b *Scroll) Set(key, value string) error {
@@ -1084,4 +1105,21 @@ func (b *Scroll) Navigate(name KeyName) {
 	if oldItemTopIndex != b.itemTopIndex {
 		b.Document.paintDirty = true
 	}
+}
+
+// 返回当前选中的索引。
+func (b *Scroll) Index() int {
+	return b.index + b.itemTopIndex
+}
+
+func (b *Scroll) Count() int {
+	return b.count
+}
+
+func (b *Scroll) Deselect() {
+	if b.index >= 0 && b.index <= len(b.Children)-1 {
+		b.Children[b.index].Base().Class.Remove(`selected`)
+	}
+	b.index = -1
+	b.itemTopIndex = 0
 }
