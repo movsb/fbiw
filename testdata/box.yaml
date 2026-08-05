@@ -5,14 +5,16 @@
   calc:
     t: [0,0,1024,768]
 
+#1
 - html: |
     <block>
       <inline id="t"></inline>
       <spacer></spacer>
     </block>
   calc:
-    t: [0,0,0,0]
+    t: [0,0,1024,0]
 
+#2
 - html: |
     <block>
       <inline id="t">
@@ -22,8 +24,9 @@
     </block>
   calc:
     img: [0,0,100,50]
-    t: [0,0,100,50]
+    t: [0,0,1024,50]
 
+#3
 - html: |
     <block>
       <inline id="t" width=50%></inline>
@@ -31,6 +34,7 @@
   calc:
     t: [0,0,512,0]
 
+#4
 - html: |
     <block>
       <inline width="100%" id=i>
@@ -45,6 +49,7 @@
     b2: [256,0,256,0]
     b3: [512,0,256,0]
 
+#5
 - html: |
     <block>
       <inline></inline>
@@ -54,8 +59,9 @@
       <inline></inline>
     </block>
   calc:
-    s: [0,100,0,668]
+    s: [0,100,1024,668]
 
+#6
 - html: |
     <block>
       <inline>

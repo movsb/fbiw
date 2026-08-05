@@ -60,12 +60,14 @@ func TestCalc(t *testing.T) {
 			if box == nil {
 				panic(`指定编号的盒子没找到：` + id)
 			}
-			pos := box.Base().calcPos
-			if pos.X != rect[0] ||
-				pos.Y != rect[1] ||
-				pos.Width != rect[2] ||
-				pos.Height != rect[3] {
-				t.Errorf(`排版错误：#%d, id: %s, want: %v -> got: %v`, i, id, rect, pos)
+			got := [4]int{
+				box.Base().x,
+				box.Base().y,
+				box.Base().computedStyles.Width.Number,
+				box.Base().computedStyles.Height.Number,
+			}
+			if got[0] != rect[0] || got[1] != rect[1] || got[2] != rect[2] || got[3] != rect[3] {
+				t.Errorf(`排版错误：#%d, id: %s, want: %v -> got: %v`, i, id, rect, got)
 			}
 		}
 		for id, styles := range tc.Computed {
