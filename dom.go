@@ -6,7 +6,10 @@ import (
 	"io"
 	"io/fs"
 	"iter"
+	"net/url"
+	"os"
 	"path"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
@@ -289,6 +292,8 @@ func (n _NodeTransformer) transform(parent Box, node *html.Node) (Box, error) {
 			return n.transformNode(NewInline(n.doc), node, false, false)
 		case `stack`:
 			return n.transformNode(NewStack(n.doc), node, false, false)
+		case `scroll`:
+			return n.transformNode(NewScroll(n.doc), node, false, false)
 		case `spacer`:
 			return n.transformNode(NewSpacer(n.doc), node, true, false)
 		case `button`:
@@ -402,8 +407,25 @@ func (doc *Document) walkNode(box Box, callback func(box Box) bool) bool {
 	return true
 }
 
+// TODO 异步解码
 func (doc *Document) loadImage(src string) (DecodedImage, error) {
-	return doc.imageManager.GetImageCached(doc.fsys, path.Join(doc.skinDir, src))
+	if !strings.Contains(src, `:`) {
+		return doc.imageManager.GetImageCached(doc.fsys, path.Join(doc.skinDir, src))
+	}
+	if u, err := url.Parse(src); err == nil {
+		switch u.Scheme {
+		case `os`:
+			if u, err := url.PathUnescape(u.Opaque); err == nil {
+				if filepath.IsAbs(u) {
+					return doc.imageManager.GetImageCached(os.DirFS(`/`), u[1:])
+				} else {
+					return doc.imageManager.GetImageCached(os.DirFS(`.`), u)
+				}
+			}
+		}
+	}
+
+	return DecodedImage{}, fmt.Errorf(`不支持的来源：%s`, src)
 }
 
 func (doc *Document) loadFaceWithFallback(box Box) *FontFace {

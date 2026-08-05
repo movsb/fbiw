@@ -6,9 +6,11 @@ import (
 	"image"
 	"image/color"
 	"image/draw"
+	"image/png"
 	_ "image/png"
 	"io/fs"
 	"log"
+	"os"
 	"time"
 	"unsafe"
 
@@ -37,6 +39,24 @@ func NewCanvas(display *Display) *Canvas {
 		y:      0,
 		width:  display.Width,
 		height: display.Height,
+	}
+}
+
+func (c *Canvas) SaveToFile(path string) {
+	fp, err := os.Create(path)
+	if err != nil {
+		panic(err)
+	}
+	defer fp.Close()
+	origin := Canvas{
+		buffer: c.buffer,
+		x:      0,
+		y:      0,
+		width:  c.width,
+		height: c.height,
+	}
+	if err := png.Encode(fp, origin.toDrawable(c.width, c.height)); err != nil {
+		panic(err)
 	}
 }
 

@@ -190,3 +190,27 @@
     b1: [0,0,1024,768]
     b2: [0,0,1024,768]
 
+#14 二次计算spacer的高度
+- html: |
+    <block>
+      <block id=b1 spacer>
+        <block id=b2 spacer></block>
+      </block>
+      <block height=68></block>
+    </block>
+  calc:
+    b1: [0,0,1024,700]
+    b2: [0,0,1024,700]
+
+#15 二次计算spacer的高度
+- html: |
+    <block>
+      <block spacer id=s1>
+        <block id=b1 spacer></block>
+        <block id=b2 spacer></block>
+      </block>
+    </block>
+  calc:
+    s1: [0,0,1024,768]
+    b1: [0,0,1024,384]
+    b2: [0,384,1024,384]

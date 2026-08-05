@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"iter"
+	"net/url"
+	"strconv"
 
 	_ "image/jpeg"
 	_ "image/png"
@@ -213,7 +215,7 @@ func (b *Block) Calc(availWidth, availHeight int) {
 		b.computedWidth.IsNumber(), computed.Width.IsNumber(),
 		b.computedWidth.Number, computed.Width.Number, availWidth,
 	)
-	boxMaxHeight := Iif(computed.Width.IsNumber(), computed.Width.Number, availHeight)
+	boxMaxHeight := Iif(computed.Height.IsNumber(), computed.Height.Number, availHeight)
 
 	// 内容区域可用的大小。
 	contentAvailWidth := boxMaxWidth - ncWidth*2
@@ -222,45 +224,53 @@ func (b *Block) Calc(availWidth, availHeight int) {
 	// 当前实际占用高度
 	contentHeight := 0
 
+	// 如果有 Spacer（未设定大小的），则留到后面均匀地铺满。
+	zeroSpacers := []Box{}
+
 	for _, child := range b.Children {
 		if !displaying(child) {
 			continue
 		}
+
+		if spacer, ok := child.(*Spacer); ok && spacer.computedStyles.Height.Empty() {
+			zeroSpacers = append(zeroSpacers, spacer)
+			continue
+		} else if child.Base().computedStyles.Spacer.Bool {
+			zeroSpacers = append(zeroSpacers, child)
+			continue
+		}
+
 		if text, ok := child.(*Text); ok {
 			text.SegmentBlock(contentAvailWidth, contentAvailHeight-contentHeight)
 		} else {
 			child.Base().presetWidth(contentAvailWidth)
 			child.Calc(contentAvailWidth, contentAvailHeight-contentHeight)
 		}
+
 		child.Base().calcPos.X = ncWidth
 		contentHeight += child.Base().calcPos.Height
-
-		// 启用对齐。
-		// 纵向排列的时候需要对每个元素进行设置。
-		if computed.Align.String == `center` {
-			child.Base().calcPos.X += (contentAvailWidth - child.Base().calcPos.Width) / 2
-		}
 	}
 
-	// 如果有 Spacer（未设定大小的），则均匀地铺满。
-	zeroSpacers := []Box{}
-	for _, child := range b.Children {
-		if !displaying(child) {
-			continue
-		}
-		if spacer, ok := child.(*Spacer); ok && spacer.computedStyles.Height.Empty() {
-			zeroSpacers = append(zeroSpacers, spacer)
-		} else if child.Base().computedStyles.Spacer.Bool {
-			zeroSpacers = append(zeroSpacers, child)
-		}
-	}
 	if len(zeroSpacers) > 0 {
 		// 铺满，然后均匀分布
 		avgHeight := (contentAvailHeight - contentHeight) / len(zeroSpacers)
 		contentHeight = contentAvailHeight
 		for _, spacer := range zeroSpacers {
-			// spacer本身有高度的，不能直接赋值。见测试 #12
-			spacer.Base().calcPos.Height += avgHeight
+			spacer.Base().calcPos.X = ncWidth
+			spacer.Base().calcPos.Height = avgHeight
+			// 如果是非spacer元素，则需要重新排版
+			if _, ok := spacer.(*Spacer); !ok {
+				spacer.Base().computedStyles.Height = NumberValue(spacer.Base().calcPos.Height)
+				spacer.Calc(contentAvailWidth, spacer.Base().calcPos.Height)
+			}
+		}
+	}
+
+	// 启用对齐。
+	// 纵向排列的时候需要对每个元素进行设置。
+	if computed.Align.String == `center` {
+		for _, child := range b.Children {
+			child.Base().calcPos.X += (contentAvailWidth - child.Base().calcPos.Width) / 2
 		}
 	}
 
@@ -339,10 +349,20 @@ func (b *Inline) Calc(availWidth, availHeight int) {
 	// 实际最高占用。
 	contentMaxHeight := 0
 
+	// 如果有 Spacer（未设定大小的），则均匀地铺满。
+	zeroSpacers := []Box{}
+
 	for _, child := range b.Children {
 		if !displaying(child) {
 			continue
 		}
+
+		if spacer, ok := child.(*Spacer); ok && spacer.computedStyles.Width.Empty() {
+			zeroSpacers = append(zeroSpacers, spacer)
+		} else if child.Base().computedStyles.Spacer.Bool {
+			zeroSpacers = append(zeroSpacers, child)
+		}
+
 		if text, ok := child.(*Text); ok {
 			// 只处理了一行，如果要wrap，才能继续处理。
 			text.ClearStates()
@@ -351,29 +371,23 @@ func (b *Inline) Calc(availWidth, availHeight int) {
 			child.Base().presetWidth(contentAvailWidth)
 			child.Calc(contentAvailWidth-contentWidth, contentAvailHeight)
 		}
+
 		child.Base().calcPos.Y = ncWidth
 		contentWidth += child.Base().calcPos.Width
 		contentMaxHeight = max(contentMaxHeight, child.Base().calcPos.Height)
 	}
 
-	// 如果有 Spacer（未设定大小的），则均匀地铺满。
-	zeroSpacers := []Box{}
-	for _, child := range b.Children {
-		if !displaying(child) {
-			continue
-		}
-		if spacer, ok := child.(*Spacer); ok && spacer.computedStyles.Width.Empty() {
-			zeroSpacers = append(zeroSpacers, spacer)
-		} else if child.Base().computedStyles.Spacer.Bool {
-			zeroSpacers = append(zeroSpacers, child)
-		}
-	}
 	if len(zeroSpacers) > 0 {
 		// 铺满，然后均匀分布
 		avgWidth := (contentAvailWidth - contentWidth) / len(zeroSpacers)
 		contentWidth = contentAvailWidth
 		for _, spacer := range zeroSpacers {
 			spacer.Base().calcPos.Width += avgWidth
+			// 如果是非spacer元素，则需要重新排版
+			// 暂时没修。
+			// if _, ok := spacer.(*Spacer); !ok {
+			// 	spacer.Calc(contentAvailWidth, spacer.Base().calcPos.Height)
+			// }
 		}
 	}
 
@@ -484,7 +498,7 @@ func (b *Stack) Calc(availWidth, availHeight int) {
 		contentHeight = contentAvailHeight
 		for _, spacer := range zeroSpacers {
 			// spacer本身有高度的，不能直接赋值。见测试 #12
-			spacer.Base().calcPos.Height += avgHeight
+			spacer.Base().calcPos.Height = avgHeight
 		}
 	}
 
@@ -863,6 +877,13 @@ func (b *Image) Set(key string, val string) error {
 	}
 }
 
+// 设置操作系统文件路径。
+// 相对或者绝对均可。
+func (b *Image) SetPath(path string) {
+	u := (&url.URL{Scheme: `os`, Opaque: url.PathEscape(path)}).String()
+	b.Set(`src`, u)
+}
+
 func (b *Image) Calc(availWidth, availHeight int) {
 	if !b.computedStyles.Width.Empty() && !b.computedStyles.Height.Empty() {
 		b.calcPos.Width = b.computedStyles.Width.Number
@@ -896,4 +917,213 @@ func (b *Image) Draw(canvas *Canvas) {
 	}
 
 	canvas.DrawImage(img, b.calcPos.Width, b.calcPos.Height)
+}
+
+type Scroll struct {
+	BaseBox
+
+	// 列表的行数。
+	// 最终绘制的行数 = min(rows, items)
+	rows int
+	gap  int
+
+	count int
+	bind  func(box Box, index int)
+
+	// child index
+	index int
+
+	// 虚拟滚动的item顶部起始元素。
+	itemTopIndex int
+}
+
+func NewScroll(doc *Document) *Scroll {
+	b := &Scroll{
+		BaseBox: BaseBox{
+			Document: doc,
+			Tag:      `scroll`,
+		},
+		index:        -1,
+		itemTopIndex: 0,
+	}
+	b.Class.box = b
+	return b
+}
+
+func (b *Scroll) Calc(availWidth, availHeight int) {
+	computed := &b.computedStyles
+
+	b.calcPos = Rect{
+		Width:  Iif(computed.Width.IsNumber(), computed.Width.Number, availWidth),
+		Height: computed.Height.Number,
+	}
+
+	if len(b.Children) <= 0 {
+		return
+	}
+
+	ncWidth := computed.BorderWidth.Number + computed.Padding.Number
+
+	contentAvailWidth := b.calcPos.Width - ncWidth*2
+	contentAvailHeight := b.calcPos.Height - (ncWidth*2 + (len(b.Children)-1)*b.gap)
+
+	offsetY := ncWidth
+
+	avgHeight := contentAvailHeight / len(b.Children)
+	for _, child := range b.Children {
+		child.(*_ScrollChild).forceCalc(ncWidth, offsetY, contentAvailWidth, avgHeight)
+		offsetY += avgHeight
+		offsetY += b.gap
+	}
+}
+
+// 因为要实现虚拟draw方法，所以有它的存在。
+type _ScrollChild struct {
+	BaseBox
+
+	scroll *Scroll
+
+	// 在列表中的位置。
+	// index + topIndex == item数据
+	index int
+}
+
+func _NewScrollChild(doc *Document) *_ScrollChild {
+	b := &_ScrollChild{
+		BaseBox: BaseBox{
+			Document: doc,
+			Tag:      `scroll-child`,
+		},
+	}
+	b.Class.box = b
+	return b
+}
+
+func (b *_ScrollChild) Draw(canvas *Canvas) {
+	b.Base().Draw(canvas)
+	// canvas.SaveToFile(fmt.Sprintf(`%d.png`, b.index))
+}
+
+func (b *_ScrollChild) forceCalc(x, y int, contentAvailWidth, avgHeight int) {
+	base := b.Base()
+	base.computedStyles.Width = NumberValue(contentAvailWidth)
+	base.computedStyles.Height = NumberValue(avgHeight)
+	base.calcPos = Rect{
+		X:      x,
+		Y:      y,
+		Width:  contentAvailWidth,
+		Height: avgHeight,
+	}
+
+	ncWidth := b.computedStyles.BorderWidth.Number + b.computedStyles.Padding.Number
+	childContentAvailWidth := contentAvailWidth - ncWidth*2
+	childContentAvailHeight := avgHeight - ncWidth*2
+
+	child := base.Children[0]
+	base = child.Base()
+	base.computedStyles.Width = NumberValue(childContentAvailWidth)
+	base.computedStyles.Height = NumberValue(childContentAvailHeight)
+	base.calcPos = Rect{
+		X:      ncWidth,
+		Y:      ncWidth,
+		Width:  childContentAvailWidth,
+		Height: childContentAvailHeight,
+	}
+
+	// 提前渲染上去才能提供数据。
+	index := b.scroll.itemTopIndex + b.index
+	b.scroll.bind(child, index)
+
+	// colors := []string{`red`, `green`, `blue`, `cyan`, `purple`}
+	// b.Base().Set(`background-color`, colors[index%len(colors)])
+
+	child.Calc(childContentAvailWidth, childContentAvailHeight)
+}
+
+func (b *Scroll) Set(key, value string) error {
+	switch key {
+	case `rows`:
+		b.rows = Must1(strconv.Atoi(value))
+		return nil
+	case `gap`:
+		b.gap = Must1(strconv.Atoi(value))
+		return nil
+	default:
+		return b.BaseBox.Set(key, value)
+	}
+}
+
+func (b *Scroll) SetItems(count int, create func() Box, bind func(box Box, index int)) {
+	b.Children = nil
+	b.count = count
+	b.bind = bind
+	b.index = -1
+	b.itemTopIndex = 0
+
+	for i, n := 0, b.rows; i < n && i < count; i++ {
+		box := create()
+		wrapper := _NewScrollChild(b.Document)
+		wrapper.Base().Set(`border-width`, `3`)
+		wrapper.scroll = b
+		wrapper.index = i
+		wrapper.AppendChild(box)
+		b.AppendChild(wrapper)
+	}
+}
+
+func (b *Scroll) Navigate(name KeyName) {
+	// 目前只支持上下滚动
+	if !(name == Up || name == Down) {
+		return
+	}
+
+	oldIndex := b.index
+	oldItemTopIndex := b.itemTopIndex
+
+	// 计算新的索引
+	switch name {
+	case Up:
+		switch {
+		case b.index > 0:
+			b.index--
+		case b.index == 0:
+			// 已经到了物理列表的顶部、但是还没有到虚拟列表的顶部。
+			if b.itemTopIndex > 0 {
+				b.itemTopIndex--
+			}
+		}
+	case Down:
+		switch {
+		case b.index < len(b.Children)-1:
+			b.index++
+		case b.index == len(b.Children)-1:
+			// 已经到了物理列表的底部、但是还没有到虚拟列表的底部。
+			// 比如有10个虚拟元素、5个物理滚动元素。
+			// 当 index + topIndex == len(items)-1 的时候才到底。
+			if b.itemTopIndex+b.index < b.count-1 {
+				b.itemTopIndex++
+			}
+		}
+	}
+
+	// 如果没有变化，什么也不要做，减少刷新
+	if oldIndex == b.index && oldItemTopIndex == b.itemTopIndex {
+		return
+	}
+
+	// 取消选中原来的
+	if oldIndex >= 0 && oldIndex <= len(b.Children)-1 {
+		b.Children[oldIndex].Base().Class.Remove(`selected`)
+	}
+
+	// 更新选中
+	if b.index >= 0 && b.index <= len(b.Children)-1 {
+		b.Children[b.index].Base().Class.Add(`selected`)
+	}
+
+	// 如果物理列表没变（前面类名不会变化）、但是虚拟列表滚动了，
+	// 则需要主动告知文档更新，否则不会重绘。
+	if oldItemTopIndex != b.itemTopIndex {
+		b.Document.paintDirty = true
+	}
 }

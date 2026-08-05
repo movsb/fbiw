@@ -47,6 +47,9 @@ document {
 	font-family: system;
 	font-size: 25;
 }
+scroll .selected {
+	border-color: black;
+}
 `)))
 
 // 直接传入的是结构体字段，原始名字，没有小写、没有中划线。
