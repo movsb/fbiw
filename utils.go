@@ -37,15 +37,6 @@ func Iif[T any](cond bool, a, b T) T {
 	}
 	return b
 }
-func Iiif[T any](cond1, cond2 bool, a, b, c T) T {
-	if cond1 {
-		return a
-	}
-	if cond2 {
-		return b
-	}
-	return c
-}
 
 func captureStdoutStderr(w io.Writer) error {
 	r, pipeWriter, err := os.Pipe()

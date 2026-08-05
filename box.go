@@ -44,10 +44,6 @@ type BaseBox struct {
 
 	inlineStyles   Styles
 	computedStyles Styles
-
-	// 如果 computedStyles 设置了 width 百分比，
-	// 这里用来临时保存 Calc 计算的 width。
-	computedWidth Value
 }
 
 type Rect struct {
@@ -136,7 +132,7 @@ func (b *BaseBox) presetWidth(parentTotalAvailWidth int) {
 		// 百分比暂时优先级更高，所以如果窗口大小变了。b.Width会怎样？
 		// 因为百分比才是真实的初始化，Width原本是没有的。
 		w := int(float32(b.computedStyles.Width.Number) / 100 * float32(parentTotalAvailWidth))
-		b.computedWidth = NumberValue(w)
+		b.computedStyles.Width = NumberValue(w)
 	}
 }
 
@@ -211,10 +207,7 @@ func (b *Block) Calc(availWidth, availHeight int) {
 	ncWidth := computed.BorderWidth.Number + computed.Padding.Number
 
 	// 根据自身大小及可用空间大小取最佳值。
-	boxMaxWidth := Iiif(
-		b.computedWidth.IsNumber(), computed.Width.IsNumber(),
-		b.computedWidth.Number, computed.Width.Number, availWidth,
-	)
+	boxMaxWidth := Iif(computed.Width.IsNumber(), computed.Width.Number, availWidth)
 	boxMaxHeight := Iif(computed.Height.IsNumber(), computed.Height.Number, availHeight)
 
 	// 内容区域可用的大小。
@@ -285,9 +278,7 @@ func (b *Block) Calc(availWidth, availHeight int) {
 		offsetY += p.Height
 	}
 
-	b.calcPos.Width = Iiif(
-		b.computedWidth.IsNumber(), computed.Width.IsNumber(),
-		b.computedWidth.Number, computed.Width.Number, boxMaxWidth)
+	b.calcPos.Width = Iif(computed.Width.IsNumber(), computed.Width.Number, boxMaxWidth)
 	b.calcPos.Height = Iif(computed.Height.IsNumber(), computed.Height.Number, contentHeight+ncWidth*2)
 }
 
@@ -328,16 +319,8 @@ func (b *Inline) Calc(availWidth, availHeight int) {
 	ncWidth := computed.BorderWidth.Number + computed.Padding.Number
 
 	// 根据自身大小及可用空间大小取最佳值。
-	boxMaxWidth := Iiif(
-		b.computedWidth.IsNumber(),
-		computed.Width.IsNumber(),
-		b.computedWidth.Number,
-		computed.Width.Number,
-		availWidth)
-	boxMaxHeight := Iif(
-		computed.Height.IsNumber(),
-		computed.Height.Number,
-		availHeight)
+	boxMaxWidth := Iif(computed.Width.IsNumber(), computed.Width.Number, availWidth)
+	boxMaxHeight := Iif(computed.Height.IsNumber(), computed.Height.Number, availHeight)
 
 	// 内容区域可用的大小。
 	contentAvailWidth := boxMaxWidth - ncWidth*2
@@ -402,16 +385,8 @@ func (b *Inline) Calc(availWidth, availHeight int) {
 		offsetX += p.Width
 	}
 
-	b.calcPos.Width = Iiif(
-		b.computedWidth.IsNumber(),
-		computed.Width.IsNumber(),
-		b.computedWidth.Number,
-		computed.Width.Number,
-		contentWidth+ncWidth*2)
-	b.calcPos.Height = Iif(
-		computed.Height.IsNumber(),
-		computed.Height.Number,
-		contentMaxHeight+ncWidth*2)
+	b.calcPos.Width = Iif(computed.Width.IsNumber(), computed.Width.Number, contentWidth+ncWidth*2)
+	b.calcPos.Height = Iif(computed.Height.IsNumber(), computed.Height.Number, contentMaxHeight+ncWidth*2)
 
 	// 如果是垂直居中，则重新调整Y
 	if computed.Align.String == `middle` {
@@ -447,10 +422,7 @@ func (b *Stack) Calc(availWidth, availHeight int) {
 	ncWidth := computed.BorderWidth.Number + computed.Padding.Number
 
 	// 根据自身大小及可用空间大小取最佳值。
-	boxMaxWidth := Iiif(
-		b.computedWidth.IsNumber(), computed.Width.IsNumber(),
-		b.computedWidth.Number, computed.Width.Number, availWidth,
-	)
+	boxMaxWidth := Iif(computed.Width.IsNumber(), computed.Width.Number, availWidth)
 	boxMaxHeight := Iif(computed.Width.IsNumber(), computed.Width.Number, availHeight)
 
 	// 内容区域可用的大小。
@@ -512,9 +484,7 @@ func (b *Stack) Calc(availWidth, availHeight int) {
 		p.Y = offsetY
 	}
 
-	b.calcPos.Width = Iiif(
-		b.computedWidth.IsNumber(), computed.Width.IsNumber(),
-		b.computedWidth.Number, computed.Width.Number, boxMaxWidth)
+	b.calcPos.Width = Iif(computed.Width.IsNumber(), computed.Width.Number, boxMaxWidth)
 	b.calcPos.Height = Iif(computed.Height.IsNumber(), computed.Height.Number, contentHeight+ncWidth*2)
 }
 
