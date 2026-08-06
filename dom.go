@@ -234,7 +234,7 @@ func (doc *Document) handleKeyboardEvent(event KeyboardEventArgs) {
 }
 
 // 获取指定ID的元素。
-func (doc *Document) GetElementByID(id string) Box {
+func (doc *Document) GetBoxByID(id string) Box {
 	var out Box
 	doc.walkNode(doc.root, func(box Box) bool {
 		if box.Base().ID == id {

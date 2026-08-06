@@ -917,18 +917,20 @@ type Scroll struct {
 	BaseBox
 
 	// 列表的行数。
-	// 最终绘制的行数 = min(rows, items)
 	rows int
+	// 列表的列数。
+	cols int
 	gap  int
 
 	count int
 	bind  func(box Box, index int)
 
-	// child index
-	index int
+	// child selection index
+	rowIndex int
+	colIndex int
 
 	// 虚拟滚动的item顶部起始元素。
-	itemTopIndex int
+	itemOffset int
 }
 
 func NewScroll(doc *Document) *Scroll {
@@ -937,13 +939,17 @@ func NewScroll(doc *Document) *Scroll {
 			Document: doc,
 			Tag:      `scroll`,
 		},
-		index:        -1,
-		itemTopIndex: 0,
+		rows:       1,
+		cols:       1,
+		rowIndex:   -1,
+		colIndex:   -1,
+		itemOffset: 0,
 	}
 	b.Class.box = b
 	return b
 }
 
+// TODO 取消重复计算，大小不变的情况下只需要计算一次。
 func (b *Scroll) Calc(availWidth, availHeight int) {
 	computed := &b.computedStyles
 
@@ -951,21 +957,36 @@ func (b *Scroll) Calc(availWidth, availHeight int) {
 		return
 	}
 
+	// 只有确定了大小才能决定子元素的大小和布局。
 	if !(computed.Width.IsNumber() && computed.Height.IsNumber()) {
 		return
 	}
 
-	contentAvailWidth := computed.Width.Number - b.ncWidth()*2
-	contentAvailHeight := computed.Height.Number - (b.ncWidth()*2 + (len(b.Children)-1)*b.gap)
+	var (
+		contentAvailWidth  = computed.Width.Number - (b.ncWidth()*2 + (b.cols-1)*b.gap)
+		contentAvailHeight = computed.Height.Number - (b.ncWidth()*2 + (b.rows-1)*b.gap)
 
-	offsetY := b.ncWidth()
+		offsetX = b.ncWidth()
+		offsetY = b.ncWidth()
 
-	avgHeight := contentAvailHeight / len(b.Children)
-	for _, child := range b.Children {
-		child.(*_ScrollChild).forceCalc(b.ncWidth(), offsetY, contentAvailWidth, avgHeight)
-		offsetY += avgHeight
-		offsetY += b.gap
+		avgHeight = contentAvailHeight / b.rows
+		avgWidth  = contentAvailWidth / b.cols
+	)
+
+	for i, child := range b.Children {
+		child.(*_ScrollChild).forceCalc(offsetX, offsetY, avgWidth, avgHeight)
+		// 需要换行了
+		if (i+1)%b.cols == 0 {
+			offsetX = b.ncWidth()
+			offsetY += b.gap
+			offsetY += avgHeight
+		} else {
+			offsetX += b.gap
+			offsetX += avgWidth
+		}
 	}
+
+	b.adjust()
 }
 
 // 因为要实现虚拟draw方法，所以有它的存在。
@@ -975,8 +996,9 @@ type _ScrollChild struct {
 	scroll *Scroll
 
 	// 在列表中的位置。
-	// index + topIndex == item数据
-	index int
+	// rowIndex*cols + colIndex + topIndex == item数据
+	rowIndex int
+	colIndex int
 }
 
 func _NewScrollChild(doc *Document) *_ScrollChild {
@@ -992,7 +1014,11 @@ func _NewScrollChild(doc *Document) *_ScrollChild {
 
 func (b *_ScrollChild) Draw(canvas *Canvas) {
 	b.Base().Draw(canvas)
-	// canvas.SaveToFile(fmt.Sprintf(`%d.png`, b.index))
+	// canvas.SaveToFile(fmt.Sprintf(`%d.png`, b.itemIndex()))
+}
+
+func (b *_ScrollChild) dataIndex() int {
+	return b.rowIndex*b.scroll.cols + b.colIndex + b.scroll.itemOffset
 }
 
 func (b *_ScrollChild) forceCalc(x, y int, contentAvailWidth, avgHeight int) {
@@ -1010,9 +1036,12 @@ func (b *_ScrollChild) forceCalc(x, y int, contentAvailWidth, avgHeight int) {
 	base.computedStyles.Width = NumberValue(childContentAvailWidth)
 	base.computedStyles.Height = NumberValue(childContentAvailHeight)
 
-	// 提前绑定上去才能提供数据、提供计算支撑。
-	index := b.scroll.itemTopIndex + b.index
-	b.scroll.bind(child, index)
+	// 没有数据的项实际是被隐藏的，被隐藏的项不会参与计算。
+	// 所以如果代码运行到了这里，那一定是出现了内部逻辑错误。
+	if b.dataIndex() < b.scroll.count {
+		// 提前绑定上去才能提供数据、提供计算支撑。
+		b.scroll.bind(child, b.dataIndex())
+	}
 
 	child.Calc(childContentAvailWidth, childContentAvailHeight)
 	child.Base().x = b.ncWidth()
@@ -1023,6 +1052,9 @@ func (b *Scroll) Set(key, value string) error {
 	switch key {
 	case `rows`:
 		b.rows = Must1(strconv.Atoi(value))
+		return nil
+	case `cols`:
+		b.cols = Must1(strconv.Atoi(value))
 		return nil
 	case `gap`:
 		b.gap = Must1(strconv.Atoi(value))
@@ -1036,80 +1068,133 @@ func (b *Scroll) SetItems(count int, create func() Box, bind func(box Box, index
 	b.Children = nil
 	b.count = count
 	b.bind = bind
-	b.index = -1
-	b.itemTopIndex = 0
+	b.rowIndex = -1
+	b.colIndex = 0
+	b.itemOffset = 0
 
-	for i, n := 0, b.rows; i < n && i < count; i++ {
-		box := create()
-		wrapper := _NewScrollChild(b.Document)
-		wrapper.Base().Set(`border-width`, `3`)
-		wrapper.scroll = b
-		wrapper.index = i
-		wrapper.AppendChild(box)
-		b.AppendChild(wrapper)
+	// 始终创建指定的行列数，但是最后一行可能个数不够。
+	// 滚动的时候会自动计算并隐藏。
+	for r := range b.rows {
+		for c := range b.cols {
+			box := create()
+			wrapper := _NewScrollChild(b.Document)
+			wrapper.Base().Set(`border-width`, `3`)
+			wrapper.scroll = b
+			wrapper.rowIndex = r
+			wrapper.colIndex = c
+			wrapper.AppendChild(box)
+			b.AppendChild(wrapper)
+		}
 	}
 }
 
 func (b *Scroll) Navigate(name KeyName) {
 	// 目前只支持上下滚动
-	if !(name == Up || name == Down) {
+	if !(name == Up || name == Down || name == Left || name == Right) {
 		return
 	}
 
-	oldIndex := b.index
-	oldItemTopIndex := b.itemTopIndex
+	var (
+		oldRowIndex   = b.rowIndex
+		oldColIndex   = b.colIndex
+		oldItemOffset = b.itemOffset
+	)
 
 	// 计算新的索引
 	switch name {
 	case Up:
 		switch {
-		case b.index > 0:
-			b.index--
-		case b.index == 0:
+		case b.rowIndex > 0:
+			b.rowIndex--
+		case b.rowIndex == 0:
 			// 已经到了物理列表的顶部、但是还没有到虚拟列表的顶部。
-			if b.itemTopIndex > 0 {
-				b.itemTopIndex--
+			if b.itemOffset > 0 {
+				b.itemOffset -= b.cols
 			}
 		}
 	case Down:
-		switch {
-		case b.index < len(b.Children)-1:
-			b.index++
-		case b.index == len(b.Children)-1:
-			// 已经到了物理列表的底部、但是还没有到虚拟列表的底部。
-			// 比如有10个虚拟元素、5个物理滚动元素。
-			// 当 index + topIndex == len(items)-1 的时候才到底。
-			if b.itemTopIndex+b.index < b.count-1 {
-				b.itemTopIndex++
+		// 先加再判断错误
+		if b.curDataRow() >= b.maxDataRow() {
+			return
+		}
+		// 行增加成功说明下一行一定有数据。
+		b.rowIndex++
+		// 最后一行可能没有整行数据，往前挪。
+		for b.rowIndex*b.cols+b.colIndex+b.itemOffset > b.count-1 && b.rowIndex > 0 {
+			b.colIndex--
+		}
+		// 超出列表行数了，回到最后一行，并滚动数据。
+		if b.rowIndex > b.rows-1 {
+			b.itemOffset += b.cols
+			b.rowIndex--
+		}
+	case Left:
+		if b.colIndex > 0 {
+			b.colIndex--
+		}
+	case Right:
+		if b.rowIndex >= 0 {
+			maxCol := b.cols - 1
+			if b.curDataRow() == b.maxDataRow() && b.count%b.cols != 0 {
+				maxCol = b.count%b.cols - 1
+			}
+			if b.colIndex < maxCol {
+				b.colIndex++
 			}
 		}
 	}
 
 	// 如果没有变化，什么也不要做，减少刷新
-	if oldIndex == b.index && oldItemTopIndex == b.itemTopIndex {
+	if (oldRowIndex == b.rowIndex && oldColIndex == b.colIndex) && oldItemOffset == b.itemOffset {
 		return
 	}
 
 	// 取消选中原来的
-	if oldIndex >= 0 && oldIndex <= len(b.Children)-1 {
-		b.Children[oldIndex].Base().Class.Remove(`selected`)
+	if childIndex := oldRowIndex*b.cols + oldColIndex; childIndex >= 0 && childIndex <= len(b.Children)-1 {
+		b.Children[childIndex].Base().Class.Remove(`selected`)
 	}
 
 	// 更新选中
-	if b.index >= 0 && b.index <= len(b.Children)-1 {
-		b.Children[b.index].Base().Class.Add(`selected`)
+	if childIndex := b.rowIndex*b.cols + b.colIndex; childIndex >= 0 && childIndex <= len(b.Children)-1 {
+		b.Children[childIndex].Base().Class.Add(`selected`)
 	}
 
 	// 如果物理列表没变（前面类名不会变化）、但是虚拟列表滚动了，
 	// 则需要主动告知文档更新，否则不会重绘。
-	if oldItemTopIndex != b.itemTopIndex {
+	if oldItemOffset != b.itemOffset {
 		b.Document.paintDirty = true
 	}
 }
 
-// 返回当前选中的索引。
+func (b *Scroll) curDataRow() int {
+	return b.rowIndex + b.itemOffset/b.cols
+}
+
+// [0,rows-1]
+func (b *Scroll) maxDataRow() int {
+	return b.count/b.cols + Iif(b.count%b.cols > 0, 1, 0) - 1
+}
+
+func (b *Scroll) adjust() {
+	for r := range b.rows {
+		for c := range b.cols {
+			child := b.Children[r*b.cols+c].(*_ScrollChild)
+			display := child.dataIndex() <= b.count-1
+			displayValue := child.computedStyles.Display
+			if displayValue.Empty() || displayValue.Bool != display {
+				// TODO 可以不用重新排版
+				child.Set(`display`, fmt.Sprint(display))
+			}
+		}
+	}
+}
+
+// 返回当前选中的数据索引。
 func (b *Scroll) Index() int {
-	return b.index + b.itemTopIndex
+	if b.rowIndex < 0 {
+		return -1
+	}
+	return b.rowIndex*b.cols + b.colIndex + b.itemOffset
 }
 
 func (b *Scroll) Count() int {
@@ -1117,9 +1202,12 @@ func (b *Scroll) Count() int {
 }
 
 func (b *Scroll) Deselect() {
-	if b.index >= 0 && b.index <= len(b.Children)-1 {
-		b.Children[b.index].Base().Class.Remove(`selected`)
+	childIndex := b.rowIndex*b.cols + b.colIndex
+	if childIndex >= 0 && childIndex <= len(b.Children)-1 {
+		b.Children[childIndex].Base().Class.Remove(`selected`)
 	}
-	b.index = -1
-	b.itemTopIndex = 0
+	b.rowIndex = -1
+	b.colIndex = 0
+	// 好像可以不用归位？
+	b.itemOffset = 0
 }

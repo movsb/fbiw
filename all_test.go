@@ -56,7 +56,7 @@ func TestCalc(t *testing.T) {
 		doc.layout()
 
 		for id, rect := range tc.Calc {
-			box := doc.GetElementByID(id)
+			box := doc.GetBoxByID(id)
 			if box == nil {
 				panic(`指定编号的盒子没找到：` + id)
 			}
@@ -71,7 +71,7 @@ func TestCalc(t *testing.T) {
 			}
 		}
 		for id, styles := range tc.Computed {
-			box := doc.GetElementByID(id)
+			box := doc.GetBoxByID(id)
 			if box == nil {
 				panic(`指定编号的盒子没找到：` + id)
 			}

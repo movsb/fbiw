@@ -22,9 +22,9 @@ func main() {
 
 	doc := app.New(`main.html`, `skin`)
 
-	scroll := doc.GetElementByID(`scroll`).(*fbiw.Scroll)
+	scroll := doc.GetBoxByID(`scroll`).(*fbiw.Scroll)
 
-	scroll.SetItems(1000000,
+	scroll.SetItems(7,
 		func() fbiw.Box {
 			btn := fbiw.NewBlock(doc)
 			btn.Set(`background-color`, `tan`)
