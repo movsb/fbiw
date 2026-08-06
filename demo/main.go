@@ -8,7 +8,6 @@ import (
 	"net/http"
 	_ "net/http/pprof"
 	"path/filepath"
-	"time"
 
 	"github.com/movsb/fbiw"
 )
@@ -77,21 +76,6 @@ func main() {
 	initFonts(app)
 
 	doc := app.New(`main.html`, `skin`)
-
-	doc2 := app.New(`1.html`, `skin`)
-
-	txtTime := doc.QuerySelector(`#time`).(*fbiw.Text)
-	go func() {
-		t := true
-		for range time.Tick(time.Second * 1) {
-			app.Async(func() {
-				now := time.Now().Format(`15:04:05`)
-				txtTime.SetText(now)
-				app.Show(doc2, t)
-				t = !t
-			})
-		}
-	}()
 
 	app.Show(doc)
 

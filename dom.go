@@ -461,7 +461,10 @@ func (doc *Document) style(box Box, descendents bool) error {
 func (doc *Document) layout() {
 	// doc.root.Base().computedStyles.Width = NumberValue(doc.width)
 	// doc.root.Base().computedStyles.Height = NumberValue(doc.height)
-	doc.root.Calc(doc.width, doc.height, true)
+	doc.root.Calc(doc.width, doc.height, Constraints{
+		PrefersMaxWidth:  true,
+		PrefersMaxHeight: true,
+	})
 }
 
 // 绘制文档。

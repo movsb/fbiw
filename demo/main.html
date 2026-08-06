@@ -1,58 +1,11 @@
 <document>
 <style>
-	block {
-		color: white;
-	}
-	b {
-		color: coral;
-	}
-	#buttons .last {
-		background-color: hotpink;
-	}
 </style>
-<block background-image="bg.png" padding="10">
-	<inline>
-		<img src="nav-logo.png">
-		<spacer></spacer>
-		<inline align="middle" id="status-bar">
-			<img src="ic-wifi-03.png" id="img">
-			<spacer width="10"></spacer>
-			<img src="ic-sound-n.png">
-			<spacer width="10"></spacer>
-			<text><b>10</b>0%</text>
-			<spacer width="10"></spacer>
-			<img src="ic-batery-75%.png">
-			<spacer width="10"></spacer>
-			<text id="time">12:34</text>
+<block padding="10" background-color="white">
+		<inline id="time-bar">
+			<text bold>TRIMUI</text>
+			<spacer></spacer>
+			<text id="time">1</text>
 		</inline>
-	</inline>
-	<spacer height="50"></spacer>
-	<inline>
-		<spacer></spacer>
-		<img src="nav-search-n.png">
-		<spacer></spacer>
-	</inline>
-	<spacer></spacer>
-	<text id="test">这是一段非常长的文本测试字符串。1234 100%这是一段非常长的文本测试字符串。这是一段非常长的文本测试字符串。这是一段非常长的文本测试字符串。这是一段非常长的文本测试字符串。这是一段非常长的文本测试字符串。</text>
-	<text>一些<i>斜体有有<b>加粗</b>的</i>文本。</text>
-	<spacer></spacer>
-	<inline id="buttons" width="100%" border-width="10" border-color="cyan" padding="10">
-		<block width="25%" align="center">
-			<img src="nav-icon-favorites-n.png">
-			<text>收藏</text>
-		</block>
-		<block width="25%" align="center">
-			<img src="nav-icon-recent-n.png">
-			<text>最近</text>
-		</block>
-		<block width="25%" align="center">
-			<img src="nav-icon-games-n.png">
-			<text>游戏</text>
-		</block>
-		<block class="last" width="25%" align="center">
-			<img src="nav-icon-ports-n.png">
-			<text>独立</text>
-		</block>
-	</inline>
 </block>
 </document>

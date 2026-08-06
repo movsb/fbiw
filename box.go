@@ -21,12 +21,17 @@ type Box interface {
 	//   - 父亲写：layoutBox.{x, y}。
 	// 子元素在排版时，它需要知道自己是否应该默认占满父元素（类似html的div），
 	// 第三个参数用来决定此行为。
-	Calc(availableWidth, availableHeight int, blockingContext bool)
+	Calc(availableWidth, availableHeight int, constraints Constraints)
 	// 根据自身的 layoutBox 直接画。
 	// layoutBox 的 {x,y} 相对于父元素。
 	// 所以除根元素外（因为它是0，0），其它在Draw之前都要调整canvas到offset，
 	// 即：父元素在遍历子元素Draw的时候记得根据子元素的{x,y}作offset。
 	Draw(canvas *Canvas)
+}
+
+type Constraints struct {
+	PrefersMaxWidth  bool
+	PrefersMaxHeight bool
 }
 
 type BaseBox struct {
@@ -37,6 +42,8 @@ type BaseBox struct {
 	// 不同于form元素的name，这个name不用于css。
 	// 不要求唯一，用于保存业务数据。
 	Name string
+	// 用于存放用户任意数据。
+	dataset map[string]any
 
 	Document *Document
 	Parent   Box
@@ -128,6 +135,16 @@ func (b *BaseBox) Set(key string, val string) error {
 	return nil
 }
 
+func (b *BaseBox) GetData(name string) any {
+	return b.dataset[name]
+}
+func (b *BaseBox) SetData(name string, value any) {
+	if b.dataset == nil {
+		b.dataset = map[string]any{}
+	}
+	b.dataset[name] = value
+}
+
 func (b *BaseBox) classChanged() {
 	b.Document.layoutDirty = true
 	if b.Document.root != nil {
@@ -152,9 +169,17 @@ func (b *BaseBox) ncWidth() int {
 	return b.computedStyles.BorderWidth.Number + b.computedStyles.Padding.Number
 }
 
-func (b *BaseBox) Calc(availWidth, availHeight int, blockingContext bool) {
-	b.layoutBox.Width = Iif(b.computedStyles.Width.IsNumber(), b.computedStyles.Width.Number, Iif(blockingContext, availWidth, 0))
-	b.layoutBox.Height = Iif(b.computedStyles.Height.IsNumber(), b.computedStyles.Height.Number, 0)
+func (b *BaseBox) Calc(availWidth, availHeight int, constraints Constraints) {
+	b.layoutBox.Width = Iif(
+		b.computedStyles.Width.IsNumber(),
+		b.computedStyles.Width.Number,
+		Iif(constraints.PrefersMaxWidth, availWidth, 0),
+	)
+	b.layoutBox.Height = Iif(
+		b.computedStyles.Height.IsNumber(),
+		b.computedStyles.Height.Number,
+		Iif(constraints.PrefersMaxHeight, availHeight, 0),
+	)
 }
 
 func (b *BaseBox) Draw(canvas *Canvas) {
@@ -215,7 +240,7 @@ func NewBlock(doc *Document) *Block {
 	return b
 }
 
-func (b *Block) Calc(availWidth, availHeight int, blockingContext bool) {
+func (b *Block) Calc(availWidth, availHeight int, constraints Constraints) {
 	computed := &b.computedStyles
 
 	// 根据自身大小及可用空间大小取最佳值。
@@ -254,7 +279,10 @@ func (b *Block) Calc(availWidth, availHeight int, blockingContext bool) {
 				text.SegmentBlock(contentAvailWidth, contentAvailHeight-contentHeight)
 			} else {
 				child.Base().presetWidth(contentAvailWidth)
-				child.Calc(contentAvailWidth, contentAvailHeight-contentHeight, true)
+				child.Calc(contentAvailWidth, contentAvailHeight-contentHeight, Constraints{
+					PrefersMaxWidth:  true,
+					PrefersMaxHeight: false,
+				})
 			}
 			contentHeight += child.Base().layoutBox.Height
 		}
@@ -266,14 +294,14 @@ func (b *Block) Calc(availWidth, availHeight int, blockingContext bool) {
 		contentHeight = contentAvailHeight
 		for _, spacer := range zeroSpacers {
 			height := spacer.Base().ncWidth()*2 + avgHeight
-			spacer.Base().layoutBox.Height = height
-			if blockingContext {
-				spacer.Base().layoutBox.Width = boxMaxWidth
-			}
 			// 如果是非spacer元素，则需要重新排版
 			if _, ok := spacer.(*Spacer); !ok {
-				spacer.Calc(contentAvailWidth, height, true)
-				// 内部又覆盖了，暂时没有办法让它直接用。
+				spacer.Calc(contentAvailWidth, height, Constraints{
+					PrefersMaxWidth:  true,
+					PrefersMaxHeight: true,
+				})
+			} else {
+				spacer.Base().layoutBox.Width = contentAvailWidth
 				spacer.Base().layoutBox.Height = height
 			}
 		}
@@ -298,8 +326,19 @@ func (b *Block) Calc(availWidth, availHeight int, blockingContext bool) {
 		offsetY += child.Base().layoutBox.Height
 	}
 
-	b.layoutBox.Width = Iif(computed.Width.IsNumber(), computed.Width.Number, Iif(blockingContext, availWidth, boxMaxWidth))
-	b.layoutBox.Height = Iif(computed.Height.IsNumber(), computed.Height.Number, b.ncWidth()*2+contentHeight)
+	b.layoutBox.Width = Iif(
+		computed.Width.IsNumber(),
+		computed.Width.Number,
+		Iif(constraints.PrefersMaxWidth, availWidth, boxMaxWidth))
+	b.layoutBox.Height = Iif(
+		computed.Height.IsNumber(),
+		computed.Height.Number,
+		Iif(
+			constraints.PrefersMaxHeight,
+			availHeight,
+			b.ncWidth()*2+contentHeight,
+		),
+	)
 }
 
 type Button struct {
@@ -332,7 +371,7 @@ func NewInline(doc *Document) *Inline {
 	return b
 }
 
-func (b *Inline) Calc(availWidth, availHeight int, blockingContext bool) {
+func (b *Inline) Calc(availWidth, availHeight int, constraints Constraints) {
 	computed := &b.computedStyles
 
 	// 根据自身大小及可用空间大小取最佳值。
@@ -370,7 +409,10 @@ func (b *Inline) Calc(availWidth, availHeight int, blockingContext bool) {
 				text.SegmentInline(contentAvailWidth-contentWidth, contentAvailHeight)
 			} else {
 				child.Base().presetWidth(contentAvailWidth)
-				child.Calc(contentAvailWidth-contentWidth, contentAvailHeight, false)
+				child.Calc(contentAvailWidth-contentWidth, contentAvailHeight, Constraints{
+					PrefersMaxWidth:  false,
+					PrefersMaxHeight: false,
+				})
 			}
 
 			childWidth := child.Base().layoutBox.Width
@@ -391,12 +433,14 @@ func (b *Inline) Calc(availWidth, availHeight int, blockingContext bool) {
 		contentWidth = contentAvailWidth
 		for _, spacer := range zeroSpacers {
 			width := spacer.Base().ncWidth()*2 + avgWidth
-			spacer.Base().layoutBox.Width = width
 			// 如果是非spacer元素，则需要重新排版
 			if _, ok := spacer.(*Spacer); !ok {
-				spacer.Calc(width, contentMaxHeight, false)
-				// 重新调整后高度可能变了。
-				// contentMaxHeight = max(contentMaxHeight, spacer.Base().computedStyles.Height.Number)
+				spacer.Calc(width, contentMaxHeight, Constraints{
+					PrefersMaxWidth:  true,
+					PrefersMaxHeight: true,
+				})
+			} else {
+				spacer.Base().layoutBox.Width = width
 			}
 		}
 	}
@@ -416,12 +460,27 @@ func (b *Inline) Calc(availWidth, availHeight int, blockingContext bool) {
 		offsetX += child.Base().layoutBox.Width
 	}
 
-	b.layoutBox.Width = Iif(computed.Width.IsNumber(), computed.Width.Number, Iif(blockingContext, availWidth, contentWidth))
-	b.layoutBox.Height = contentMaxHeight
+	b.layoutBox.Width = Iif(
+		computed.Width.IsNumber(),
+		computed.Width.Number,
+		Iif(
+			constraints.PrefersMaxWidth,
+			availWidth,
+			contentWidth,
+		),
+	)
+
+	b.layoutBox.Height = Iif(
+		constraints.PrefersMaxHeight,
+		availHeight,
+		contentMaxHeight,
+	)
 }
 
 type Stack struct {
 	BaseBox
+
+	fill bool
 }
 
 func NewStack(doc *Document) *Stack {
@@ -435,7 +494,20 @@ func NewStack(doc *Document) *Stack {
 	return b
 }
 
-func (b *Stack) Calc(availWidth, availHeight int, blockingContext bool) {
+func (b *Stack) Set(key string, value string) error {
+	switch key {
+	case `fill`:
+		if value == `` {
+			value = `1`
+		}
+		b.fill = Must1(strconv.ParseBool(value))
+		return nil
+	default:
+		return b.Base().Set(key, value)
+	}
+}
+
+func (b *Stack) Calc(availWidth, availHeight int, constrains Constraints) {
 	computed := &b.computedStyles
 
 	// 根据自身大小及可用空间大小取最佳值。
@@ -476,15 +548,20 @@ func (b *Stack) Calc(availWidth, availHeight int, blockingContext bool) {
 			text.SegmentBlock(contentAvailWidth, contentAvailHeight)
 		} else {
 			child.Base().presetWidth(contentAvailWidth)
-			child.Calc(contentAvailWidth, contentAvailHeight, true)
-			// 直接铺满？
-			child.Base().layoutBox.Width = contentAvailWidth
-			child.Base().layoutBox.Height = contentAvailHeight
+			child.Calc(contentAvailWidth, contentAvailHeight, Constraints{
+				PrefersMaxWidth:  b.fill,
+				PrefersMaxHeight: b.fill,
+			})
 		}
 		contentMaxHeight = max(contentMaxHeight, child.Base().layoutBox.Height)
 		// }
 	}
 
+	// for _, child := range b.Children {
+	// 	// 直接铺满？
+	// 	// child.Base().layoutBox.Width = contentAvailWidth
+	// 	child.Base().layoutBox.Height = contentMaxHeight
+	// }
 	// if hv := b.computedStyles.Height; hv.IsNumber() && hv.Number-b.ncWidth()*2 > contentMaxHeight {
 	// 	contentMaxHeight = hv.Number - b.ncWidth()*2
 	// }
@@ -509,8 +586,16 @@ func (b *Stack) Calc(availWidth, availHeight int, blockingContext bool) {
 		child.Base().layoutBox.Y = offsetY
 	}
 
-	b.layoutBox.Width = Iif(computed.Width.IsNumber(), computed.Width.Number, Iif(blockingContext, availWidth, contentAvailWidth))
-	b.layoutBox.Height = contentMaxHeight
+	b.layoutBox.Width = Iif(
+		computed.Width.IsNumber(),
+		computed.Width.Number,
+		Iif(constrains.PrefersMaxWidth, availWidth, contentAvailWidth),
+	)
+	b.layoutBox.Height = Iif(
+		computed.Height.IsNumber(),
+		computed.Height.Number,
+		Iif(constrains.PrefersMaxHeight, availHeight, contentMaxHeight),
+	)
 }
 
 // 用来代替 margin 的使用。
@@ -878,7 +963,7 @@ func (b *Image) SetPath(path string) {
 	b.Set(`src`, u)
 }
 
-func (b *Image) Calc(availWidth, availHeight int, blockingContext bool) {
+func (b *Image) Calc(availWidth, availHeight int, constraints Constraints) {
 	if !b.computedStyles.Width.Empty() && !b.computedStyles.Height.Empty() {
 		b.layoutBox.Width = b.computedStyles.Width.Number
 		b.layoutBox.Height = b.computedStyles.Height.Number
@@ -910,8 +995,8 @@ func (b *Image) Calc(availWidth, availHeight int, blockingContext bool) {
 		height = availHeight
 	}
 
-	b.layoutBox.Width = width
-	b.layoutBox.Height = height
+	b.layoutBox.Width = Iif(constraints.PrefersMaxWidth, availWidth, width)
+	b.layoutBox.Height = Iif(constraints.PrefersMaxHeight, availHeight, height)
 }
 
 func (b *Image) Draw(canvas *Canvas) {
@@ -967,7 +1052,7 @@ func NewScroll(doc *Document) *Scroll {
 }
 
 // TODO 取消重复计算，大小不变的情况下只需要计算一次。
-func (b *Scroll) Calc(availWidth, availHeight int, blockingContext bool) {
+func (b *Scroll) Calc(availWidth, availHeight int, constraints Constraints) {
 	// computed := &b.computedStyles
 
 	if len(b.Children) <= 0 {
@@ -1065,7 +1150,10 @@ func (b *_ScrollChild) forceCalc(x, y int, contentAvailWidth, avgHeight int) {
 		b.scroll.bind(b.user, b.dataIndex())
 	}
 
-	child.Calc(childContentAvailWidth, childContentAvailHeight, true)
+	child.Calc(childContentAvailWidth, childContentAvailHeight, Constraints{
+		PrefersMaxWidth:  true,
+		PrefersMaxHeight: true,
+	})
 	child.Base().layoutBox.X = b.ncWidth()
 	child.Base().layoutBox.Y = b.ncWidth()
 }
@@ -1213,6 +1301,7 @@ func (b *Scroll) adjust() {
 }
 
 // 返回当前选中的数据索引。
+// 如果没有选中，返回-1。
 func (b *Scroll) Index() int {
 	if b.rowIndex < 0 {
 		return -1
@@ -1220,8 +1309,14 @@ func (b *Scroll) Index() int {
 	return b.rowIndex*b.cols + b.colIndex + b.itemOffset
 }
 
+// 返回数据总量。
 func (b *Scroll) Count() int {
 	return b.count
+}
+
+// 返回当前的可视行号（非数据行号）。
+func (b *Scroll) RowIndex() int {
+	return b.rowIndex
 }
 
 func (b *Scroll) Deselect() {

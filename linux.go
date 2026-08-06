@@ -58,11 +58,74 @@ func openDisplay() *Display {
 	}
 
 	d.sync = func() {
-		// 应该等垂直同步，但是我不知道怎么等。
 		copy(data, d.Data)
+		// 对fb来说，很难有用，非原子的。
+		waitForVSync(fd)
+		// 任何时候改offset都能导致直接从新的地方读，跟v sync无关，fb的缺陷。
+		// 有一点用：有些程序会切换到其它地方写，我接管后强制切回来。
+		setYOffset(fd, 0)
 	}
 
 	return d
+}
+
+type fbVarScreenInfo struct {
+	Xres         uint32
+	Yres         uint32
+	XresVirtual  uint32
+	YresVirtual  uint32
+	Xoffset      uint32
+	Yoffset      uint32
+	BitsPerPixel uint32
+	Grayscale    uint32
+	_            [200]byte
+}
+
+func setYOffset(fd int, y uint32) error {
+	var v fbVarScreenInfo
+
+	// 先读取当前参数
+	_, _, errno := unix.Syscall(
+		unix.SYS_IOCTL,
+		uintptr(fd),
+		uintptr(0x4600), // FBIOGET_VSCREENINFO
+		uintptr(unsafe.Pointer(&v)),
+	)
+	if errno != 0 {
+		return errno
+	}
+
+	v.Yoffset = y
+
+	// 切换显示区域
+	_, _, errno = unix.Syscall(
+		unix.SYS_IOCTL,
+		uintptr(fd),
+		uintptr(0x4606), // FBIOPAN_DISPLAY
+		uintptr(unsafe.Pointer(&v)),
+	)
+	if errno != 0 {
+		return errno
+	}
+
+	return nil
+}
+
+const FBIO_WAITFORVSYNC = 0x4680
+
+func waitForVSync(fd int) error {
+	var arg uint32
+
+	_, _, errno := unix.Syscall(
+		unix.SYS_IOCTL,
+		uintptr(fd),
+		uintptr(FBIO_WAITFORVSYNC),
+		uintptr(unsafe.Pointer(&arg)),
+	)
+	if errno != 0 {
+		return errno
+	}
+	return nil
 }
 
 func pollEvents(ctx context.Context, system chan Event, sync func(), handler func(Event)) {

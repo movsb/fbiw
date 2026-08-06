@@ -38,6 +38,11 @@ type App struct {
 	// 显示或隐藏文档会影响所有，而不能仅仅在 sync
 	// 的时候判断如果隐藏就不绘制、如果显示就绘制。
 	dirty bool
+
+	// 是否脱离到系统后台。
+	// 在系统后台的时候不刷屏、不处理键盘事件。
+	// 重新附加后，屏幕会刷新一次。
+	detached bool
 }
 
 func NewApp(
@@ -140,6 +145,10 @@ func (app *App) Run() {
 			app.cancel()
 			return
 		case KeyboardEvent:
+			if app.detached {
+				return
+			}
+
 			// 按“菜单”和“开始”可以退出。
 			// 暂时固定给所有APP。
 			switch event.Keyboard.Name {
@@ -168,7 +177,28 @@ func (app *App) AddFont(family string, bold, italic bool, path string) error {
 	return app.fonts.AddFont(path, family, bold, italic)
 }
 
+// 脱离当前与操作系统的事件交互，比如屏幕、键盘。
+// 用于Linux系统独占，MacOS无效。
+func (app *App) Detach() {
+	app.detached = true
+}
+
+// 重新夺取操作系统事件交互，比如屏幕、键盘。
+// 用于Linux系统独占，MacOS无效。
+func (app *App) Attach() {
+	app.detached = false
+	app.dirty = true
+	go func() {
+		app.system <- Event{
+			Type: appDirty,
+		}
+	}()
+}
+
 func (app *App) sync() {
+	if app.detached {
+		return
+	}
 	needSync := false
 	for _, doc := range app.documents {
 		if app.dirty || doc.dirty() {

@@ -186,9 +186,9 @@
 #13
 - html: |
     <block>
-      <stack spacer id=stack>
-        <block id=b1 spacer></block>
-        <block id=b2 spacer></block>
+      <stack spacer id=stack fill=1>
+        <block id=b1></block>
+        <block id=b2></block>
       </stack>
     </block>
   calc:
@@ -232,3 +232,27 @@
     </block>
   calc:
     b2: [524,0,500,0]
+
+#17
+- html: |
+    <block>
+      <stack spacer fill=1>
+        <block id=b1></block>
+        <block id=b2></block>
+      </stack>
+    </block>
+  calc:
+    b1: [0,0,1024,768]
+    b2: [0,0,1024,768]
+
+#18
+- html: |
+    <block padding="10">
+      <inline>
+        <block width=10></block>
+        <spacer id=s1></spacer>
+        <block width=10></block>
+      </inline>
+    </block>
+  calc:
+    s1: [10,0,984,0]
