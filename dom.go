@@ -1,11 +1,13 @@
 package fbiw
 
 import (
+	"bytes"
 	_ "embed"
 	"fmt"
 	"io"
 	"io/fs"
 	"iter"
+	"log"
 	"net/url"
 	"os"
 	"path"
@@ -88,9 +90,12 @@ func (doc *Document) load(name string, skinDir string) error {
 		return err
 	}
 	defer fp.Close()
-	if err := doc.parse(fp); err != nil {
+	root, sheet, err := parseDocument(doc, fp)
+	if err != nil {
 		return fmt.Errorf(`文档解析失败：%w`, err)
 	}
+	doc.root = root
+	doc.styleSheet = sheet
 
 	// 计算文档默认样式。
 	docBox := _DocBox{BaseBox: BaseBox{Tag: `document`}}
@@ -126,23 +131,25 @@ type _DocBox struct {
 //
 // 使用 html.Tokenizer 是一个好做法，支持解析 <style> 作为 raw text node（xml不能出现 <）。
 // 重写需要一定时间，先暂时用 html parser。
-func (doc *Document) parse(content io.Reader) error {
+//
+// Unmarshal 那边也要用，所以独立出来。
+func parseDocument(owner *Document, content io.Reader) (Box, *Sheet, error) {
 	context := &html.Node{Type: html.ElementNode, DataAtom: atom.Div, Data: `div`}
 	nodes, err := html.ParseFragment(content, context)
 	if err != nil {
-		return fmt.Errorf(`文档解析失败：%w`, err)
+		return nil, nil, fmt.Errorf(`文档解析失败：%w`, err)
 	}
 	// 去掉根节点所有的文本节点，确保只有一个节点。
 	nodes = slices.DeleteFunc(nodes, func(node *html.Node) bool {
 		return node.Type != html.ElementNode
 	})
 	if len(nodes) != 1 {
-		return fmt.Errorf(`找不到文档的元素节点`)
+		return nil, nil, fmt.Errorf(`找不到文档的元素节点`)
 	}
 
 	first := nodes[0]
 	if first.Data != `document` {
-		return fmt.Errorf(`根节点需要是 <document>`)
+		return nil, nil, fmt.Errorf(`根节点需要是 <document>`)
 	}
 
 	var (
@@ -154,54 +161,119 @@ func (doc *Document) parse(content io.Reader) error {
 		case html.ElementNode:
 			if child.DataAtom == atom.Style {
 				if styleNode != nil {
-					return fmt.Errorf(`重复的样式节点`)
+					return nil, nil, fmt.Errorf(`重复的样式节点`)
 				}
 				styleNode = child
 			} else if child.Data == `block` {
 				if bodyNode != nil {
-					return fmt.Errorf(`根元素下重复的block节点`)
+					return nil, nil, fmt.Errorf(`根元素下重复节点`)
+				}
+				bodyNode = child
+			} else if child.Data == `inline` {
+				if bodyNode != nil {
+					return nil, nil, fmt.Errorf(`根元素下重复节点`)
 				}
 				bodyNode = child
 			} else {
-				return fmt.Errorf(`根元素下不认识的节点：%s`, child.Data)
+				return nil, nil, fmt.Errorf(`根元素下不认识的节点：%s`, child.Data)
 			}
 		case html.TextNode:
 			if strings.TrimSpace(child.Data) != `` {
-				return fmt.Errorf(`根元素下不能有文本内容`)
+				return nil, nil, fmt.Errorf(`根元素下不能有文本内容`)
 			}
 		case html.CommentNode:
 		}
 	}
 
+	var sheet *Sheet
+
 	if styleNode != nil {
 		if styleNode.FirstChild == nil {
-			doc.styleSheet = &Sheet{}
+			sheet = &Sheet{}
 		} else if styleNode.FirstChild.NextSibling != nil {
-			return fmt.Errorf(`样式格式错误`)
+			return nil, nil, fmt.Errorf(`样式格式错误`)
 		} else if styleNode.FirstChild.Type != html.TextNode {
-			return fmt.Errorf(`不是文本节点`)
+			return nil, nil, fmt.Errorf(`不是文本节点`)
 		} else {
 			textData := styleNode.FirstChild.Data
-			sheet, err := ParseStyle([]byte(textData))
+			sheet2, err := ParseStyle([]byte(textData))
 			if err != nil {
-				return fmt.Errorf(`样式解析失败：%w`, err)
+				return nil, nil, fmt.Errorf(`样式解析失败：%w`, err)
 			}
-			doc.styleSheet = sheet
+			sheet = sheet2
 		}
 	}
 
 	if bodyNode == nil {
-		return fmt.Errorf(`缺少block节点`)
+		return nil, nil, fmt.Errorf(`缺少block节点`)
 	}
 
-	box, err := _NodeTransformer{doc}.Transform(bodyNode)
+	box, err := _NodeTransformer{owner}.Transform(bodyNode)
 	if err != nil {
-		return fmt.Errorf(`文档内容节点解析失败：%w`, err)
+		return nil, nil, fmt.Errorf(`文档内容节点解析失败：%w`, err)
 	}
 
-	doc.root = box
+	return box, sheet, nil
+}
 
-	return nil
+// 反序列化content(html)到指定结构体中。
+func Unmarshal[T any](owner *Document, content string) *T {
+	buf := bytes.NewBuffer(nil)
+	buf.WriteString(`<document>`)
+	buf.WriteString(content)
+	buf.WriteString(`</document>`)
+
+	root, _, err := parseDocument(owner, buf)
+	if err != nil {
+		panic(err)
+	}
+
+	var t T
+	rv := reflect.ValueOf(&t).Elem()
+	for field, fieldValue := range rv.Fields() {
+		if !field.IsExported() {
+			continue
+		}
+
+		if field.Name == `Root` {
+			if field.Type != reflect.TypeFor[Box]() {
+				panic(`Root必须是Box`)
+			}
+			fieldValue.Set(reflect.ValueOf(root))
+			continue
+		}
+
+		if !field.Type.Implements(reflect.TypeFor[Box]()) {
+			continue
+		}
+
+		selector := field.Tag.Get(`css`)
+		if selector == `` {
+			continue
+		}
+
+		parsedSelector := ParseSelector(selector)
+		var outBox Box
+		owner.walkNode(root, func(box Box) bool {
+			if (_Styler{owner}).match(box, parsedSelector) {
+				outBox = box
+				return false
+			}
+			return true
+		})
+		if outBox == nil {
+			continue
+		}
+
+		if !reflect.ValueOf(outBox).CanConvert(field.Type) {
+			log.Panicf(`类型不匹配：%v vs. %T`, field.Type.String(), outBox)
+		}
+
+		converted := reflect.ValueOf(outBox).Convert(field.Type)
+		fieldValue.Set(converted)
+	}
+
+	return &t
 }
 
 func (doc *Document) dirty() bool {
@@ -397,6 +469,7 @@ func (doc *Document) paint(canvas *Canvas) {
 	doc.root.Draw(canvas)
 }
 
+// 此方法只是属于doc，但是并不使用doc。
 func (doc *Document) walkNode(box Box, callback func(box Box) bool) bool {
 	if !callback(box) {
 		return false

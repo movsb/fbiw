@@ -24,17 +24,19 @@ func main() {
 
 	scroll := doc.GetBoxByID(`scroll`).(*fbiw.Scroll)
 
+	type _Item struct {
+		Root fbiw.Box
+		Text *fbiw.Text `css:"text"`
+	}
+
 	scroll.SetItems(7,
-		func() fbiw.Box {
-			btn := fbiw.NewBlock(doc)
-			btn.Set(`background-color`, `tan`)
-			txt := fbiw.NewText(doc)
-			btn.AppendChild(txt)
-			return btn
+		func() (fbiw.Box, any) {
+			item := fbiw.Unmarshal[_Item](doc, `<block background-color="tan"><text></text></block>`)
+			return item.Root, item
 		},
-		func(box fbiw.Box, index int) {
-			txt := box.(*fbiw.Block).Children[0].(*fbiw.Text)
-			txt.SetText(fmt.Sprint(index))
+		func(item any, index int) {
+			item2 := item.(*_Item)
+			item2.Text.SetText(fmt.Sprint(index))
 		},
 	)
 

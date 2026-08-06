@@ -836,7 +836,7 @@ func NewImage(doc *Document) *Image {
 	b := &Image{
 		BaseBox: BaseBox{
 			Document: doc,
-			Tag:      `image`,
+			Tag:      `img`,
 		},
 	}
 	b.Class.box = b
@@ -923,7 +923,7 @@ type Scroll struct {
 	gap  int
 
 	count int
-	bind  func(box Box, index int)
+	bind  func(user any, index int)
 
 	// child selection index
 	rowIndex int
@@ -995,6 +995,8 @@ type _ScrollChild struct {
 
 	scroll *Scroll
 
+	user any
+
 	// 在列表中的位置。
 	// rowIndex*cols + colIndex + topIndex == item数据
 	rowIndex int
@@ -1040,7 +1042,7 @@ func (b *_ScrollChild) forceCalc(x, y int, contentAvailWidth, avgHeight int) {
 	// 所以如果代码运行到了这里，那一定是出现了内部逻辑错误。
 	if b.dataIndex() < b.scroll.count {
 		// 提前绑定上去才能提供数据、提供计算支撑。
-		b.scroll.bind(child, b.dataIndex())
+		b.scroll.bind(b.user, b.dataIndex())
 	}
 
 	child.Calc(childContentAvailWidth, childContentAvailHeight)
@@ -1064,7 +1066,7 @@ func (b *Scroll) Set(key, value string) error {
 	}
 }
 
-func (b *Scroll) SetItems(count int, create func() Box, bind func(box Box, index int)) {
+func (b *Scroll) SetItems(count int, create func() (root Box, user any), bind func(user any, index int)) {
 	b.Children = nil
 	b.count = count
 	b.bind = bind
@@ -1076,9 +1078,10 @@ func (b *Scroll) SetItems(count int, create func() Box, bind func(box Box, index
 	// 滚动的时候会自动计算并隐藏。
 	for r := range b.rows {
 		for c := range b.cols {
-			box := create()
+			box, user := create()
 			wrapper := _NewScrollChild(b.Document)
 			wrapper.Base().Set(`border-width`, `3`)
+			wrapper.user = user
 			wrapper.scroll = b
 			wrapper.rowIndex = r
 			wrapper.colIndex = c
