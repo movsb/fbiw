@@ -1302,7 +1302,7 @@ func (b *Scroll) adjust() {
 
 // 返回当前选中的数据索引。
 // 如果没有选中，返回-1。
-func (b *Scroll) Index() int {
+func (b *Scroll) DataIndex() int {
 	if b.rowIndex < 0 {
 		return -1
 	}
@@ -1310,13 +1310,17 @@ func (b *Scroll) Index() int {
 }
 
 // 返回数据总量。
-func (b *Scroll) Count() int {
+func (b *Scroll) DataCount() int {
 	return b.count
 }
 
 // 返回当前的可视行号（非数据行号）。
 func (b *Scroll) RowIndex() int {
 	return b.rowIndex
+}
+
+func (b *Scroll) DataRowIndex() int {
+	return b.curDataRow()
 }
 
 func (b *Scroll) Deselect() {
