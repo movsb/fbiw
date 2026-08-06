@@ -61,10 +61,10 @@ func TestCalc(t *testing.T) {
 				panic(`指定编号的盒子没找到：` + id)
 			}
 			got := [4]int{
-				box.Base().x,
-				box.Base().y,
-				box.Base().computedStyles.Width.Number,
-				box.Base().computedStyles.Height.Number,
+				box.Base().layoutBox.X,
+				box.Base().layoutBox.Y,
+				box.Base().layoutBox.Width,
+				box.Base().layoutBox.Height,
 			}
 			if got[0] != rect[0] || got[1] != rect[1] || got[2] != rect[2] || got[3] != rect[3] {
 				t.Errorf(`排版错误：#%d, id: %s, want: %v -> got: %v`, i, id, rect, got)

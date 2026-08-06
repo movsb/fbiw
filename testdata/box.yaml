@@ -220,3 +220,15 @@
     s1: [0,0,1024,768]
     b1: [0,0,1024,384]
     b2: [0,384,1024,384]
+
+#16
+- html: |
+    <block>
+      <inline>
+        <block spacer></block>
+        <spacer width=24></spacer>
+        <block spacer id=b2></block>
+      </inline>
+    </block>
+  calc:
+    b2: [524,0,500,0]

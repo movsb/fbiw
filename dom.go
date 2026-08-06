@@ -459,9 +459,9 @@ func (doc *Document) style(box Box, descendents bool) error {
 //
 // TODO 把计算方式从元素自身拆解到这里来。
 func (doc *Document) layout() {
-	doc.root.Base().computedStyles.Width = NumberValue(doc.width)
-	doc.root.Base().computedStyles.Height = NumberValue(doc.height)
-	doc.root.Calc(doc.width, doc.height)
+	// doc.root.Base().computedStyles.Width = NumberValue(doc.width)
+	// doc.root.Base().computedStyles.Height = NumberValue(doc.height)
+	doc.root.Calc(doc.width, doc.height, true)
 }
 
 // 绘制文档。

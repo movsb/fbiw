@@ -17,11 +17,13 @@ type Box interface {
 	// 根据可用的宽度和高度计算自己实际的宽度和高度。
 	// 如果 computed.{width,height} 有值，则直接用，
 	// 表示被外界固定好了，而且不能覆盖。
-	// 自己写：并把宽度和高度写到 computed.{width, height}。
-	// 父亲写：{x, y}。
-	Calc(availableWidth, availableHeight int)
-	// 根据自身的 calcPos 直接画。
-	// calcPos 的 {x,y} 相对于父元素。
+	//   - 自己写：并把宽度和高度写到 layoutBox.{width, height}。
+	//   - 父亲写：layoutBox.{x, y}。
+	// 子元素在排版时，它需要知道自己是否应该默认占满父元素（类似html的div），
+	// 第三个参数用来决定此行为。
+	Calc(availableWidth, availableHeight int, blockingContext bool)
+	// 根据自身的 layoutBox 直接画。
+	// layoutBox 的 {x,y} 相对于父元素。
 	// 所以除根元素外（因为它是0，0），其它在Draw之前都要调整canvas到offset，
 	// 即：父元素在遍历子元素Draw的时候记得根据子元素的{x,y}作offset。
 	Draw(canvas *Canvas)
@@ -40,11 +42,17 @@ type BaseBox struct {
 	Parent   Box
 	Children []Box
 
-	inlineStyles   Styles
+	// 来自内联样式的值和样式计算的最终结果。
+	inlineStyles Styles
+	// 注意，样式计算结束后，computedStyles不应该再被修改（除presetWidth百分比计算）。
 	computedStyles Styles
 
-	// 相对于父亲可用区域的偏移，父亲写。
-	x, y int
+	// 排版后的位置。
+	// XY 相对于父亲可用区域的偏移，父亲写。
+	// WH 是保存计算后真正使用的值。不要把这个值写回computedStyles，
+	// 否则如何内容变化后重新排版不知道这个值是哪算用户设置还是上次的计算结果，
+	// 于是导致计算错误。
+	layoutBox Rect
 }
 
 type Rect struct {
@@ -133,6 +141,9 @@ func (b *BaseBox) presetWidth(parentTotalAvailWidth int) {
 		// 百分比暂时优先级更高，所以如果窗口大小变了。b.Width会怎样？
 		// 因为百分比才是真实的初始化，Width原本是没有的。
 		w := int(float32(b.computedStyles.Width.Number) / 100 * float32(parentTotalAvailWidth))
+		// 这里比较特殊：把计算值写回参考值中了。
+		// 正常来说，这个在排版（非样式计算）过程中是只读的，真正的值应该写到 layoutBox。
+		// 但是由于每次计算这个值都会因为百分比变化，没有因为单次排版而被固定，所以看起来没有问题？
 		b.computedStyles.Width = NumberValue(w)
 	}
 }
@@ -141,29 +152,32 @@ func (b *BaseBox) ncWidth() int {
 	return b.computedStyles.BorderWidth.Number + b.computedStyles.Padding.Number
 }
 
-func (b *BaseBox) Calc(availWidth, availHeight int) {}
+func (b *BaseBox) Calc(availWidth, availHeight int, blockingContext bool) {
+	b.layoutBox.Width = Iif(b.computedStyles.Width.IsNumber(), b.computedStyles.Width.Number, Iif(blockingContext, availWidth, 0))
+	b.layoutBox.Height = Iif(b.computedStyles.Height.IsNumber(), b.computedStyles.Height.Number, 0)
+}
 
 func (b *BaseBox) Draw(canvas *Canvas) {
 	borderWidth := b.computedStyles.BorderWidth.Number
-	computedWidth := b.computedStyles.Width.Number
-	computedHeight := b.computedStyles.Height.Number
+	layoutWidth := b.layoutBox.Width
+	layoutHeight := b.layoutBox.Height
 
 	// 默认都是 border-box，所以以实际的宽和高为准。
 	if bcv := b.computedStyles.BorderColor; borderWidth > 0 && !bcv.Empty() && !bcv.Color.None() {
-		canvas.DrawBorder(bcv.Color, computedWidth, computedHeight, borderWidth)
+		canvas.DrawBorder(bcv.Color, layoutWidth, layoutHeight, borderWidth)
 	}
 
 	if src := b.computedStyles.BackgroundImage.String; src != `` {
 		canvas.Offset(borderWidth, borderWidth).DrawImage(
 			DropLast1(b.Document.loadImage(src, 0, 0)),
-			computedWidth-borderWidth*2,
-			computedHeight-borderWidth*2,
+			layoutWidth-borderWidth*2,
+			layoutHeight-borderWidth*2,
 		)
 	} else if bcv := b.computedStyles.BackgroundColor; !bcv.Empty() && !bcv.Color.None() {
 		canvas.Offset(borderWidth, borderWidth).FillRect(
 			0, 0,
-			computedWidth-borderWidth*2,
-			computedHeight-borderWidth*2,
+			layoutWidth-borderWidth*2,
+			layoutHeight-borderWidth*2,
 			bcv.Color,
 		)
 	}
@@ -172,7 +186,8 @@ func (b *BaseBox) Draw(canvas *Canvas) {
 		if !displaying(child) {
 			continue
 		}
-		canvas := canvas.Offset(child.Base().x, child.Base().y)
+		layout := child.Base().layoutBox
+		canvas := canvas.Offset(layout.X, layout.Y)
 		child.Draw(canvas)
 	}
 }
@@ -200,7 +215,7 @@ func NewBlock(doc *Document) *Block {
 	return b
 }
 
-func (b *Block) Calc(availWidth, availHeight int) {
+func (b *Block) Calc(availWidth, availHeight int, blockingContext bool) {
 	computed := &b.computedStyles
 
 	// 根据自身大小及可用空间大小取最佳值。
@@ -223,9 +238,10 @@ func (b *Block) Calc(availWidth, availHeight int) {
 		}
 
 		// 所有元素，如果没有特别指定宽度，则总是占满。
-		if child.Base().computedStyles.Width.Empty() {
-			child.Base().computedStyles.Width = NumberValue(contentAvailWidth)
-		}
+		// if child.Base().computedStyles.Width.Empty() {
+		// child.Base().layoutBox.Width = contentAvailWidth
+		// child.Base().computedStyles.Width = NumberValue(contentAvailWidth)
+		// }
 
 		if spacer, ok := child.(*Spacer); ok && spacer.computedStyles.Height.Empty() {
 			zeroSpacers = append(zeroSpacers, spacer)
@@ -238,9 +254,9 @@ func (b *Block) Calc(availWidth, availHeight int) {
 				text.SegmentBlock(contentAvailWidth, contentAvailHeight-contentHeight)
 			} else {
 				child.Base().presetWidth(contentAvailWidth)
-				child.Calc(contentAvailWidth, contentAvailHeight-contentHeight)
+				child.Calc(contentAvailWidth, contentAvailHeight-contentHeight, true)
 			}
-			contentHeight += child.Base().computedStyles.Height.Number
+			contentHeight += child.Base().layoutBox.Height
 		}
 	}
 
@@ -250,10 +266,15 @@ func (b *Block) Calc(availWidth, availHeight int) {
 		contentHeight = contentAvailHeight
 		for _, spacer := range zeroSpacers {
 			height := spacer.Base().ncWidth()*2 + avgHeight
-			spacer.Base().computedStyles.Height = NumberValue(height)
+			spacer.Base().layoutBox.Height = height
+			if blockingContext {
+				spacer.Base().layoutBox.Width = boxMaxWidth
+			}
 			// 如果是非spacer元素，则需要重新排版
 			if _, ok := spacer.(*Spacer); !ok {
-				spacer.Calc(contentAvailWidth, height)
+				spacer.Calc(contentAvailWidth, height, true)
+				// 内部又覆盖了，暂时没有办法让它直接用。
+				spacer.Base().layoutBox.Height = height
 			}
 		}
 	}
@@ -268,20 +289,17 @@ func (b *Block) Calc(availWidth, availHeight int) {
 		if !displaying(child) {
 			continue
 		}
-		child.Base().x = b.ncWidth()
+		layout := &child.Base().layoutBox
+		layout.X = b.ncWidth()
 		if computed.Align.String == `center` {
-			child.Base().x += (contentAvailWidth - child.Base().computedStyles.Width.Number) / 2
+			layout.X += (contentAvailWidth - child.Base().layoutBox.Width) / 2
 		}
-		child.Base().y = offsetY
-		offsetY += child.Base().computedStyles.Height.Number
+		layout.Y = offsetY
+		offsetY += child.Base().layoutBox.Height
 	}
 
-	if !computed.Width.IsNumber() {
-		computed.Width = NumberValue(boxMaxWidth)
-	}
-	if !computed.Height.IsNumber() {
-		computed.Height = NumberValue(b.ncWidth()*2 + contentHeight)
-	}
+	b.layoutBox.Width = Iif(computed.Width.IsNumber(), computed.Width.Number, Iif(blockingContext, availWidth, boxMaxWidth))
+	b.layoutBox.Height = Iif(computed.Height.IsNumber(), computed.Height.Number, b.ncWidth()*2+contentHeight)
 }
 
 type Button struct {
@@ -314,7 +332,7 @@ func NewInline(doc *Document) *Inline {
 	return b
 }
 
-func (b *Inline) Calc(availWidth, availHeight int) {
+func (b *Inline) Calc(availWidth, availHeight int, blockingContext bool) {
 	computed := &b.computedStyles
 
 	// 根据自身大小及可用空间大小取最佳值。
@@ -352,11 +370,11 @@ func (b *Inline) Calc(availWidth, availHeight int) {
 				text.SegmentInline(contentAvailWidth-contentWidth, contentAvailHeight)
 			} else {
 				child.Base().presetWidth(contentAvailWidth)
-				child.Calc(contentAvailWidth-contentWidth, contentAvailHeight)
+				child.Calc(contentAvailWidth-contentWidth, contentAvailHeight, false)
 			}
 
-			childWidth := child.Base().computedStyles.Width.Number
-			childHeight := child.Base().computedStyles.Height.Number
+			childWidth := child.Base().layoutBox.Width
+			childHeight := child.Base().layoutBox.Height
 			contentWidth += childWidth
 			contentMaxHeight = max(contentMaxHeight, childHeight)
 		}
@@ -373,10 +391,10 @@ func (b *Inline) Calc(availWidth, availHeight int) {
 		contentWidth = contentAvailWidth
 		for _, spacer := range zeroSpacers {
 			width := spacer.Base().ncWidth()*2 + avgWidth
-			spacer.Base().computedStyles.Width = NumberValue(width)
+			spacer.Base().layoutBox.Width = width
 			// 如果是非spacer元素，则需要重新排版
 			if _, ok := spacer.(*Spacer); !ok {
-				spacer.Calc(width, contentMaxHeight)
+				spacer.Calc(width, contentMaxHeight, false)
 				// 重新调整后高度可能变了。
 				// contentMaxHeight = max(contentMaxHeight, spacer.Base().computedStyles.Height.Number)
 			}
@@ -389,20 +407,17 @@ func (b *Inline) Calc(availWidth, availHeight int) {
 		if !displaying(child) {
 			continue
 		}
-		child.Base().y = b.ncWidth()
+		layout := &child.Base().layoutBox
+		layout.Y = b.ncWidth()
 		if computed.Align.String == `middle` {
-			child.Base().y += (contentMaxHeight - child.Base().computedStyles.Height.Number) / 2
+			layout.Y += (contentMaxHeight - child.Base().layoutBox.Height) / 2
 		}
-		child.Base().x = offsetX
-		offsetX += child.Base().computedStyles.Width.Number
+		layout.X = offsetX
+		offsetX += child.Base().layoutBox.Width
 	}
 
-	if !computed.Width.IsNumber() {
-		computed.Width = NumberValue(contentWidth)
-	}
-	if !computed.Height.IsNumber() {
-		computed.Height = NumberValue(contentMaxHeight)
-	}
+	b.layoutBox.Width = Iif(computed.Width.IsNumber(), computed.Width.Number, Iif(blockingContext, availWidth, contentWidth))
+	b.layoutBox.Height = contentMaxHeight
 }
 
 type Stack struct {
@@ -420,7 +435,7 @@ func NewStack(doc *Document) *Stack {
 	return b
 }
 
-func (b *Stack) Calc(availWidth, availHeight int) {
+func (b *Stack) Calc(availWidth, availHeight int, blockingContext bool) {
 	computed := &b.computedStyles
 
 	// 根据自身大小及可用空间大小取最佳值。
@@ -442,27 +457,31 @@ func (b *Stack) Calc(availWidth, availHeight int) {
 		}
 
 		// 如果没有设置尺寸，则总是占满。
-		if !child.Base().computedStyles.Width.IsNumber() {
-			child.Base().computedStyles.Width = NumberValue(contentAvailWidth)
-		}
-		// 如果父元素被设置了尺寸，总是给子元素设置同样的高度。
-		if computed.Height.IsNumber() && !child.Base().computedStyles.Height.IsNumber() {
-			// contentAvailHeight 此时就等于设置的高度-2倍不可用区
-			child.Base().computedStyles.Height = NumberValue(contentAvailHeight)
-		}
+		// if !child.Base().computedStyles.Width.IsNumber() {
+		// child.Base().computedStyles.Width = NumberValue(contentAvailWidth)
+		// }
+		// TODO 如果父元素被设置了尺寸，总是给子元素设置同样的高度。
+		// if computed.Height.IsNumber() && !child.Base().computedStyles.Height.IsNumber() {
+		// contentAvailHeight 此时就等于设置的高度-2倍不可用区
+		// child.Base().computedStyles.Height = NumberValue(contentAvailHeight)
+		// }
 
 		// if spacer, ok := child.(*Spacer); ok && spacer.computedStyles.Height.Empty() {
 		// 	zeroSpacers = append(zeroSpacers, spacer)
 		// } else if child.Base().computedStyles.Spacer.Bool {
 		// 	zeroSpacers = append(zeroSpacers, child)
 		// } else {
+
 		if text, ok := child.(*Text); ok {
 			text.SegmentBlock(contentAvailWidth, contentAvailHeight)
 		} else {
 			child.Base().presetWidth(contentAvailWidth)
-			child.Calc(contentAvailWidth, contentAvailHeight)
+			child.Calc(contentAvailWidth, contentAvailHeight, true)
+			// 直接铺满？
+			child.Base().layoutBox.Width = contentAvailWidth
+			child.Base().layoutBox.Height = contentAvailHeight
 		}
-		contentMaxHeight = max(contentMaxHeight, child.Base().computedStyles.Height.Number)
+		contentMaxHeight = max(contentMaxHeight, child.Base().layoutBox.Height)
 		// }
 	}
 
@@ -486,16 +505,12 @@ func (b *Stack) Calc(availWidth, availHeight int) {
 		if !displaying(child) {
 			continue
 		}
-		child.Base().x = offsetX
-		child.Base().y = offsetY
+		child.Base().layoutBox.X = offsetX
+		child.Base().layoutBox.Y = offsetY
 	}
 
-	if !computed.Width.IsNumber() {
-		computed.Width = NumberValue(contentAvailWidth)
-	}
-	if !computed.Height.IsNumber() {
-		computed.Height = NumberValue(contentMaxHeight)
-	}
+	b.layoutBox.Width = Iif(computed.Width.IsNumber(), computed.Width.Number, Iif(blockingContext, availWidth, contentAvailWidth))
+	b.layoutBox.Height = contentMaxHeight
 }
 
 // 用来代替 margin 的使用。
@@ -659,8 +674,8 @@ func (t *Text) SegmentBlock(availWidth, availHeight int) {
 	t.ClearStates()
 	for t.SegmentInline(availWidth, availHeight) {
 	}
-	t.computedStyles.Width = NumberValue(t.textLineMaxWidth)
-	t.computedStyles.Height = NumberValue(t.BlockHeight())
+	t.layoutBox.Width = t.textLineMaxWidth
+	t.layoutBox.Height = t.BlockHeight()
 }
 
 // 文本排版很特殊：
@@ -729,8 +744,8 @@ func (t *Text) SegmentInline(availWidth, availHeight int) bool {
 	t.textLines = append(t.textLines, line)
 	t.textLineMaxWidth = max(t.textLineMaxWidth, width)
 
-	t.computedStyles.Width = NumberValue(width)
-	t.computedStyles.Height = NumberValue(line.MaxHeight)
+	t.layoutBox.Width = width
+	t.layoutBox.Height = line.MaxHeight
 
 	return t.textRunIndex < len(t.textRuns)-1 ||
 		t.textRunIndex == len(t.textRuns)-1 && t.textRunDataIndex < len(t.textRuns[t.textRunIndex].Data)
@@ -863,8 +878,10 @@ func (b *Image) SetPath(path string) {
 	b.Set(`src`, u)
 }
 
-func (b *Image) Calc(availWidth, availHeight int) {
+func (b *Image) Calc(availWidth, availHeight int, blockingContext bool) {
 	if !b.computedStyles.Width.Empty() && !b.computedStyles.Height.Empty() {
+		b.layoutBox.Width = b.computedStyles.Width.Number
+		b.layoutBox.Height = b.computedStyles.Height.Number
 		return
 	}
 
@@ -893,8 +910,8 @@ func (b *Image) Calc(availWidth, availHeight int) {
 		height = availHeight
 	}
 
-	b.computedStyles.Width = NumberValue(width)
-	b.computedStyles.Height = NumberValue(height)
+	b.layoutBox.Width = width
+	b.layoutBox.Height = height
 }
 
 func (b *Image) Draw(canvas *Canvas) {
@@ -902,8 +919,8 @@ func (b *Image) Draw(canvas *Canvas) {
 		return
 	}
 
-	w := b.computedStyles.Width.Number
-	h := b.computedStyles.Height.Number
+	w := b.layoutBox.Width
+	h := b.layoutBox.Height
 
 	img, err := b.Document.loadImage(b.Src, w, h)
 	if err != nil {
@@ -950,21 +967,21 @@ func NewScroll(doc *Document) *Scroll {
 }
 
 // TODO 取消重复计算，大小不变的情况下只需要计算一次。
-func (b *Scroll) Calc(availWidth, availHeight int) {
-	computed := &b.computedStyles
+func (b *Scroll) Calc(availWidth, availHeight int, blockingContext bool) {
+	// computed := &b.computedStyles
 
 	if len(b.Children) <= 0 {
 		return
 	}
 
 	// 只有确定了大小才能决定子元素的大小和布局。
-	if !(computed.Width.IsNumber() && computed.Height.IsNumber()) {
-		return
-	}
+	// if !(computed.Width.IsNumber() && computed.Height.IsNumber()) {
+	// return
+	// }
 
 	var (
-		contentAvailWidth  = computed.Width.Number - (b.ncWidth()*2 + (b.cols-1)*b.gap)
-		contentAvailHeight = computed.Height.Number - (b.ncWidth()*2 + (b.rows-1)*b.gap)
+		contentAvailWidth  = availWidth - (b.ncWidth()*2 + (b.cols-1)*b.gap)
+		contentAvailHeight = availHeight - (b.ncWidth()*2 + (b.rows-1)*b.gap)
 
 		offsetX = b.ncWidth()
 		offsetY = b.ncWidth()
@@ -985,6 +1002,9 @@ func (b *Scroll) Calc(availWidth, availHeight int) {
 			offsetX += avgWidth
 		}
 	}
+
+	b.layoutBox.Width = Iif(b.computedStyles.Width.IsNumber(), b.computedStyles.Width.Number, availWidth)
+	b.layoutBox.Height = Iif(b.computedStyles.Height.IsNumber(), b.computedStyles.Height.Number, availHeight)
 
 	b.adjust()
 }
@@ -1025,18 +1045,18 @@ func (b *_ScrollChild) dataIndex() int {
 
 func (b *_ScrollChild) forceCalc(x, y int, contentAvailWidth, avgHeight int) {
 	base := b.Base()
-	base.x = x
-	base.y = y
-	base.computedStyles.Width = NumberValue(contentAvailWidth)
-	base.computedStyles.Height = NumberValue(avgHeight)
+	base.layoutBox.X = x
+	base.layoutBox.Y = y
+	base.layoutBox.Width = contentAvailWidth
+	base.layoutBox.Height = avgHeight
 
 	childContentAvailWidth := contentAvailWidth - b.ncWidth()*2
 	childContentAvailHeight := avgHeight - b.ncWidth()*2
 
 	child := base.Children[0]
 	base = child.Base()
-	base.computedStyles.Width = NumberValue(childContentAvailWidth)
-	base.computedStyles.Height = NumberValue(childContentAvailHeight)
+	base.layoutBox.Width = childContentAvailWidth
+	base.layoutBox.Height = childContentAvailHeight
 
 	// 没有数据的项实际是被隐藏的，被隐藏的项不会参与计算。
 	// 所以如果代码运行到了这里，那一定是出现了内部逻辑错误。
@@ -1045,9 +1065,9 @@ func (b *_ScrollChild) forceCalc(x, y int, contentAvailWidth, avgHeight int) {
 		b.scroll.bind(b.user, b.dataIndex())
 	}
 
-	child.Calc(childContentAvailWidth, childContentAvailHeight)
-	child.Base().x = b.ncWidth()
-	child.Base().y = b.ncWidth()
+	child.Calc(childContentAvailWidth, childContentAvailHeight, true)
+	child.Base().layoutBox.X = b.ncWidth()
+	child.Base().layoutBox.Y = b.ncWidth()
 }
 
 func (b *Scroll) Set(key, value string) error {
