@@ -194,7 +194,7 @@ func (b *BaseBox) Draw(canvas *Canvas) {
 
 	if src := b.computedStyles.BackgroundImage.String; src != `` {
 		canvas.Offset(borderWidth, borderWidth).DrawImage(
-			DropLast1(b.Document._loadImage(src, 0, 0)),
+			DropLast1(b.Document._loadImage(src, 0, 0, false)),
 			layoutWidth-borderWidth*2,
 			layoutHeight-borderWidth*2,
 		)
@@ -996,19 +996,27 @@ func (b *Image) Calc(availWidth, availHeight int, constraints Constraints) {
 
 	switch b.status {
 	case imageLoadStatusNone:
-		b.Document.loadImageAsync(b.src,
-			b.layoutBox.Width, b.layoutBox.Height,
-			func(img DecodedImage, err error) {
-				if err != nil {
-					b.status = imageLoadStatusFailed
-					return
-				}
-				b.decodedImage = img
-				b.status = imageLoadStatusSucceeded
-				b.Document.markDirty()
-			},
-		)
-		b.status = imageLoadStatusStarted
+		if img, err := b.Document.loadImageSync(b.src, b.layoutBox.Width, b.layoutBox.Height); err == nil {
+			b.decodedImage = img
+			b.status = imageLoadStatusSucceeded
+			b.Calc(availWidth, availHeight, constraints)
+			return
+		} else {
+			b.Document.loadImageAsync(b.src,
+				b.layoutBox.Width, b.layoutBox.Height,
+				func(img DecodedImage, err error) {
+					if err != nil {
+						b.status = imageLoadStatusFailed
+						return
+					}
+					b.decodedImage = img
+					b.status = imageLoadStatusSucceeded
+					b.Document.markDirty()
+				},
+			)
+			b.status = imageLoadStatusStarted
+			return
+		}
 	case imageLoadStatusStarted:
 		// 图片加载中，啥也不能干？
 		return

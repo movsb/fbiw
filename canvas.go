@@ -383,23 +383,29 @@ func (m *ImageManager) decodeImage(fsys fs.FS, path string, wantWidth, wantHeigh
 
 // 多线程安全。
 func (m *ImageManager) GetImageCached(fsys fs.FS, path string) (DecodedImage, error) {
-	return m.getImageCached(fsys, path, 0, 0)
+	return m.getImageCached(fsys, path, 0, 0, false)
 }
 
 // 多线程安全。
-func (m *ImageManager) GetImageScaledCached(fsys fs.FS, path string, width, height int) (DecodedImage, error) {
-	return m.getImageCached(fsys, path, width, height)
+func (m *ImageManager) GetImageScaledCached(fsys fs.FS, path string, width, height int, checking bool) (DecodedImage, error) {
+	return m.getImageCached(fsys, path, width, height, checking)
 }
 
-func (m *ImageManager) getImageCached(fsys fs.FS, path string, width, height int) (DecodedImage, error) {
-	img, err, _ := m.cache.GetOrLoad(
-		context.Background(),
-		_ImageCacheKey{
-			fsys:   fsys,
-			path:   path,
-			width:  width,
-			height: height,
-		},
+func (m *ImageManager) getImageCached(fsys fs.FS, path string, width, height int, checking bool) (DecodedImage, error) {
+	key := _ImageCacheKey{
+		fsys:   fsys,
+		path:   path,
+		width:  width,
+		height: height,
+	}
+	if checking {
+		img, found := m.cache.Get(key)
+		if found {
+			return img, nil
+		}
+		return img, os.ErrNotExist
+	}
+	img, err, _ := m.cache.GetOrLoad(context.Background(), key,
 		func(ctx context.Context, _ _ImageCacheKey) (DecodedImage, time.Duration, error) {
 			decoded, err := m.decodeImage(fsys, path, width, height)
 			return decoded, time.Minute * 30, err

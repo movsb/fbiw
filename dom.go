@@ -497,18 +497,19 @@ func (doc *Document) walkNode(box Box, callback func(box Box) bool) bool {
 // TODO 异步解码
 // width, height 表示想要scale到的尺寸。
 // 如果均为0，则表示不scale。
-func (doc *Document) _loadImage(src string, width, height int) (DecodedImage, error) {
+// checking: 只检测是否存在缓存。
+func (doc *Document) _loadImage(src string, width, height int, checking bool) (DecodedImage, error) {
 	if !strings.Contains(src, `:`) {
-		return doc.imageManager.GetImageScaledCached(doc.fsys, path.Join(doc.skinDir, src), width, height)
+		return doc.imageManager.GetImageScaledCached(doc.fsys, path.Join(doc.skinDir, src), width, height, checking)
 	}
 	if u, err := url.Parse(src); err == nil {
 		switch u.Scheme {
 		case `os`:
 			if u, err := url.PathUnescape(u.Opaque); err == nil {
 				if filepath.IsAbs(u) {
-					return doc.imageManager.GetImageScaledCached(os.DirFS(`/`), u[1:], width, height)
+					return doc.imageManager.GetImageScaledCached(os.DirFS(`/`), u[1:], width, height, checking)
 				} else {
-					return doc.imageManager.GetImageScaledCached(os.DirFS(`.`), u, width, height)
+					return doc.imageManager.GetImageScaledCached(os.DirFS(`.`), u, width, height, checking)
 				}
 			}
 		}
@@ -517,10 +518,15 @@ func (doc *Document) _loadImage(src string, width, height int) (DecodedImage, er
 	return DecodedImage{}, fmt.Errorf(`不支持的来源：%s`, src)
 }
 
+// 同步加载图片，如果没有缓存，返回不存在。
+func (doc *Document) loadImageSync(src string, width, height int) (DecodedImage, error) {
+	return doc._loadImage(src, width, height, true)
+}
+
 // 异步加载图片，回调发生在主线程中，可安全地修改盒子内容。
 func (doc *Document) loadImageAsync(src string, width, height int, callback func(DecodedImage, error)) {
 	go func() {
-		img, err := doc._loadImage(src, width, height)
+		img, err := doc._loadImage(src, width, height, false)
 		doc.app.Async(func() {
 			callback(img, err)
 		})
