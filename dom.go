@@ -276,6 +276,15 @@ func Unmarshal[T any](owner *Document, content string) *T {
 	return &t
 }
 
+// 标记文档内容脏掉了，需要重绘。
+// 但是文档本身不强关联app框架的，所以按需标记给app更新。
+func (doc *Document) markDirty() {
+	doc.layoutDirty = true
+	if doc.app != nil {
+		doc.app.Dirty()
+	}
+}
+
 func (doc *Document) dirty() bool {
 	return doc.layoutDirty || doc.paintDirty
 }
@@ -407,7 +416,7 @@ func (n _NodeTransformer) transformNode(box Box, node *html.Node, voidElement bo
 	for _, a := range node.Attr {
 		// 所有的节点理应都是从BaseBox继承的，所以接口不可能为空。
 		// 但是也不能调BaseBox().Set...，因为子类有方法覆盖。
-		if err := box.(Setter).Set(a.Key, a.Val); err != nil {
+		if err := box.(PropertySetter).SetProp(a.Key, a.Val); err != nil {
 			return nil, err
 		}
 	}
@@ -488,7 +497,7 @@ func (doc *Document) walkNode(box Box, callback func(box Box) bool) bool {
 // TODO 异步解码
 // width, height 表示想要scale到的尺寸。
 // 如果均为0，则表示不scale。
-func (doc *Document) loadImage(src string, width, height int) (DecodedImage, error) {
+func (doc *Document) _loadImage(src string, width, height int) (DecodedImage, error) {
 	if !strings.Contains(src, `:`) {
 		return doc.imageManager.GetImageScaledCached(doc.fsys, path.Join(doc.skinDir, src), width, height)
 	}
@@ -506,6 +515,16 @@ func (doc *Document) loadImage(src string, width, height int) (DecodedImage, err
 	}
 
 	return DecodedImage{}, fmt.Errorf(`不支持的来源：%s`, src)
+}
+
+// 异步加载图片，回调发生在主线程中，可安全地修改盒子内容。
+func (doc *Document) loadImageAsync(src string, width, height int, callback func(DecodedImage, error)) {
+	go func() {
+		img, err := doc._loadImage(src, width, height)
+		doc.app.Async(func() {
+			callback(img, err)
+		})
+	}()
 }
 
 func (doc *Document) loadFaceWithFallback(box Box) *FontFace {

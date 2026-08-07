@@ -90,11 +90,11 @@ func (b *BaseBox) AppendChild(child Box) {
 	}
 }
 
-type Setter interface {
-	Set(key string, val string) error
+type PropertySetter interface {
+	SetProp(key string, val string) error
 }
 
-func (b *BaseBox) Set(key string, val string) error {
+func (b *BaseBox) SetProp(key string, val string) error {
 	reInherit, reLayout, rePaint, err := b.inlineStyles.Set(key, val)
 	if err == nil {
 		// 文档解析过程中也会调用进来，所以需要判断。
@@ -194,7 +194,7 @@ func (b *BaseBox) Draw(canvas *Canvas) {
 
 	if src := b.computedStyles.BackgroundImage.String; src != `` {
 		canvas.Offset(borderWidth, borderWidth).DrawImage(
-			DropLast1(b.Document.loadImage(src, 0, 0)),
+			DropLast1(b.Document._loadImage(src, 0, 0)),
 			layoutWidth-borderWidth*2,
 			layoutHeight-borderWidth*2,
 		)
@@ -494,7 +494,7 @@ func NewStack(doc *Document) *Stack {
 	return b
 }
 
-func (b *Stack) Set(key string, value string) error {
+func (b *Stack) SetProp(key string, value string) error {
 	switch key {
 	case `fill`:
 		if value == `` {
@@ -503,7 +503,7 @@ func (b *Stack) Set(key string, value string) error {
 		b.fill = Must1(strconv.ParseBool(value))
 		return nil
 	default:
-		return b.Base().Set(key, value)
+		return b.Base().SetProp(key, value)
 	}
 }
 
@@ -926,10 +926,23 @@ func (t *ItalicText) AppendChild(child any) {
 	t.textParts.appendChildOrText(t, child)
 }
 
+type _ImageLoadingStatus uint8
+
+const (
+	imageLoadStatusNone      _ImageLoadingStatus = iota // 还没开始
+	imageLoadStatusStarted                              // 已经开始，但是还没完成
+	imageLoadStatusSucceeded                            // 完成，并且加载成功
+	imageLoadStatusFailed                               // 完成，并且加载失败
+)
+
 type Image struct {
 	BaseBox
 
-	Src string
+	src string
+
+	status _ImageLoadingStatus
+	// 异步加载成功后写在这里。
+	decodedImage DecodedImage
 }
 
 func NewImage(doc *Document) *Image {
@@ -943,16 +956,21 @@ func NewImage(doc *Document) *Image {
 	return b
 }
 
-func (b *Image) Set(key string, val string) error {
+func (b *Image) SetProp(key string, val string) error {
 	switch key {
 	case `src`:
-		b.Src = val
+		// 防止触发重复刷新。
+		if b.src == val {
+			return nil
+		}
+		b.src = val
+		b.status = imageLoadStatusNone
 		if b.Document != nil {
-			b.Document.layoutDirty = true
+			b.Document.markDirty()
 		}
 		return nil
 	default:
-		return b.BaseBox.Set(key, val)
+		return b.BaseBox.SetProp(key, val)
 	}
 }
 
@@ -960,59 +978,68 @@ func (b *Image) Set(key string, val string) error {
 // 相对或者绝对均可。
 func (b *Image) SetPath(path string) {
 	u := (&url.URL{Scheme: `os`, Opaque: url.PathEscape(path)}).String()
-	b.Set(`src`, u)
+	b.SetProp(`src`, u)
 }
 
 func (b *Image) Calc(availWidth, availHeight int, constraints Constraints) {
+	b.layoutBox.Width = Iif(constraints.PrefersMaxWidth, availWidth, 0)
+	b.layoutBox.Height = Iif(constraints.PrefersMaxHeight, availHeight, 0)
+
 	if !b.computedStyles.Width.Empty() && !b.computedStyles.Height.Empty() {
 		b.layoutBox.Width = b.computedStyles.Width.Number
 		b.layoutBox.Height = b.computedStyles.Height.Number
+	}
+
+	if b.src == `` {
 		return
 	}
 
-	if availWidth == 0 || availHeight == 0 {
+	switch b.status {
+	case imageLoadStatusNone:
+		b.Document.loadImageAsync(b.src,
+			b.layoutBox.Width, b.layoutBox.Height,
+			func(img DecodedImage, err error) {
+				if err != nil {
+					b.status = imageLoadStatusFailed
+					return
+				}
+				b.decodedImage = img
+				b.status = imageLoadStatusSucceeded
+				b.Document.markDirty()
+			},
+		)
+		b.status = imageLoadStatusStarted
+	case imageLoadStatusStarted:
+		// 图片加载中，啥也不能干？
+		return
+	case imageLoadStatusSucceeded:
+		width, height := 0, 0
+		img := b.decodedImage
+
+		scaleW := float32(img.Width) / float32(availWidth)
+		scaleH := float32(img.Height) / float32(availHeight)
+		if scaleW > scaleH {
+			width = availWidth
+			height = int(float32(img.Height) / float32(scaleW))
+		} else {
+			width = int(float32(img.Width) / float32(scaleH))
+			height = availHeight
+		}
+
+		b.layoutBox.Width = Iif(constraints.PrefersMaxWidth, availWidth, width)
+		b.layoutBox.Height = Iif(constraints.PrefersMaxHeight, availHeight, height)
+	case imageLoadStatusFailed:
 		return
 	}
-
-	if b.Src == `` {
-		return
-	}
-
-	img, err := b.Document.loadImage(b.Src, 0, 0)
-	if err != nil {
-		return
-	}
-
-	width, height := 0, 0
-
-	scaleW := float32(img.Width) / float32(availWidth)
-	scaleH := float32(img.Height) / float32(availHeight)
-	if scaleW > scaleH {
-		width = availWidth
-		height = int(float32(img.Height) / float32(scaleW))
-	} else {
-		width = int(float32(img.Width) / float32(scaleH))
-		height = availHeight
-	}
-
-	b.layoutBox.Width = Iif(constraints.PrefersMaxWidth, availWidth, width)
-	b.layoutBox.Height = Iif(constraints.PrefersMaxHeight, availHeight, height)
 }
 
 func (b *Image) Draw(canvas *Canvas) {
-	if b.Src == `` {
-		return
-	}
-
 	w := b.layoutBox.Width
 	h := b.layoutBox.Height
 
-	img, err := b.Document.loadImage(b.Src, w, h)
-	if err != nil {
-		return
+	if b.status == imageLoadStatusSucceeded {
+		canvas.DrawImage(b.decodedImage, w, h)
 	}
-
-	canvas.DrawImage(img, w, h)
 }
 
 type Scroll struct {
@@ -1158,7 +1185,7 @@ func (b *_ScrollChild) forceCalc(x, y int, contentAvailWidth, avgHeight int) {
 	child.Base().layoutBox.Y = b.ncWidth()
 }
 
-func (b *Scroll) Set(key, value string) error {
+func (b *Scroll) SetProp(key, value string) error {
 	switch key {
 	case `rows`:
 		b.rows = Must1(strconv.Atoi(value))
@@ -1170,7 +1197,7 @@ func (b *Scroll) Set(key, value string) error {
 		b.gap = Must1(strconv.Atoi(value))
 		return nil
 	default:
-		return b.BaseBox.Set(key, value)
+		return b.BaseBox.SetProp(key, value)
 	}
 }
 
@@ -1188,7 +1215,7 @@ func (b *Scroll) SetItems(count int, create func() (root Box, user any), bind fu
 		for c := range b.cols {
 			box, user := create()
 			wrapper := _NewScrollChild(b.Document)
-			wrapper.Base().Set(`border-width`, `3`)
+			wrapper.Base().SetProp(`border-width`, `3`)
 			wrapper.user = user
 			wrapper.scroll = b
 			wrapper.rowIndex = r
@@ -1294,7 +1321,7 @@ func (b *Scroll) adjust() {
 			displayValue := child.computedStyles.Display
 			if displayValue.Empty() || displayValue.Bool != display {
 				// TODO 可以不用重新排版
-				child.Set(`display`, fmt.Sprint(display))
+				child.SetProp(`display`, fmt.Sprint(display))
 			}
 		}
 	}

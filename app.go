@@ -96,6 +96,7 @@ func (app *App) New(name string, skinDir string) *Document {
 		panic(err)
 	}
 	doc.display = false
+	doc.app = app
 	app.documents = append(app.documents, doc)
 	return doc
 }
@@ -107,14 +108,8 @@ func (app *App) _CloseDocument(doc *Document) {
 	app.sync()
 }
 
-func (app *App) Show(doc *Document, show ...bool) {
-	if len(show) > 0 {
-		doc.display = show[0]
-	} else {
-		doc.display = true
-	}
-
-	doc.paintDirty = true
+// 标记为脏，等待下次刷新。
+func (app *App) Dirty() {
 	app.dirty = true
 
 	// 现在有可能正处于事件处理过程中，主循环没循环，
@@ -128,7 +123,21 @@ func (app *App) Show(doc *Document, show ...bool) {
 	}()
 }
 
+func (app *App) Show(doc *Document, show ...bool) {
+	if len(show) > 0 {
+		doc.display = show[0]
+	} else {
+		doc.display = true
+	}
+
+	doc.paintDirty = true
+
+	app.Dirty()
+}
+
 // 用于在主线程中调用此回调函数。
+//
+// 每次回调都会额外触发 sync 以检测是否有内容更新。
 func (app *App) Async(callback func()) {
 	app.system <- Event{
 		Type:          asyncCallback,

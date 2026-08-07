@@ -381,10 +381,12 @@ func (m *ImageManager) decodeImage(fsys fs.FS, path string, wantWidth, wantHeigh
 	return decoded, nil
 }
 
+// 多线程安全。
 func (m *ImageManager) GetImageCached(fsys fs.FS, path string) (DecodedImage, error) {
 	return m.getImageCached(fsys, path, 0, 0)
 }
 
+// 多线程安全。
 func (m *ImageManager) GetImageScaledCached(fsys fs.FS, path string, width, height int) (DecodedImage, error) {
 	return m.getImageCached(fsys, path, width, height)
 }

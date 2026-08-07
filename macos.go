@@ -97,6 +97,7 @@ func pollEvents(ctx context.Context, system chan Event, sync func(), handler fun
 	}
 
 	for {
+		polled := false
 		select {
 		case <-ctx.Done():
 			return
@@ -104,9 +105,12 @@ func pollEvents(ctx context.Context, system chan Event, sync func(), handler fun
 			switch event.Type {
 			case asyncCallback:
 				event.asyncCallback()
+				polled = true
 			case appDirty:
+				polled = true
 			default:
 				handler(event)
+				polled = true
 			}
 		default:
 		}
@@ -120,10 +124,10 @@ func pollEvents(ctx context.Context, system chan Event, sync func(), handler fun
 			if mapped, ok := keyMaps[key]; ok {
 				sendKey(mapped, pressed)
 			}
-		default:
-			handler(Event{})
+			polled = true
 		}
-		// SDL端是一直触发事件的，好像没有必要？
-		sync()
+		if polled {
+			sync()
+		}
 	}
 }
