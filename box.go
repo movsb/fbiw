@@ -1095,9 +1095,9 @@ func NewScroll(doc *Document) *Scroll {
 func (b *Scroll) Calc(availWidth, availHeight int, constraints Constraints) {
 	// computed := &b.computedStyles
 
-	if len(b.Children) <= 0 {
-		return
-	}
+	// if len(b.Children) <= 0 {
+	// 	return
+	// }
 
 	// 只有确定了大小才能决定子元素的大小和布局。
 	// if !(computed.Width.IsNumber() && computed.Height.IsNumber()) {
@@ -1128,10 +1128,21 @@ func (b *Scroll) Calc(availWidth, availHeight int, constraints Constraints) {
 		}
 	}
 
-	b.layoutBox.Width = Iif(b.computedStyles.Width.IsNumber(), b.computedStyles.Width.Number, availWidth)
-	b.layoutBox.Height = Iif(b.computedStyles.Height.IsNumber(), b.computedStyles.Height.Number, availHeight)
+	b.layoutBox.Width = Iif(
+		b.computedStyles.Width.IsNumber(),
+		b.computedStyles.Width.Number,
+		Iif(constraints.PrefersMaxWidth, availWidth, 0),
+	)
+	b.layoutBox.Height = Iif(
+		b.computedStyles.Height.IsNumber(),
+		b.computedStyles.Height.Number,
+		Iif(constraints.PrefersMaxHeight, availHeight, 0),
+	)
 
-	b.adjust()
+	// 可能还未初始化。
+	if len(b.Children) > 0 {
+		b.adjust()
+	}
 }
 
 // 因为要实现虚拟draw方法，所以有它的存在。
