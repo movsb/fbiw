@@ -187,12 +187,14 @@ func (app *App) AddFont(family string, bold, italic bool, path string) error {
 }
 
 // 脱离当前与操作系统的事件交互，比如屏幕、键盘。
+// 需要在主线程中调用。
 // 用于Linux系统独占，MacOS无效。
 func (app *App) Detach() {
 	app.detached = true
 }
 
 // 重新夺取操作系统事件交互，比如屏幕、键盘。
+// 需要在主线程中调用。
 // 用于Linux系统独占，MacOS无效。
 func (app *App) Attach() {
 	app.detached = false

@@ -427,6 +427,11 @@ func (b *Inline) Calc(availWidth, availHeight int, constraints Constraints) {
 		contentMaxHeight = hv.Number - b.ncWidth()*2
 	}
 
+	// 如果父元素希望最大，则在重新调整前直接使用。
+	if constraints.PrefersMaxHeight {
+		contentMaxHeight = max(contentAvailHeight, contentMaxHeight)
+	}
+
 	if len(zeroSpacers) > 0 {
 		// 铺满，然后均匀分布
 		avgWidth := (contentAvailWidth - contentWidth) / len(zeroSpacers)
@@ -638,7 +643,7 @@ type _TextRunFragment struct {
 	Start int
 	End   int
 
-	calcPos Rect
+	layoutBox Rect
 }
 type _TextLine struct {
 	Fragments []_TextRunFragment
@@ -813,10 +818,10 @@ func (t *Text) SegmentInline(availWidth, availHeight int) bool {
 
 		// 成功塞了一点东西
 		line.Fragments = append(line.Fragments, _TextRunFragment{
-			Run:     &t.textRuns[t.textRunIndex],
-			Start:   t.textRunDataIndex,
-			End:     t.textRunDataIndex + end,
-			calcPos: Rect{Width: runWidth, Height: face.TextHeight()},
+			Run:       &t.textRuns[t.textRunIndex],
+			Start:     t.textRunDataIndex,
+			End:       t.textRunDataIndex + end,
+			layoutBox: Rect{Width: runWidth, Height: face.TextHeight()},
 		})
 		line.MaxHeight = max(line.MaxHeight, face.TextHeight())
 
@@ -857,7 +862,7 @@ func (t *Text) Draw(canvas *Canvas) {
 	for _, line := range t.textLines {
 		offsetX := 0
 		for _, fragment := range line.Fragments {
-			rc := fragment.calcPos
+			rc := fragment.layoutBox
 			owner := fragment.Run.Owner
 			canvas := canvas.Offset(offsetX, offsetY)
 
