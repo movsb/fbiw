@@ -217,6 +217,15 @@ func parseDocument(owner *Document, content io.Reader) (Box, *Sheet, error) {
 }
 
 // 反序列化content(html)到指定结构体中。
+//
+//   - 必须要有一个 `Root fbiw.Box` 元素，用来保存根节点。
+//
+//   - 其它的写法形如： Txt *fbiw.Text `css:"text"`，
+//     表示在文档中基于css的选择器找到元素并赋值给 Txt。
+//
+//     名字需要是已导出的字段（大写字母开头）。
+//
+// 返回指针类型。
 func Unmarshal[T any](owner *Document, content string) *T {
 	buf := bytes.NewBuffer(nil)
 	buf.WriteString(`<document>`)
@@ -275,6 +284,13 @@ func Unmarshal[T any](owner *Document, content string) *T {
 
 	return &t
 }
+
+// 找到此结构体中名为 Root 类型为 Box 的字段。
+// func unmarshalGetRoot(t any) Box {
+// 	rv := reflect.ValueOf(t).Elem()
+// 	root := rv.FieldByName(`Root`)
+// 	return root.Interface().(Box)
+// }
 
 // 标记文档内容脏掉了，需要重绘。
 // 但是文档本身不强关联app框架的，所以按需标记给app更新。

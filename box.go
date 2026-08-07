@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"iter"
+	"log"
 	"net/url"
 	"strconv"
 
@@ -135,9 +136,19 @@ func (b *BaseBox) SetProp(key string, val string) error {
 	return nil
 }
 
+// 获取用户数据。
+// 如果Get不到，直接崩溃。
 func (b *BaseBox) GetData(name string) any {
-	return b.dataset[name]
+	data, ok := b.dataset[name]
+	if !ok {
+		log.Panicf(`找不到此用户数据: %v`, name)
+	}
+	return data
 }
+
+// 保存任意自定义用户数据。
+//
+// 如果指定的名字已经存在，会直接覆盖。
 func (b *BaseBox) SetData(name string, value any) {
 	if b.dataset == nil {
 		b.dataset = map[string]any{}
@@ -1374,6 +1385,18 @@ func (b *Scroll) DataRowIndex() int {
 	return b.curDataRow()
 }
 
+// 获取当前的选中状态。
+//
+// SetItem或修改了类似Rows/Cols的无效后无效。
+// func (b *Scroll) GetSelectionState() any {
+
+// }
+
+// type _ScrollState struct {
+
+// }
+
+// 取消选中当前的选中项。
 func (b *Scroll) Deselect() {
 	childIndex := b.rowIndex*b.cols + b.colIndex
 	if childIndex >= 0 && childIndex <= len(b.Children)-1 {
