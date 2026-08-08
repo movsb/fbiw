@@ -15,8 +15,9 @@ import (
 // 用于保存节点的样式值。
 type Styles struct {
 	// 子元素的水平/垂直对齐方式。
-	// 默认("")居左，“center”居中。
-	// 默认("")居顶，“middle”居中。
+	//   - 默认("")水平居左，“center”居中。
+	//   - 默认("")垂直居顶，“middle”居中。
+	//   - “both”两者均居中。
 	Align Value
 
 	BackgroundColor Value
@@ -117,7 +118,7 @@ func (s *Styles) Set(name string, raw string) (affectInherit, affectLayout, affe
 		outErr = ErrUnknownStyleProperty
 		return
 	case `align`:
-		if raw == `` || raw == `center` || raw == `middle` {
+		if raw == `` || raw == `center` || raw == `middle` || raw == `both` {
 			s.Align = StringValue(raw)
 			affectLayout = true
 			return

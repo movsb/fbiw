@@ -24,7 +24,7 @@ func TestCalc(t *testing.T) {
 		imageManager := NewImageManager()
 
 		// 早期非标准页面兼容
-		if strings.HasPrefix(tc.HTML, `<block`) {
+		if strings.HasPrefix(tc.HTML, `<block`) || strings.HasPrefix(tc.HTML, `<inline`) {
 			updated := `<document><style>` +
 				tc.Style +
 				`</style>` +

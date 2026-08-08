@@ -134,6 +134,8 @@ type _DocBox struct {
 // 重写需要一定时间，先暂时用 html parser。
 //
 // Unmarshal 那边也要用，所以独立出来。
+//
+// 只是解析文档，不会计算样式。
 func parseDocument(owner *Document, content io.Reader) (Box, *Sheet, error) {
 	context := &html.Node{Type: html.ElementNode, DataAtom: atom.Div, Data: `div`}
 	nodes, err := html.ParseFragment(content, context)
@@ -227,10 +229,12 @@ func parseDocument(owner *Document, content io.Reader) (Box, *Sheet, error) {
 //     名字需要是已导出的字段（大写字母开头）。
 //
 // 返回指针类型。
-func Unmarshal[T any](owner *Document, content string) *T {
+//
+// owner 只是设置给此盒子及其子元素，暂时好像没有其它用途。
+func Unmarshal[T any, Content string | []byte](owner *Document, content Content) *T {
 	buf := bytes.NewBuffer(nil)
 	buf.WriteString(`<document>`)
-	buf.WriteString(content)
+	buf.Write([]byte(content))
 	buf.WriteString(`</document>`)
 
 	root, _, err := parseDocument(owner, buf)

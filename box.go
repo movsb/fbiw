@@ -88,6 +88,11 @@ func (b *BaseBox) GetLayoutBox() Rect {
 	return b.layoutBox
 }
 
+func (b *BaseBox) SetLayoutBox(width, height int) {
+	b.layoutBox.Width = width
+	b.layoutBox.Height = height
+}
+
 func (b *BaseBox) ClassSet(class string) {
 	b.class.Set(class)
 	b.classChanged()
@@ -220,20 +225,38 @@ func (b *BaseBox) ncWidth() int {
 	return b.computedStyles.BorderWidth.Number + b.computedStyles.Padding.Number
 }
 
+// TODO 重构：把所有元素的calc方法统一到这里分发。
+// 对于 <block> 或 display=block，用 blocking formatting context
+// 对于 <inline> 或 display=inline，用 inline context
+// 对于 <stack> 或 display=stack，用 stack context
+// 对于 display=none，不参与排版
+// 对于 <用户自定义>，参考 css.display。
+//
+// 只针对没有自己实现 Calc 方法的元素而言。如果自己实现了 Calc 方法（比如 Scroll），
+// 行为不受此约束。
 func (b *BaseBox) Calc(availWidth, availHeight int, constraints Constraints) {
-	b.layoutBox.Width = Iif(
-		b.computedStyles.Width.IsNumber(),
-		b.computedStyles.Width.Number,
-		Iif(constraints.PrefersMaxWidth, availWidth, 0),
-	)
-	b.layoutBox.Height = Iif(
-		b.computedStyles.Height.IsNumber(),
-		b.computedStyles.Height.Number,
-		Iif(constraints.PrefersMaxHeight, availHeight, 0),
-	)
+	// 兼容
+	if b := b.computedStyles.Display; b.IsBool() && !b.Bool {
+		return
+	}
+
+	display := b.computedStyles.Display.String
+
+	if b.Tag == `block` || display == `block` {
+		blockCalc(b, availWidth, availHeight, constraints)
+	} else if b.Tag == `inline` || display == `inline` {
+		inlineCalc(b, availWidth, availHeight, constraints)
+	} else {
+		// 其它自己不实现的通通按inline来。
+		inlineCalc(b, availWidth, availHeight, constraints)
+	}
 }
 
 func (b *BaseBox) Draw(canvas *Canvas) {
+	b.draw(canvas, true)
+}
+
+func (b *BaseBox) draw(canvas *Canvas, drawChildren bool) {
 	borderWidth := b.computedStyles.BorderWidth.Number
 	layoutWidth := b.layoutBox.Width
 	layoutHeight := b.layoutBox.Height
@@ -258,13 +281,15 @@ func (b *BaseBox) Draw(canvas *Canvas) {
 		)
 	}
 
-	for _, child := range b.Children {
-		if !displaying(child) {
-			continue
+	if drawChildren {
+		for _, child := range b.Children {
+			if !displaying(child) {
+				continue
+			}
+			layout := child.Base().layoutBox
+			canvas := canvas.Offset(layout.X, layout.Y)
+			child.Draw(canvas)
 		}
-		layout := child.Base().layoutBox
-		canvas := canvas.Offset(layout.X, layout.Y)
-		child.Draw(canvas)
 	}
 }
 
@@ -284,7 +309,7 @@ func NewBlock(doc *Document) *Block {
 	return &Block{BaseBox: NewBaseBox(doc, `block`)}
 }
 
-func (b *Block) Calc(availWidth, availHeight int, constraints Constraints) {
+func blockCalc(b *BaseBox, availWidth, availHeight int, constraints Constraints) {
 	computed := &b.computedStyles
 
 	// 根据自身大小及可用空间大小取最佳值。
@@ -401,7 +426,7 @@ func NewInline(doc *Document) *Inline {
 	return &Inline{BaseBox: NewBaseBox(doc, `inline`)}
 }
 
-func (b *Inline) Calc(availWidth, availHeight int, constraints Constraints) {
+func inlineCalc(b *BaseBox, availWidth, availHeight int, constraints Constraints) {
 	computed := &b.computedStyles
 
 	// 根据自身大小及可用空间大小取最佳值。
@@ -480,36 +505,52 @@ func (b *Inline) Calc(availWidth, availHeight int, constraints Constraints) {
 		}
 	}
 
-	// 最后再重新调整 XY
+	// 此时已经可以确定容器本身的大小了。
+	b.layoutBox.Width = resolveSize(computed.Width, availWidth, constraints.PrefersMaxWidth, min(availWidth, contentWidth+b.ncWidth()*2))
+	b.layoutBox.Height = resolveSize(computed.Height, availHeight, constraints.PrefersMaxHeight, min(availHeight, contentMaxHeight+b.ncWidth()*2))
+
+	// 最后再重新对齐子元素。
 	offsetX := b.ncWidth()
+
+	// 先是水平对齐。
+	// 对于inline来说，水平方向不止一个元素，需要整体平移。
+	// BUG: inline 是可以跨行的。这里没有考虑多行元素的对齐。
+	if align := computed.Align.String; align == `both` || align == `center` {
+		offsetX += (contentAvailWidth - contentWidth) / 2
+	}
+
+	// 然后是垂直对齐。也只处理了单行元素。
+	// 垂直对齐需要对每一个子元素单独改（因为它们是水平排列的，不在一条竖线上）。
+	alignMiddle := computed.Align.String == `both` || computed.Align.String == `middle`
+
 	for _, child := range b.Children {
 		if !displaying(child) {
 			continue
 		}
+
 		layout := &child.Base().layoutBox
-		layout.Y = b.ncWidth()
-		if computed.Align.String == `middle` {
-			layout.Y += (contentMaxHeight - child.Base().layoutBox.Height) / 2
-		}
 		layout.X = offsetX
-		offsetX += child.Base().layoutBox.Width
+		offsetX += layout.Width
+
+		// 每个元素的起点均是内容可用区开始。
+		offsetY := b.ncWidth()
+
+		if alignMiddle {
+			offsetY += (contentMaxHeight - layout.Height) / 2
+		}
+
+		layout.Y = offsetY
 	}
+}
 
-	b.layoutBox.Width = Iif(
-		computed.Width.IsNumber(),
-		computed.Width.Number,
-		Iif(
-			constraints.PrefersMaxWidth,
-			availWidth,
-			contentWidth,
-		),
-	)
-
-	b.layoutBox.Height = Iif(
-		constraints.PrefersMaxHeight,
-		availHeight,
-		contentMaxHeight,
-	)
+func resolveSize(computed Value, available int, prefersAvailable bool, actual int) int {
+	if computed.IsNumber() {
+		return computed.Number
+	}
+	if prefersAvailable {
+		return available
+	}
+	return actual
 }
 
 type Stack struct {
@@ -843,8 +884,8 @@ func (t *Text) SegmentInline(availWidth, availHeight int) bool {
 	t.textLines = append(t.textLines, line)
 	t.textLineMaxWidth = max(t.textLineMaxWidth, width)
 
-	t.layoutBox.Width = width
-	t.layoutBox.Height = line.MaxHeight
+	t.layoutBox.Width = width + t.ncWidth()*2
+	t.layoutBox.Height = line.MaxHeight + t.ncWidth()*2
 
 	return t.textRunIndex < len(t.textRuns)-1 ||
 		t.textRunIndex == len(t.textRuns)-1 && t.textRunDataIndex < len(t.textRuns[t.textRunIndex].Data)
@@ -867,9 +908,9 @@ func (t *Text) BlockHeight() int {
 }
 
 func (t *Text) Draw(canvas *Canvas) {
-	offsetY := 0
+	offsetY := t.ncWidth()
 	for _, line := range t.textLines {
-		offsetX := 0
+		offsetX := t.ncWidth()
 		for _, fragment := range line.Fragments {
 			rc := fragment.layoutBox
 			owner := fragment.Run.Owner
