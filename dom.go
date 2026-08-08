@@ -344,7 +344,13 @@ func (doc *Document) clean() {
 	doc.paintDirty = false
 }
 
-func (doc *Document) sync(canvas *Canvas) {
+func (doc *Document) sync(canvas *Canvas, forcePaint bool) {
+	// 如果文档之上（多窗口混合的时候）还有其它文档，则
+	// 即便本文档是干净的，也会被上面的玷污，所以强制更新。
+	if forcePaint {
+		doc.paintDirty = true
+	}
+
 	if doc.layoutDirty {
 		doc.layout()
 		doc.paintDirty = true
@@ -352,6 +358,7 @@ func (doc *Document) sync(canvas *Canvas) {
 	if doc.paintDirty {
 		doc.paint(canvas)
 	}
+
 	doc.clean()
 }
 

@@ -87,6 +87,9 @@ func (app *App) Context() context.Context {
 	return app.ctx
 }
 
+// 创建新的文档，并绑定到此App上作为前台窗口。
+//
+// 创建的文档默认不显示，需要 Show()。
 func (app *App) New(name string, skinDir string) *Document {
 	doc := _NewDocument(
 		app.canvas.width, app.canvas.height,
@@ -174,12 +177,13 @@ func (app *App) Run() {
 				return
 			}
 
-			// 发送给前台文档。
+			// 只发送给前台文档。
 			for _, doc := range slices.Backward(app.documents) {
 				if !doc.display {
 					continue
 				}
 				doc.handleKeyboardEvent(event.Keyboard)
+				break
 			}
 		}
 	})
@@ -209,18 +213,28 @@ func (app *App) sync() {
 	if app.detached {
 		return
 	}
-	needSync := false
+
+	// 是否需要同步到屏幕？
+	syncToScreen := false
+	// 从最底层第一个脏文档开始的所有文档都需要重新渲染。
+	alwaysSyncDoc := false
+
 	for _, doc := range app.documents {
-		if app.dirty || doc.dirty() {
-			if doc.display {
-				now := time.Now()
-				doc.sync(app.canvas)
-				log.Println(`帧绘制时长：`, time.Since(now).Round(time.Microsecond*100))
-			}
-			needSync = true
+		if !doc.display {
+			continue
+		}
+		if app.dirty || doc.dirty() || alwaysSyncDoc {
+			now := time.Now()
+			doc.sync(app.canvas, alwaysSyncDoc)
+			log.Println(`帧绘制时长：`, time.Since(now).Round(time.Microsecond*100))
+
+			// 第一个文档画了之后，上面的所有文档都要重画。
+			alwaysSyncDoc = true
+			syncToScreen = true
 		}
 	}
-	if needSync {
+
+	if syncToScreen {
 		app.display.Sync()
 		app.dirty = false
 	}
