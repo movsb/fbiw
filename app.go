@@ -108,7 +108,9 @@ func (app *App) _CloseDocument(doc *Document) {
 	app.sync()
 }
 
-// 标记为脏，等待下次刷新。
+// 同步标记为脏，异步等待下次刷新。
+//
+// 只起标记作用，文档是否需要重绘还要看文档本身。
 func (app *App) Dirty() {
 	app.dirty = true
 
@@ -129,13 +131,14 @@ func (app *App) Show(doc *Document, show ...bool) {
 	} else {
 		doc.display = true
 	}
-
-	doc.paintDirty = true
-
-	app.Dirty()
+	doc.RequestPaint()
 }
 
-// 用于在主线程中调用此回调函数。
+// 用于其它线程创建一个将来会在主线程中调用的回调函数。
+//
+// 方便用于在非主线程中安全更新UI操作。
+//
+// 调用会立即返回，不会阻塞。
 //
 // 每次回调都会额外触发 sync 以检测是否有内容更新。
 func (app *App) Async(callback func()) {
@@ -198,14 +201,10 @@ func (app *App) Detach() {
 // 用于Linux系统独占，MacOS无效。
 func (app *App) Attach() {
 	app.detached = false
-	app.dirty = true
-	go func() {
-		app.system <- Event{
-			Type: appDirty,
-		}
-	}()
+	app.Dirty()
 }
 
+// 真正执行检测是否需要重新布局或重绘的地方。
 func (app *App) sync() {
 	if app.detached {
 		return

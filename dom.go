@@ -49,6 +49,7 @@ type Document struct {
 
 	// 是否脏了（需要排版或重绘）
 	// 修改了影响排版的属性。比如大小、隐藏、删减。
+	// layout 变化一定会重绘。
 	layoutDirty bool
 	// 是否只影响绘制。
 	// 如果只影响了绘制，不应该重新排版。
@@ -294,16 +295,50 @@ func Unmarshal[T any](owner *Document, content string) *T {
 
 // 标记文档内容脏掉了，需要重绘。
 // 但是文档本身不强关联app框架的，所以按需标记给app更新。
-func (doc *Document) markDirty() {
+func (doc *Document) RequestLayout() {
 	doc.layoutDirty = true
 	if doc.app != nil {
 		doc.app.Dirty()
 	}
 }
 
+func (doc *Document) RequestPaint() {
+	doc.paintDirty = true
+	if doc.app != nil {
+		doc.app.Dirty()
+	}
+}
+
+// 作用同 RequestLayout，但是可以在线程中调用。
+//
+// 必须在文档绑定App框架后可用。
+func (doc *Document) RequestLayoutAsync() {
+	if doc.app == nil {
+		log.Panicln(`Document.RequestLayoutAsync 未绑定 App`)
+	}
+	doc.app.Async(func() {
+		doc.RequestLayout()
+	})
+}
+
+// 作用同 RequestPaint，但是可以在线程中调用。
+//
+// 必须在文档绑定App框架后可用。
+func (doc *Document) RequestPaintAsync() {
+	if doc.app == nil {
+		log.Panicln(`Document.RequestPaintAsync 未绑定 App`)
+	}
+	doc.app.Async(func() {
+		doc.RequestPaint()
+	})
+}
+
+// 需要重新布局或者重新绘制？
 func (doc *Document) dirty() bool {
 	return doc.layoutDirty || doc.paintDirty
 }
+
+// 清理不干净的布局和重绘状态。
 func (doc *Document) clean() {
 	doc.layoutDirty = false
 	doc.paintDirty = false
@@ -422,6 +457,10 @@ func (n _NodeTransformer) transform(parent Box, node *html.Node) (Box, error) {
 				panic(`未处理的节点`)
 			}
 			return n.transformNode(box, node, false, true)
+		default:
+			if defined, ok := _definedBoxes[node.Data]; ok {
+				return n.transformNode(defined.new(n.doc), node, defined.void, defined.text)
+			}
 		}
 	}
 	return nil, fmt.Errorf(`未识别的标签：%v`, node.Data)
@@ -549,13 +588,37 @@ func (doc *Document) loadImageAsync(src string, width, height int, callback func
 	}()
 }
 
-func (doc *Document) loadFaceWithFallback(box Box) *FontFace {
+func (doc *Document) LoadFaceWithFallback(box Box) *FontFace {
 	return doc.fontManager.GetFaceWithFallback(
 		box.Base().computedStyles.FontFamily.String,
 		box.Base().computedStyles.FontSize.Number,
 		box.Base().computedStyles.FontBold.Bool,
 		box.Base().computedStyles.FontItalic.Bool,
 	)
+}
+
+type _BoxRegistryItem struct {
+	name string
+	void bool
+	text bool
+	new  func(doc *Document) Box
+}
+
+var _definedBoxes = map[string]_BoxRegistryItem{}
+
+// 创建用户自定义组件。
+func Define[T Box](name string, void bool, new func(doc *Document) T) {
+	if _, ok := _definedBoxes[name]; ok {
+		log.Panicf(`盒子重复定义: %s`, name)
+	}
+	_definedBoxes[name] = _BoxRegistryItem{
+		name: name,
+		void: void,
+		text: false,
+		new: func(doc *Document) Box {
+			return new(doc)
+		},
+	}
 }
 
 // 这个类的存在只是不想document下有太多不相关的方法。
@@ -704,7 +767,7 @@ func (s _Styler) match(node Box, selector Selector) bool {
 // 判断单个简单选择器是否匹配当前节点。
 func (s _Styler) _matchSelf(node Box, selector NodeSelector) bool {
 	return (selector.Tag == `` || selector.Tag == node.Base().Tag) &&
-		(len(selector.Class) == 0 || node.Base().Class.ContainsAll(selector.Class...)) &&
+		(len(selector.Class) == 0 || node.Base().class.ContainsAll(selector.Class...)) &&
 		(selector.ID == `` || selector.ID == node.Base().ID)
 }
 

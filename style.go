@@ -47,6 +47,12 @@ document {
 	font-family: system;
 	font-size: 25;
 }
+b {
+	bold: true;
+}
+i {
+	italic: true;
+}
 `)))
 
 // 直接传入的是结构体字段，原始名字，没有小写、没有中划线。
@@ -269,6 +275,15 @@ type Color uint32
 
 const ColorNone = Color(0x01010101)
 
+func ColorFromRGBA(r, g, b, a uint8) Color {
+	out := uint32(0)
+	out |= uint32(b) << 0
+	out |= uint32(g) << 8
+	out |= uint32(r) << 16
+	out |= uint32(a) << 24
+	return Color(out)
+}
+
 // 特殊值：判断是否为空色。
 //
 // 如果父元素设备了背景，子元素不想要。
@@ -300,9 +315,6 @@ func (c Color) NRGBA() color.NRGBA {
 
 // 用结构体而不是直接type为[]string的原因是修改的时候不想重新赋值。
 type Class struct {
-	// 类名改变的时候需要通知到元素，所以暂时放这里？
-	// 感觉代码耦合度有点高了。
-	box   Box
 	class []string
 }
 
@@ -311,7 +323,6 @@ func ParseClass(raw string) Class {
 }
 func (c *Class) Set(class string) {
 	c.class = strings.Fields(class)
-	c.box.Base().classChanged()
 }
 func (c Class) Contains(class string) bool {
 	return slices.Contains(c.class, class)
@@ -327,12 +338,10 @@ func (c Class) ContainsAll(class ...string) bool {
 func (c *Class) Add(class string) {
 	if !c.Contains(class) {
 		c.class = append(c.class, class)
-		c.box.Base().classChanged()
 	}
 }
 func (c *Class) Remove(class string) {
 	c.class = slices.DeleteFunc(c.class, func(each string) bool { return each == class })
-	c.box.Base().classChanged()
 }
 func (c *Class) Toggle(class string, force ...any) {
 	var add bool
@@ -426,13 +435,7 @@ func ParseColor(c string) (_ Value, outErr error) {
 		panic(`未知颜色`)
 	}
 
-	out := uint32(0)
-	out |= uint32(cr.B) << 0
-	out |= uint32(cr.G) << 8
-	out |= uint32(cr.R) << 16
-	out |= uint32(cr.A) << 24
-
-	return ColorValue(Color(out)), nil
+	return ColorValue(ColorFromRGBA(cr.R, cr.G, cr.B, cr.A)), nil
 }
 
 var presetColors = map[string]uint32{

@@ -204,6 +204,13 @@ func (c *Canvas) DrawBorder(cr Color, w, h int, borderWidth int) {
 	c.FillRect(w-borderWidth, borderWidth, borderWidth, h-borderWidth*2, cr)
 }
 
+// 画字符串，以指定的字体、指定的颜色、于当前位置。
+//
+// width 和 height 目前应该没有使用，会完整画完指定的字符串。
+func (c *Canvas) DrawString(text string, face *FontFace, color Color, width, height int) {
+	c.drawStringDevice(text, face, color, width, height)
+}
+
 // 内部方法：只是简单地调用官方库在当前位置画完字符串。
 func (c *Canvas) drawStringStd(text string, face *FontFace, color Color, width, height int) {
 	drawer := font.Drawer{

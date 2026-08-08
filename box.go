@@ -36,9 +36,11 @@ type Constraints struct {
 }
 
 type BaseBox struct {
-	ID    string
-	Tag   string
-	Class Class
+	ID  string
+	Tag string
+
+	// 因为class有内部变量需要初始化，不知道咋写，先暂时隐藏，并提供同名方法。
+	class Class
 
 	// 不同于form元素的name，这个name不用于css。
 	// 不要求唯一，用于保存业务数据。
@@ -63,6 +65,13 @@ type BaseBox struct {
 	layoutBox Rect
 }
 
+// 创建一个基类盒子。
+//
+// 返回的不是指针。
+func NewBaseBox(doc *Document, tagName string) BaseBox {
+	return BaseBox{Document: doc, Tag: tagName}
+}
+
 type Rect struct {
 	X, Y          int
 	Width, Height int
@@ -70,6 +79,33 @@ type Rect struct {
 
 func (b *BaseBox) Base() *BaseBox {
 	return b
+}
+
+// 返回当前的布局大小。
+//
+// 只应参考 Width 和 Height。X、Y 目前是相对于父元素的，不太有参考意义。
+func (b *BaseBox) GetLayoutBox() Rect {
+	return b.layoutBox
+}
+
+func (b *BaseBox) ClassSet(class string) {
+	b.class.Set(class)
+	b.classChanged()
+}
+func (b *BaseBox) ClassContains(class string) bool {
+	return b.class.Contains(class)
+}
+func (b *BaseBox) ClassAdd(class string) {
+	b.class.Add(class)
+	b.classChanged()
+}
+func (b *BaseBox) ClassRemove(class string) {
+	b.class.Remove(class)
+	b.classChanged()
+}
+func (b *BaseBox) ClassToggle(class string, force ...any) {
+	b.class.Toggle(class, force...)
+	b.classChanged()
 }
 
 func (b *BaseBox) Ancestors() iter.Seq[Box] {
@@ -128,7 +164,7 @@ func (b *BaseBox) SetProp(key string, val string) error {
 	case `class`:
 		// 改class也会影响样式选择，所以需要重新排版
 		// 会自动调用classChanged
-		b.Class.Set(val)
+		b.ClassSet(val)
 	case `name`:
 		b.Name = val
 	}
@@ -174,6 +210,10 @@ func (b *BaseBox) presetWidth(parentTotalAvailWidth int) {
 		// 但是由于每次计算这个值都会因为百分比变化，没有因为单次排版而被固定，所以看起来没有问题？
 		b.computedStyles.Width = NumberValue(w)
 	}
+}
+
+func (b *BaseBox) NcWidth() int {
+	return b.ncWidth()
 }
 
 func (b *BaseBox) ncWidth() int {
@@ -241,14 +281,7 @@ type Block struct {
 }
 
 func NewBlock(doc *Document) *Block {
-	b := &Block{
-		BaseBox: BaseBox{
-			Document: doc,
-			Tag:      `block`,
-		},
-	}
-	b.Class.box = b
-	return b
+	return &Block{BaseBox: NewBaseBox(doc, `block`)}
 }
 
 func (b *Block) Calc(availWidth, availHeight int, constraints Constraints) {
@@ -357,14 +390,7 @@ type Button struct {
 }
 
 func NewButton(doc *Document) *Button {
-	b := &Button{
-		BaseBox: BaseBox{
-			Document: doc,
-			Tag:      `button`,
-		},
-	}
-	b.Class.box = b
-	return b
+	return &Button{BaseBox: NewBaseBox(doc, `button`)}
 }
 
 type Inline struct {
@@ -372,14 +398,7 @@ type Inline struct {
 }
 
 func NewInline(doc *Document) *Inline {
-	b := &Inline{
-		BaseBox: BaseBox{
-			Document: doc,
-			Tag:      `inline`,
-		},
-	}
-	b.Class.box = b
-	return b
+	return &Inline{BaseBox: NewBaseBox(doc, `inline`)}
 }
 
 func (b *Inline) Calc(availWidth, availHeight int, constraints Constraints) {
@@ -500,14 +519,7 @@ type Stack struct {
 }
 
 func NewStack(doc *Document) *Stack {
-	b := &Stack{
-		BaseBox: BaseBox{
-			Document: doc,
-			Tag:      `stack`,
-		},
-	}
-	b.Class.box = b
-	return b
+	return &Stack{BaseBox: NewBaseBox(doc, `stack`)}
 }
 
 func (b *Stack) SetProp(key string, value string) error {
@@ -622,14 +634,7 @@ type Spacer struct {
 }
 
 func NewSpacer(doc *Document) *Spacer {
-	b := &Spacer{
-		BaseBox: BaseBox{
-			Document: doc,
-			Tag:      `spacer`,
-		},
-	}
-	b.Class.box = b
-	return b
+	return &Spacer{BaseBox: NewBaseBox(doc, `spacer`)}
 }
 
 // 一段奔跑/连续的文本数据/文本块。
@@ -714,14 +719,7 @@ type Text struct {
 }
 
 func NewText(doc *Document) *Text {
-	b := &Text{
-		BaseBox: BaseBox{
-			Document: doc,
-			Tag:      `text`,
-		},
-	}
-	b.Class.box = b
-	return b
+	return &Text{BaseBox: NewBaseBox(doc, `text`)}
 }
 
 // 设置普通文本。
@@ -813,7 +811,7 @@ func (t *Text) SegmentInline(availWidth, availHeight int) bool {
 			}
 		}
 
-		face := t.Document.loadFaceWithFallback(t.textRuns[t.textRunIndex].Owner)
+		face := t.Document.LoadFaceWithFallback(t.textRuns[t.textRunIndex].Owner)
 		end, runWidth, err := face.Segment(
 			t.textRuns[t.textRunIndex].Data[t.textRunDataIndex:],
 			availWidth-width)
@@ -883,7 +881,7 @@ func (t *Text) Draw(canvas *Canvas) {
 
 			text := fragment.Run.Data[fragment.Start:fragment.End]
 			canvas.drawStringDevice(text,
-				t.Document.loadFaceWithFallback(owner),
+				t.Document.LoadFaceWithFallback(owner),
 				owner.Base().computedStyles.Color.Color,
 				rc.Width, rc.Height,
 			)
@@ -901,17 +899,7 @@ type BoldText struct {
 }
 
 func NewBoldText(doc *Document) *BoldText {
-	b := &BoldText{
-		BaseBox: BaseBox{
-			Document: doc,
-			Tag:      `b`,
-			inlineStyles: Styles{
-				FontBold: BoolValue(true),
-			},
-		},
-	}
-	b.Class.box = b
-	return b
+	return &BoldText{BaseBox: NewBaseBox(doc, `b`)}
 }
 
 func (t *BoldText) AppendChild(child any) {
@@ -925,17 +913,7 @@ type ItalicText struct {
 }
 
 func NewItalicText(doc *Document) *ItalicText {
-	b := &ItalicText{
-		BaseBox: BaseBox{
-			Document: doc,
-			Tag:      `i`,
-			inlineStyles: Styles{
-				FontItalic: BoolValue(true),
-			},
-		},
-	}
-	b.Class.box = b
-	return b
+	return &ItalicText{BaseBox: NewBaseBox(doc, `i`)}
 }
 
 func (t *ItalicText) AppendChild(child any) {
@@ -962,14 +940,7 @@ type Image struct {
 }
 
 func NewImage(doc *Document) *Image {
-	b := &Image{
-		BaseBox: BaseBox{
-			Document: doc,
-			Tag:      `img`,
-		},
-	}
-	b.Class.box = b
-	return b
+	return &Image{BaseBox: NewBaseBox(doc, `img`)}
 }
 
 func (b *Image) SetProp(key string, val string) error {
@@ -982,7 +953,7 @@ func (b *Image) SetProp(key string, val string) error {
 		b.src = val
 		b.status = imageLoadStatusNone
 		if b.Document != nil {
-			b.Document.markDirty()
+			b.Document.RequestLayout()
 		}
 		return nil
 	default:
@@ -1027,7 +998,7 @@ func (b *Image) Calc(availWidth, availHeight int, constraints Constraints) {
 					}
 					b.decodedImage = img
 					b.status = imageLoadStatusSucceeded
-					b.Document.markDirty()
+					b.Document.RequestLayout()
 				},
 			)
 			b.status = imageLoadStatusStarted
@@ -1087,19 +1058,14 @@ type Scroll struct {
 }
 
 func NewScroll(doc *Document) *Scroll {
-	b := &Scroll{
-		BaseBox: BaseBox{
-			Document: doc,
-			Tag:      `scroll`,
-		},
+	return &Scroll{
+		BaseBox:    NewBaseBox(doc, `scroll`),
 		rows:       1,
 		cols:       1,
 		rowIndex:   -1,
 		colIndex:   -1,
 		itemOffset: 0,
 	}
-	b.Class.box = b
-	return b
 }
 
 // TODO 取消重复计算，大小不变的情况下只需要计算一次。
@@ -1171,14 +1137,7 @@ type _ScrollChild struct {
 }
 
 func _NewScrollChild(doc *Document) *_ScrollChild {
-	b := &_ScrollChild{
-		BaseBox: BaseBox{
-			Document: doc,
-			Tag:      `scroll-child`,
-		},
-	}
-	b.Class.box = b
-	return b
+	return &_ScrollChild{BaseBox: NewBaseBox(doc, `scroll-child`)}
 }
 
 func (b *_ScrollChild) Draw(canvas *Canvas) {
@@ -1324,12 +1283,12 @@ func (b *Scroll) Navigate(name KeyName) {
 
 	// 取消选中原来的
 	if childIndex := oldRowIndex*b.cols + oldColIndex; childIndex >= 0 && childIndex <= len(b.Children)-1 {
-		b.Children[childIndex].Base().Class.Remove(`selected`)
+		b.Children[childIndex].Base().ClassRemove(`selected`)
 	}
 
 	// 更新选中
 	if childIndex := b.rowIndex*b.cols + b.colIndex; childIndex >= 0 && childIndex <= len(b.Children)-1 {
-		b.Children[childIndex].Base().Class.Add(`selected`)
+		b.Children[childIndex].Base().ClassAdd(`selected`)
 	}
 
 	// 如果物理列表没变（前面类名不会变化）、但是虚拟列表滚动了，
@@ -1400,7 +1359,7 @@ func (b *Scroll) DataRowIndex() int {
 func (b *Scroll) Deselect() {
 	childIndex := b.rowIndex*b.cols + b.colIndex
 	if childIndex >= 0 && childIndex <= len(b.Children)-1 {
-		b.Children[childIndex].Base().Class.Remove(`selected`)
+		b.Children[childIndex].Base().ClassRemove(`selected`)
 	}
 	b.rowIndex = -1
 	b.colIndex = 0
