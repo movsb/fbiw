@@ -273,7 +273,7 @@ func BoolValue(v bool) Value {
 // 与设备的像素格式匹配（低端序）
 type Color uint32
 
-const ColorNone = Color(0x01010101)
+const ColorNone = Color(0x00010101)
 
 func ColorFromRGBA(r, g, b, a uint8) Color {
 	out := uint32(0)
@@ -311,6 +311,9 @@ func (c Color) NRGBA() color.NRGBA {
 		B: c.B(),
 		A: c.A(),
 	}
+}
+func (c Color) Invert() Color {
+	return c ^ 0x00FFFFFF
 }
 
 // 用结构体而不是直接type为[]string的原因是修改的时候不想重新赋值。
