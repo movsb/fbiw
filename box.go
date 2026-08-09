@@ -929,6 +929,7 @@ func (t *Text) BlockHeight() int {
 }
 
 func (t *Text) Draw(canvas *Canvas) {
+	t.Base().draw(canvas, false)
 	offsetY := t.ncWidth()
 	for _, line := range t.textLines {
 		offsetX := t.ncWidth()
@@ -1091,6 +1092,8 @@ func (b *Image) Calc(availWidth, availHeight int, constraints Constraints) {
 }
 
 func (b *Image) Draw(canvas *Canvas) {
+	b.Base().draw(canvas, false)
+
 	w := b.layoutBox.Width
 	h := b.layoutBox.Height
 

@@ -375,7 +375,7 @@ func (m *ImageManager) decodeImage(fsys fs.FS, path string, wantWidth, wantHeigh
 	}
 
 	width, height := img.Bounds().Dx(), img.Bounds().Dy()
-	if wantWidth != 0 && wantHeight != 0 && wantWidth != width && wantHeight != height {
+	if wantWidth != 0 && wantHeight != 0 && (wantWidth != width || wantHeight != height) {
 		now := time.Now()
 		img = transform.Resize(img, wantWidth, wantHeight, transform.Lanczos)
 		log.Printf(`缩放图片: %s (%dx%d)->(%dx%d) %v`,
