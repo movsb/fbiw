@@ -3,7 +3,8 @@ package fbiw
 import (
 	"fmt"
 	"image"
-	"os"
+	"io"
+	"io/fs"
 	"unicode/utf8"
 
 	"golang.org/x/image/font"
@@ -38,7 +39,7 @@ type _FontKey struct {
 }
 type _FontValue struct {
 	Font *opentype.Font
-	File *os.File
+	File io.ReadCloser
 }
 
 type FontKey = _FontKey
@@ -56,7 +57,9 @@ type _FontFaceKey struct {
 // 所以字体文件在加载后会被一直引用。
 //
 // family 可以重复，只要其它样式不一样就行。
-func (fm *FontManager) AddFont(path string, family string, bold, italic bool) error {
+//
+// fsys.Open的文件必须支持 io.ReaderAt。os.DirFS和embed.FS 均支持。
+func (fm *FontManager) AddFont(fsys fs.FS, path string, family string, bold, italic bool) error {
 	key := _FontKey{
 		Family: family,
 		Bold:   bold,
@@ -66,14 +69,14 @@ func (fm *FontManager) AddFont(path string, family string, bold, italic bool) er
 		return nil
 	}
 
-	fp, err := os.Open(path)
+	fp, err := fsys.Open(path)
 	if err != nil {
 		return err
 	}
 
 	// 先完整读内存，如果占用高，可以考虑转 ParseReader，
 	// 但是那样可以会每个字符读文件？不知道速度怎样。
-	parsedFont, err := opentype.ParseReaderAt(fp)
+	parsedFont, err := opentype.ParseReaderAt(fp.(io.ReaderAt))
 	if err != nil {
 		return err
 	}

@@ -10,10 +10,19 @@ import (
 
 type Option func(app *App)
 
-func WithSystemFont(path string) Option {
+// 添加系统字体。失败并不会退出。
+func WithSystemFont(fsys fs.FS, path string) Option {
 	return func(app *App) {
-		if err := app.AddFont(`system`, false, false, path); err != nil {
-			log.Fatal(`添加系统字体时错误:`, err)
+		if err := app.AddFont(`system`, false, false, fsys, path); err != nil {
+			log.Println(`添加系统字体时错误:`, err)
+		}
+	}
+}
+
+func WithFont(family string, bold, italic bool, fsys fs.FS, path string) Option {
+	return func(app *App) {
+		if err := app.AddFont(family, bold, italic, fsys, path); err != nil {
+			log.Println(`添加系统字体时错误:`, err)
 		}
 	}
 }
@@ -189,8 +198,12 @@ func (app *App) Run() {
 	})
 }
 
-func (app *App) AddFont(family string, bold, italic bool, path string) error {
-	return app.fonts.AddFont(path, family, bold, italic)
+func (app *App) AddFont(family string, bold, italic bool, fsys fs.FS, path string) error {
+	if err := app.fonts.AddFont(fsys, path, family, bold, italic); err != nil {
+		log.Println(`字体添加失败:`, err)
+		return err
+	}
+	return nil
 }
 
 // 脱离当前与操作系统的事件交互，比如屏幕、键盘。
