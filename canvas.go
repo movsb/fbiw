@@ -172,17 +172,34 @@ func (c *Canvas) FillRect(x, y, width, height int, color Color) {
 		y1 = c.height
 	}
 
-	var line0 []byte
+	// 如果是完全不透明色，则直接覆盖。
+	if color.A() == 255 {
+		var line0 []byte
+		for yy := y0; yy < y1; yy++ {
+			offset := c.width*4*yy + x0*4
+			if yy == y0 {
+				line0 = c.buffer[offset : offset+(x1-x0)*4]
+				for i := 0; i < (x1-x0)*4; i += 4 {
+					p := c.buffer[offset+i : offset+i+4]
+					*(*uint32)(unsafe.Pointer(&p[0])) = uint32(color)
+				}
+			} else {
+				copy(c.buffer[offset:], line0)
+			}
+		}
+		return
+	}
+
+	// 带透明通道的颜色需要和背景混合。
+	a, ia := color.A(), 255-color.A()
 	for yy := y0; yy < y1; yy++ {
 		offset := c.width*4*yy + x0*4
-		if yy == y0 {
-			line0 = c.buffer[offset : offset+(x1-x0)*4]
-			for i := 0; i < (x1-x0)*4; i += 4 {
-				p := c.buffer[offset+i : offset+i+4]
-				*(*uint32)(unsafe.Pointer(&p[0])) = uint32(color)
-			}
-		} else {
-			copy(c.buffer[offset:], line0)
+		for i := 0; i < (x1-x0)*4; i += 4 {
+			p := c.buffer[offset+i : offset+i+4]
+			p[0] = uint8((int(color.B())*int(a) + int(p[0])*int(ia)) / 255)
+			p[1] = uint8((int(color.G())*int(a) + int(p[1])*int(ia)) / 255)
+			p[2] = uint8((int(color.R())*int(a) + int(p[2])*int(ia)) / 255)
+			p[3] = 255
 		}
 	}
 }
