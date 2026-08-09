@@ -156,8 +156,14 @@ func (c *Canvas) FillRect(x, y, width, height int, color Color) {
 	if x0 < 0 {
 		x0 = 0
 	}
+	if x0 > c.width {
+		return
+	}
 	if y0 < 0 {
 		y0 = 0
+	}
+	if y0 > c.height {
+		return
 	}
 	if x1 > c.width {
 		x1 = c.width

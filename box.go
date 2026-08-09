@@ -536,6 +536,11 @@ func inlineCalc(b *BaseBox, availWidth, availHeight int, constraints Constraints
 		offsetY := b.ncWidth()
 
 		if alignMiddle {
+			// BUG: 这样写有一个问题，如果子元素的高度超出了最大高度（？？？），
+			// 因为现在没有裁剪功能……
+			// 比如文字，这时候文字是基于 nc 往下超出 box 的。
+			// 如果不想要这样，可以这样写：
+			//     offsetY = (b.layoutBox.Height - layout.Height) / 2
 			offsetY += (contentMaxHeight - layout.Height) / 2
 		}
 
