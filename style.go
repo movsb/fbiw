@@ -24,6 +24,8 @@ type Styles struct {
 	BackgroundImage Value
 	BorderColor     Value
 	BorderWidth     Value
+	OutlineWidth    Value
+	OutlineColor    Value
 	Color           Value
 	Height          Value
 	Padding         Value
@@ -140,6 +142,14 @@ func (s *Styles) Set(name string, raw string) (affectInherit, affectLayout, affe
 	case `border-width`:
 		affectLayout = true
 		outErr = setNumber(&s.BorderWidth, raw)
+		return
+	case `outline-color`:
+		affectPaint = true
+		outErr = setColor(&s.OutlineColor, raw)
+		return
+	case `outline-width`:
+		affectLayout = true
+		outErr = setNumber(&s.OutlineWidth, raw)
 		return
 	case `color`:
 		affectInherit = true

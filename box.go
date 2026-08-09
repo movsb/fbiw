@@ -252,10 +252,24 @@ func (b *BaseBox) Draw(canvas *Canvas) {
 	b.draw(canvas, true)
 }
 
+// 所有盒子通用的画法。
+// 包括：Outline、Border、Background。
 func (b *BaseBox) draw(canvas *Canvas, drawChildren bool) {
 	borderWidth := b.computedStyles.BorderWidth.Number
 	layoutWidth := b.layoutBox.Width
 	layoutHeight := b.layoutBox.Height
+
+	if outlineWidth := b.computedStyles.OutlineWidth.Number; outlineWidth > 0 {
+		if outlineColor := b.computedStyles.OutlineColor; outlineColor.IsColor() && !outlineColor.Color.None() {
+			// Outline（外边框）是不算在盒子本身的width和height内的，
+			// 所以要负向（左上）偏移到父元素。
+			canvas := canvas.Offset(-outlineWidth, -outlineWidth)
+			// 同时，宽度和高度有要向右下偏移。
+			width := layoutWidth + outlineWidth*2
+			height := layoutHeight + outlineWidth*2
+			canvas.DrawBorder(outlineColor.Color, width, height, outlineWidth)
+		}
+	}
 
 	// 默认都是 border-box，所以以实际的宽和高为准。
 	if bcv := b.computedStyles.BorderColor; borderWidth > 0 && !bcv.Empty() && !bcv.Color.None() {
@@ -1280,7 +1294,6 @@ func (b *Scroll) SetItems(count int, create func() (root Box, user any), bind fu
 		for c := range b.cols {
 			box, user := create()
 			wrapper := _NewScrollChild(b.Document)
-			wrapper.Base().SetProp(`border-width`, `3`)
 			wrapper.user = user
 			wrapper.scroll = b
 			wrapper.rowIndex = r
@@ -1424,7 +1437,7 @@ func (b *Scroll) Deselect() {
 	b.rowIndex = -1
 	b.colIndex = 0
 	// 好像可以不用归位？
-	// b.itemOffset = 0
+	b.itemOffset = 0
 }
 
 // 返回当前的选中状态信息，可用于后期恢复。
