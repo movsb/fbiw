@@ -690,7 +690,15 @@ func parseDeclarations(buf *BufioReader) []Declaration {
 		if len(tmp) <= 0 {
 			panic(`没有值`)
 		}
-		current.Value = strings.TrimSpace(string(tmp))
+
+		value := strings.TrimSpace(string(tmp))
+		if c := value[0]; c == '"' || c == '\'' {
+			value = value[1:]
+		}
+		if c := value[len(value)-1]; c == '"' || c == '\'' {
+			value = value[:len(value)-1]
+		}
+		current.Value = value
 		d = append(d, current)
 		if b := buf.peekByte(); b != ';' {
 			panic(`缺少 ;`)

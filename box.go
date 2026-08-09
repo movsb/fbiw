@@ -268,11 +268,17 @@ func (b *BaseBox) draw(canvas *Canvas, drawChildren bool) {
 	}
 
 	if src := b.computedStyles.BackgroundImage.String; src != `` {
-		canvas.Offset(borderWidth, borderWidth).DrawImage(
-			DropLast1(b.Document._loadImage(src, 0, 0, false)),
-			layoutWidth-borderWidth*2,
-			layoutHeight-borderWidth*2,
-		)
+		width := layoutWidth - borderWidth*2
+		height := layoutHeight - borderWidth*2
+		canvas := canvas.Offset(borderWidth, borderWidth)
+		img, _ := b.Document._loadImage(src, width, height, true)
+		if len(img.Pixels) > 0 {
+			canvas.DrawImage(img, width, height)
+		} else {
+			b.Document.loadImageAsync(src, width, height, func(di DecodedImage, err error) {
+				b.Document.RequestPaint()
+			})
+		}
 	} else if bcv := b.computedStyles.BackgroundColor; !bcv.Empty() && !bcv.Color.None() {
 		canvas.Offset(borderWidth, borderWidth).FillRect(
 			0, 0,
