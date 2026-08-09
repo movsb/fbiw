@@ -544,6 +544,7 @@ func (doc *Document) layout() {
 
 // 绘制文档。
 func (doc *Document) paint(canvas *Canvas) {
+	canvas.Clear()
 	doc.root.Draw(canvas)
 }
 

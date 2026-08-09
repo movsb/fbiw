@@ -187,6 +187,12 @@ func (c *Canvas) FillRect(x, y, width, height int, color Color) {
 	}
 }
 
+// 清屏。
+// 暂时是简单用黑色清。
+func (c *Canvas) Clear() {
+	clear(c.buffer)
+}
+
 func (c *Canvas) toDrawable(width, height int) draw.Image {
 	fc := FontCanvas{
 		underlying: c,

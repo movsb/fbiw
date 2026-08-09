@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"iter"
 	"log"
+	"math"
 	"net/url"
 	"strconv"
 
@@ -1134,8 +1135,8 @@ func (b *Scroll) Calc(availWidth, availHeight int, constraints Constraints) {
 		offsetX = b.ncWidth()
 		offsetY = b.ncWidth()
 
-		avgHeight = contentAvailHeight / b.rows
-		avgWidth  = contentAvailWidth / b.cols
+		avgHeight = average(contentAvailHeight, b.rows)
+		avgWidth  = average(contentAvailWidth, b.cols)
 	)
 
 	for i, child := range b.Children {
@@ -1166,6 +1167,13 @@ func (b *Scroll) Calc(availWidth, availHeight int, constraints Constraints) {
 	if len(b.Children) > 0 {
 		b.adjust()
 	}
+}
+
+// 为什么用浮点？
+// 假设是 14 / 5，则一个元素只能等于 2
+// 如果是浮点，则是 14 / 5 ≈ 2.8，round 到 3
+func average(all, count int) int {
+	return int(math.Round(float64(all) / float64(count)))
 }
 
 // 因为要实现虚拟draw方法，所以有它的存在。
@@ -1241,6 +1249,11 @@ func (b *Scroll) SetProp(key, value string) error {
 	}
 }
 
+// 设置滚动盒子的内容。
+//
+//   - count 元素个数
+//   - create 给元素创建视图
+//   - bind 绑定元素到视图
 func (b *Scroll) SetItems(count int, create func() (root Box, user any), bind func(user any, index int)) {
 	b.Children = nil
 	b.count = count

@@ -208,6 +208,12 @@ func (app *App) Attach() {
 	app.Dirty()
 }
 
+func (app *App) AttachAsync() {
+	app.Async(func() {
+		app.Attach()
+	})
+}
+
 // 真正执行检测是否需要重新布局或重绘的地方。
 func (app *App) sync() {
 	if app.detached {
