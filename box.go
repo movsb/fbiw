@@ -89,11 +89,6 @@ func (b *BaseBox) GetLayoutBox() Rect {
 	return b.layoutBox
 }
 
-func (b *BaseBox) SetLayoutBox(width, height int) {
-	b.layoutBox.Width = width
-	b.layoutBox.Height = height
-}
-
 func (b *BaseBox) ClassSet(class string) {
 	b.class.Set(class)
 	b.classChanged()
@@ -1102,22 +1097,27 @@ type Scroll struct {
 	count int
 	bind  func(user any, index int)
 
+	_ScrollState
+}
+
+type _ScrollState struct {
 	// child selection index
 	rowIndex int
 	colIndex int
-
 	// 虚拟滚动的item顶部起始元素。
 	itemOffset int
 }
 
 func NewScroll(doc *Document) *Scroll {
 	return &Scroll{
-		BaseBox:    NewBaseBox(doc, `scroll`),
-		rows:       1,
-		cols:       1,
-		rowIndex:   -1,
-		colIndex:   -1,
-		itemOffset: 0,
+		BaseBox: NewBaseBox(doc, `scroll`),
+		rows:    1,
+		cols:    1,
+		_ScrollState: _ScrollState{
+			rowIndex:   -1,
+			colIndex:   -1,
+			itemOffset: 0,
+		},
 	}
 }
 
@@ -1228,6 +1228,12 @@ func (b *_ScrollChild) forceCalc(x, y int, contentAvailWidth, avgHeight int) {
 	// 所以如果代码运行到了这里，那一定是出现了内部逻辑错误。
 	if b.dataIndex() < b.scroll.count {
 		// 提前绑定上去才能提供数据、提供计算支撑。
+		// TODO 现在是处理 calc 中，如果限定了尺寸的话，
+		// 其实是不需要此刻 bind 的，Draw 的时候 bind 才比较好。
+		// 因为其它控件需要calc的时候此控件不一定需要。
+		//
+		// 而且，如果项目过多，可能导致bind触发过多的RequestPaint阻塞队列？
+		// 队列满了的话，会不会死在这里？
 		b.scroll.bind(b.user, b.dataIndex())
 	}
 
@@ -1409,17 +1415,6 @@ func (b *Scroll) DataRowIndex() int {
 	return b.curDataRow()
 }
 
-// 获取当前的选中状态。
-//
-// SetItem或修改了类似Rows/Cols的无效后无效。
-// func (b *Scroll) GetSelectionState() any {
-
-// }
-
-// type _ScrollState struct {
-
-// }
-
 // 取消选中当前的选中项。
 func (b *Scroll) Deselect() {
 	childIndex := b.rowIndex*b.cols + b.colIndex
@@ -1429,5 +1424,27 @@ func (b *Scroll) Deselect() {
 	b.rowIndex = -1
 	b.colIndex = 0
 	// 好像可以不用归位？
-	b.itemOffset = 0
+	// b.itemOffset = 0
+}
+
+// 返回当前的选中状态信息，可用于后期恢复。
+func (b *Scroll) GetState() any {
+	return b._ScrollState
+}
+
+// 用于恢复之前的选中状态。
+// 如果重新调用过 SetItems，此前的状态不再有效。
+func (b *Scroll) SetState(state any) {
+	st, ok := state.(_ScrollState)
+	if !ok {
+		panic(`无效状态`)
+	}
+
+	b._ScrollState = st
+	childIndex := b.rowIndex*b.cols + b.colIndex
+	if childIndex >= 0 && childIndex <= len(b.Children)-1 {
+		b.Children[childIndex].Base().ClassAdd(`selected`)
+	}
+
+	b.Document.RequestPaint()
 }
