@@ -67,7 +67,7 @@ func captureStdoutStderr(w io.Writer) error {
 func init() {
 	if runtime.GOOS == `linux` {
 		// 文件不用关。
-		logFile, err := os.OpenFile(`/tmp/fbtest.log`, os.O_WRONLY|os.O_CREATE|os.O_APPEND|os.O_SYNC, 0600)
+		logFile, err := os.OpenFile(`/tmp/fbiw.log`, os.O_WRONLY|os.O_CREATE|os.O_APPEND|os.O_SYNC, 0600)
 		if err == nil {
 			captureStdoutStderr(logFile)
 		}
