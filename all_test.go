@@ -1,6 +1,7 @@
 package fbiw
 
 import (
+	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -120,7 +121,7 @@ func TestParseStyle(t *testing.T) {
 func BenchmarkDrawString(b *testing.B) {
 	b.SkipNow()
 	fm := NewFontManager()
-	if err := fm.AddFont(`fonts/MapleMonoNormalNL-NF-CN-Regular.ttf`, `system`, false, false); err != nil {
+	if err := fm.AddFont(os.DirFS(`.`), `fonts/MapleMonoNormalNL-NF-CN-Regular.ttf`, `system`, false, false); err != nil {
 		b.Fatal(err)
 	}
 	face, err := fm.GetFace(`system`, 30, false, false)

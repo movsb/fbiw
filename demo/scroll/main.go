@@ -6,6 +6,7 @@ import (
 	_ "embed"
 	"fmt"
 	_ "net/http/pprof"
+	"os"
 
 	"github.com/movsb/fbiw"
 )
@@ -16,7 +17,7 @@ var embedded embed.FS
 func main() {
 	app := fbiw.NewApp(
 		context.Background(), embedded,
-		fbiw.WithSystemFont(`../regular.ttf`),
+		fbiw.WithSystemFont(os.DirFS(`.`), `../regular.ttf`),
 	)
 	defer app.Close()
 
