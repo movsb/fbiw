@@ -117,7 +117,7 @@ func (app *App) _CloseDocument(doc *Document) {
 	app.documents = slices.DeleteFunc(app.documents, func(d *Document) bool {
 		return d == doc
 	})
-	app.sync()
+	app.Dirty()
 }
 
 // 同步标记为脏，异步等待下次刷新。
@@ -239,30 +239,30 @@ func (app *App) sync() {
 		return
 	}
 
-	// 是否需要同步到屏幕？
-	syncToScreen := false
-	// 从最底层第一个脏文档开始的所有文档都需要重新渲染。
-	alwaysSyncDoc := false
+	hasDirtyDocument := false
+	for _, doc := range app.documents {
+		if doc.display && doc.dirty() {
+			hasDirtyDocument = true
+			break
+		}
+	}
+	if !app.dirty && !hasDirtyDocument {
+		return
+	}
+
+	app.canvas.Clear()
 
 	for _, doc := range app.documents {
 		if !doc.display {
 			continue
 		}
-		if app.dirty || doc.dirty() || alwaysSyncDoc {
-			now := time.Now()
-			doc.sync(app.canvas, alwaysSyncDoc)
-			log.Println(`帧绘制时长：`, time.Since(now).Round(time.Microsecond*100))
-
-			// 第一个文档画了之后，上面的所有文档都要重画。
-			alwaysSyncDoc = true
-			syncToScreen = true
-		}
+		now := time.Now()
+		doc.sync(app.canvas, true)
+		log.Println(`帧绘制时长：`, time.Since(now).Round(time.Microsecond*100))
 	}
 
-	if syncToScreen {
-		app.display.Sync()
-		app.dirty = false
-	}
+	app.display.Sync()
+	app.dirty = false
 }
 
 type Delegator interface {

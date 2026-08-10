@@ -544,7 +544,13 @@ func (doc *Document) layout() {
 
 // 绘制文档。
 func (doc *Document) paint(canvas *Canvas) {
-	canvas.Clear()
+	// 文档默认总是居中绘制？
+	// TODO 对于未占满的部分，需要画backdrop/背景虚化？
+	displayWidth, displayHeight := canvas.width, canvas.height
+	offsetX := (displayWidth - doc.root.Base().layoutBox.Width) / 2
+	offsetY := (displayHeight - doc.root.Base().layoutBox.Height) / 2
+	canvas = canvas.Offset(offsetX, offsetY)
+
 	doc.root.Draw(canvas)
 }
 
