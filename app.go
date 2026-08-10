@@ -213,6 +213,12 @@ func (app *App) Detach() {
 	app.detached = true
 }
 
+func (app *App) DetachAsync() {
+	app.Async(func() {
+		app.Detach()
+	})
+}
+
 // 重新夺取操作系统事件交互，比如屏幕、键盘。
 // 需要在主线程中调用。
 // 用于Linux系统独占，MacOS无效。
