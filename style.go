@@ -402,9 +402,9 @@ func ParseColor(c string) (_ Value, outErr error) {
 			case '0' <= b && b <= '9':
 				return b - '0'
 			case 'a' <= b && b <= 'f':
-				return b - 'a'
+				return b - 'a' + 10
 			case 'A' <= b && b <= 'F':
-				return b - 'A'
+				return b - 'A' + 10
 			default:
 				panic(`无效颜色值`)
 			}

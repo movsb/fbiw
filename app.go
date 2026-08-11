@@ -137,6 +137,7 @@ func (app *App) Dirty() {
 	}()
 }
 
+// 把文档设置为显示状态。
 func (app *App) Show(doc *Document, show ...bool) {
 	if len(show) > 0 {
 		doc.display = show[0]

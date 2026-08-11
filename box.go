@@ -256,7 +256,7 @@ func (b *BaseBox) Draw(canvas *Canvas) {
 }
 
 // 所有盒子通用的画法。
-// 包括：Outline、Border、Background。
+// 包括：Outline、Border、Background、Children。
 func (b *BaseBox) draw(canvas *Canvas, drawChildren bool) {
 	borderWidth := b.computedStyles.BorderWidth.Number
 	layoutWidth := b.layoutBox.Width
@@ -399,34 +399,41 @@ func blockCalc(b *BaseBox, availWidth, availHeight int, constraints Constraints)
 	// 	contentHeight = hv.Number - b.ncWidth()*2
 	// }
 
-	// 最后再重新调整 XY
+	// 此时已经可以确定容器本身的大小了。
+	b.layoutBox.Width = resolveSize(computed.Width, availWidth, constraints.PrefersMaxWidth, boxMaxWidth)
+	b.layoutBox.Height = resolveSize(computed.Height, availHeight, constraints.PrefersMaxHeight, b.ncWidth()*2+contentHeight)
+
+	// 最后再重新对齐子元素
+
+	// 先是垂直对齐。
+	// 对于block来说，垂直方向不止一个元素，需要整体平移。
 	offsetY := b.ncWidth()
+	if align := computed.Align.String; align == `both` || align == `middle` {
+		offsetY += (b.layoutBox.Height - contentHeight) / 2
+	}
+
+	// 然后是水平对齐。
+	// 水平对齐需要对每一个子元素单独改（因为它们是在垂直方向排列的，不在一条水平线上）。
+	alignCenter := computed.Align.String == `both` || computed.Align.String == `center`
+
 	for _, child := range b.Children {
 		if !displaying(child) {
 			continue
 		}
-		layout := &child.Base().layoutBox
-		layout.X = b.ncWidth()
-		if computed.Align.String == `center` {
-			layout.X += (contentAvailWidth - child.Base().layoutBox.Width) / 2
-		}
-		layout.Y = offsetY
-		offsetY += child.Base().layoutBox.Height
-	}
 
-	b.layoutBox.Width = Iif(
-		computed.Width.IsNumber(),
-		computed.Width.Number,
-		Iif(constraints.PrefersMaxWidth, availWidth, boxMaxWidth))
-	b.layoutBox.Height = Iif(
-		computed.Height.IsNumber(),
-		computed.Height.Number,
-		Iif(
-			constraints.PrefersMaxHeight,
-			availHeight,
-			b.ncWidth()*2+contentHeight,
-		),
-	)
+		layout := &child.Base().layoutBox
+
+		// 水平居中
+		offsetX := b.ncWidth()
+		if alignCenter {
+			offsetX += (contentAvailWidth - layout.Width) / 2
+		}
+		layout.X = offsetX
+
+		// 垂直居中，对所有元素同时偏移。
+		layout.Y = offsetY
+		offsetY += layout.Height
+	}
 }
 
 type Button struct {
@@ -535,7 +542,7 @@ func inlineCalc(b *BaseBox, availWidth, availHeight int, constraints Constraints
 	// 对于inline来说，水平方向不止一个元素，需要整体平移。
 	// BUG: inline 是可以跨行的。这里没有考虑多行元素的对齐。
 	if align := computed.Align.String; align == `both` || align == `center` {
-		offsetX += (contentAvailWidth - contentWidth) / 2
+		offsetX += (b.layoutBox.Width - contentWidth) / 2
 	}
 
 	// 然后是垂直对齐。也只处理了单行元素。
@@ -838,8 +845,8 @@ func (t *Text) SegmentBlock(availWidth, availHeight int) {
 	t.ClearStates()
 	for t.SegmentInline(availWidth, availHeight) {
 	}
-	t.layoutBox.Width = t.textLineMaxWidth
-	t.layoutBox.Height = t.BlockHeight()
+	t.layoutBox.Width = t.textLineMaxWidth + t.ncWidth()*2
+	t.layoutBox.Height = t.BlockHeight() + t.ncWidth()*2
 }
 
 // 文本排版很特殊：
@@ -932,6 +939,9 @@ func (t *Text) BlockHeight() int {
 }
 
 func (t *Text) Draw(canvas *Canvas) {
+	if t.ID == `query` {
+		t.ID += ``
+	}
 	t.Base().draw(canvas, false)
 	offsetY := t.ncWidth()
 	for _, line := range t.textLines {

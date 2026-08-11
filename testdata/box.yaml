@@ -266,3 +266,27 @@
   calc:
     img1: [425,475,100,50]
     img2: [525,450,50,100]
+
+#20 block中的inline的水平和垂直居中对齐
+- html: |
+    <block align=both>
+      <inline id=inline width=24 height=68>
+      </inline>
+    </block>
+  calc:
+    inline: [500,350,24,68]
+
+
+#21 block中的inline的水平和垂直居中对齐
+# 上一个例子外面盒子的大小是文档不小，不是根据子元素算的
+# 所以如果根据子元素算，那结果是不一样的。
+- html: |
+    <block>
+      <block align=both>
+        <inline id=inline width=24 height=68>
+        </inline>
+      </block>
+    </block>
+  calc:
+    inline: [500,0,24,68]
+
