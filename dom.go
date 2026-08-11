@@ -15,6 +15,7 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"unsafe"
 
 	"golang.org/x/net/html"
 	"golang.org/x/net/html/atom"
@@ -221,12 +222,12 @@ func parseDocument(owner *Document, content io.Reader) (Box, *Sheet, error) {
 
 // 反序列化content(html)到指定结构体中。
 //
-//   - 必须要有一个 `Root fbiw.Box` 元素，用来保存根节点。
+//   - 如果有一个 `root fbiw.Box` 元素，用来保存根节点。
 //
-//   - 其它的写法形如： Txt *fbiw.Text `css:"text"`，
-//     表示在文档中基于css的选择器找到元素并赋值给 Txt。
+//   - 其它的写法形如： txtStatus *fbiw.Text `css:"text"`，
+//     表示在文档中基于css的选择器找到元素并赋值给 txtStatus。
 //
-//     名字需要是已导出的字段（大写字母开头）。
+//     名字不需要是已导出的字段（即不需要大写字母开头）。
 //
 // 返回指针类型。
 //
@@ -245,15 +246,12 @@ func Unmarshal[T any, Content string | []byte](owner *Document, content Content)
 	var t T
 	rv := reflect.ValueOf(&t).Elem()
 	for field, fieldValue := range rv.Fields() {
-		if !field.IsExported() {
-			continue
-		}
-
-		if field.Name == `Root` {
+		if field.Name == `root` {
 			if field.Type != reflect.TypeFor[Box]() {
-				panic(`Root必须是Box`)
+				panic(`root必须是Box`)
 			}
-			fieldValue.Set(reflect.ValueOf(root))
+			ptr := reflect.NewAt(field.Type, unsafe.Pointer(fieldValue.UnsafeAddr()))
+			ptr.Elem().Set(reflect.ValueOf(root))
 			continue
 		}
 
@@ -276,7 +274,7 @@ func Unmarshal[T any, Content string | []byte](owner *Document, content Content)
 			return true
 		})
 		if outBox == nil {
-			continue
+			log.Panicf(`选择不到指定的元素: name: %s, css: %s`, field.Name, selector)
 		}
 
 		if !reflect.ValueOf(outBox).CanConvert(field.Type) {
@@ -284,18 +282,12 @@ func Unmarshal[T any, Content string | []byte](owner *Document, content Content)
 		}
 
 		converted := reflect.ValueOf(outBox).Convert(field.Type)
-		fieldValue.Set(converted)
+		ptr := reflect.NewAt(field.Type, unsafe.Pointer(fieldValue.UnsafeAddr()))
+		ptr.Elem().Set(converted)
 	}
 
 	return &t
 }
-
-// 找到此结构体中名为 Root 类型为 Box 的字段。
-// func unmarshalGetRoot(t any) Box {
-// 	rv := reflect.ValueOf(t).Elem()
-// 	root := rv.FieldByName(`Root`)
-// 	return root.Interface().(Box)
-// }
 
 // 标记文档内容脏掉了，需要重绘。
 // 但是文档本身不强关联app框架的，所以按需标记给app更新。

@@ -120,6 +120,9 @@ func (b *BaseBox) Ancestors() iter.Seq[Box] {
 }
 
 func (b *BaseBox) AppendChild(child Box) {
+	if child == nil {
+		panic(`Child is nil`)
+	}
 	b.Children = append(b.Children, child)
 	child.Base().Parent = b
 	if b.Document != nil {
