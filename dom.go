@@ -25,6 +25,7 @@ type Document struct {
 	// 调试用的。
 	name string
 
+	// 为 app 框架服务的数据。
 	app     *App
 	display bool
 
@@ -33,18 +34,16 @@ type Document struct {
 	// HTML内引用的所有资源文件基于此目录。
 	skinDir string
 
-	width, height int
-
 	fontManager  *FontManager
 	imageManager *ImageManager
 
+	width, height int
 	// 默认样式总是用于初始化拷贝，所以不需要用指针，方便拷贝并覆盖。
 	defaultStyles Styles
-
 	// 文档内 <style> 元素提供的样式
 	styleSheet *Sheet
 
-	// 文档body根节点。
+	// 文档body根节点（不是<document>本身，而是其下的第一个Box）。
 	// parse完成后写入。
 	root Box
 
@@ -57,8 +56,8 @@ type Document struct {
 	// 比如只修改了背景色。
 	paintDirty bool
 
-	// 事件托管。
-	delegator Delegator
+	// 当前的活跃元素（与focusable、事件处理相关）
+	activeBox Box
 }
 
 func _NewDocument(
@@ -86,12 +85,17 @@ func (doc *Document) Close() {
 // 从指定文件加载内容。
 //
 // 文件来源于初始化时的文件系统。
+//
+// TODO 按理说这个方法应该是 NewDocument 调用的，但是现在还在 app 那。
 func (doc *Document) load(name string, skinDir string) error {
+	doc.name = name
+
 	fp, err := doc.fsys.Open(name)
 	if err != nil {
 		return err
 	}
 	defer fp.Close()
+
 	root, sheet, err := parseDocument(doc, fp)
 	if err != nil {
 		return fmt.Errorf(`文档解析失败：%w`, err)
@@ -115,9 +119,10 @@ func (doc *Document) load(name string, skinDir string) error {
 		skinDir = `.`
 	}
 	doc.skinDir = skinDir
+
 	doc.layoutDirty = true
 	doc.paintDirty = true
-	doc.name = name
+
 	return nil
 }
 
@@ -334,12 +339,6 @@ func (doc *Document) dirty() bool {
 	return doc.layoutDirty || doc.paintDirty
 }
 
-// 清理不干净的布局和重绘状态。
-func (doc *Document) clean() {
-	doc.layoutDirty = false
-	doc.paintDirty = false
-}
-
 func (doc *Document) sync(canvas *Canvas, forcePaint bool) {
 	// 如果文档之上（多窗口混合的时候）还有其它文档，则
 	// 即便本文档是干净的，也会被上面的玷污，所以强制更新。
@@ -355,18 +354,90 @@ func (doc *Document) sync(canvas *Canvas, forcePaint bool) {
 		doc.paint(canvas)
 	}
 
-	doc.clean()
+	// 清理不干净的布局和重绘状态。
+	doc.layoutDirty = false
+	doc.paintDirty = false
 }
 
-func (doc *Document) SetDelegator(d Delegator) {
-	doc.delegator = d
+// <<< 事件处理
+
+// 设置焦点元素，由它接受事件处理。
+// 可以为空。
+func (doc *Document) activate(box Box) {
+	doc.activeBox = box
 }
-func (doc *Document) handleKeyboardEvent(event KeyboardEventArgs) {
-	if doc.delegator == nil {
+
+// 当前焦点元素，可能为空。
+func (doc *Document) ActiveBox() Box {
+	return doc.activeBox
+}
+
+func (doc *Document) handleEvent(event *Event) {
+	// 没有焦点对象，直接忽略事件。
+	if doc.activeBox == nil {
 		return
 	}
-	doc.delegator.HandleKeyboardEvent(event.Name, event.Pressed)
+	eventTarget := &doc.activeBox.Base()._EventTarget
+	eventTarget.Dispatch(event)
 }
+
+// 文档本身暂时不是事件对象，Listen到root上。
+func (doc *Document) Listen(ty EventType, handler func(*Event), options EventOptions) func() {
+	return doc.root.Base().Listen(ty, handler, options)
+}
+
+// 尝试查找下一个可聚焦的元素？
+//
+// 从start开始（不含）。
+//
+// 如果方向（direction）是左右，
+/*
+func (doc *Document) searchFocusableBox(start Box, direction KeyName) Box {
+	var outBox Box
+	doc.walkNode(start, func(box Box) bool {
+		// 不含开始元素。
+		if box == start {
+			return true
+		}
+
+		if box.Base().focusable {
+			outBox = box
+			return false
+		}
+
+		return true
+	})
+	return outBox
+}
+
+// 使某元素获得焦点（可以为空）。
+//
+//   - 先前已获取焦点的元素会失去焦点。
+//   - 获得焦点的元素会自动添加 focus 类名
+//   - 失去焦点的元素会自动删除 focus 类名
+func (doc *Document) Focus(box Box) {
+	// 已获得相同焦点的盒子，不会重复派发事件。
+	if box == doc.activeBox {
+		return
+	}
+
+	old := doc.activeBox
+	doc.activeBox = box
+
+	if old != nil {
+		// old.Base().Dispatch(&Event{
+		// 	Type: BlurEvent,
+		// })
+		old.Base().ClassRemove(`focus`)
+	}
+
+	if box != nil {
+		box.Base().ClassAdd(`focus`)
+	}
+}
+*/
+
+// >>> 事件处理
 
 // 获取指定ID的元素。
 func (doc *Document) GetBoxByID(id string) Box {
@@ -470,7 +541,13 @@ func (n _NodeTransformer) transform(parent Box, node *html.Node) (Box, error) {
 }
 
 // 只处理元素节点，文本节点此内部处理了，不会调用自身。
+//
+// NOTE 由于 BaseBox 的有些内部字段需要引用 box 本身（比如 class.box，eventTarget.box），
+// 所以会在这里一并初始化了。
 func (n _NodeTransformer) transformNode(box Box, node *html.Node, voidElement bool, allowText bool) (Box, error) {
+	// 完成一些无法由 BaseBox 本身完成的初始化操作。
+	box.Base()._EventTarget.box = box
+
 	for _, a := range node.Attr {
 		// 所有的节点理应都是从BaseBox继承的，所以接口不可能为空。
 		// 但是也不能调BaseBox().Set...，因为子类有方法覆盖。

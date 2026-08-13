@@ -1,5 +1,7 @@
 package fbiw
 
+import "slices"
+
 type KeyName uint8
 
 const (
@@ -104,14 +106,165 @@ const (
 )
 
 type KeyboardEventArgs struct {
-	Name    KeyName
-	Pressed bool
+	Name KeyName
+	// 表示是按下(KeyDown)还是弹起(KeyUp)
+	KeyDown bool
 }
 
+// 整个系统使用的事件类型。
+//
+// 一个事件分成3️⃣个部分：
+//
+//  1. 事件类型
+//  2. 事件的阶段和对象
+//  3. 事件类型关联的数据
 type Event struct {
 	Type EventType
 
-	asyncCallback func()
+	phase _EventPhase
+	// 事件真实发生的对象。
+	Target Box
+	// 当前处理阶段的对象。
+	Current Box
 
-	Keyboard KeyboardEventArgs
+	propagationStopped bool
+
+	// 以下属于事件数据，随事件类型选择其一。
+	asyncCallback func()
+	Keyboard      KeyboardEventArgs
+}
+
+func (e *Event) Capturing() bool {
+	return e.phase == eventPhaseCapturing
+}
+func (e *Event) Bubbling() bool {
+	return e.phase == eventPhaseBubbling
+}
+func (e *Event) AtTarget() bool {
+	return e.phase == eventPhaseAtTarget
+}
+
+func (e *Event) StopPropagation() {
+	e.propagationStopped = true
+}
+
+func (e *Event) KeyDown(name KeyName) bool {
+	return e.Keyboard.KeyDown && e.Keyboard.Name == name
+}
+
+// [EventTarget - Web APIs | MDN](https://developer.mozilla.org/en-US/docs/Web/API/EventTarget)
+type _EventTarget struct {
+	box      Box
+	nextID   uint32
+	handlers map[EventType][]_EventHandler
+}
+
+type _EventHandler struct {
+	id      uint32
+	handler func(*Event)
+	options EventOptions
+}
+
+type _EventPhase uint8
+
+const (
+	eventPhaseCapturing _EventPhase = iota
+	eventPhaseAtTarget
+	eventPhaseBubbling
+)
+
+type EventOptions struct {
+	Capture bool
+}
+
+// 添加一个指定事件类型的事件处理器。
+//
+// 返回值用于删除此事件处理器。
+//
+// addEventListener
+//
+// Attach 方法被 app 用了，暂时用这个方法表示监听。
+func (e *_EventTarget) Listen(ty EventType, handler func(*Event), options EventOptions) func() {
+	if e.handlers == nil {
+		e.handlers = map[EventType][]_EventHandler{}
+	}
+	e.nextID++
+	wrapped := _EventHandler{
+		id:      e.nextID,
+		handler: handler,
+		options: options,
+	}
+	e.handlers[ty] = append(e.handlers[ty], wrapped)
+	return func() { e.detach(ty, wrapped.id) }
+}
+
+// 用于删除事件处理器。
+//
+// Go的函数不能进行相等性比较（除和nil外），所以不能直接用于删除。
+// 所以创建了唯一ID。
+//
+// removeEventListener
+func (e *_EventTarget) detach(ty EventType, id uint32) {
+	e.handlers[ty] = slices.DeleteFunc(e.handlers[ty], func(h _EventHandler) bool {
+		return h.id == id
+	})
+}
+
+// 向该事件对象自己投递事件。
+//
+// 监听该对象事件的函数均会收到回调。
+//
+// The dispatchEvent() method of the EventTarget sends an Event to the object,
+// (synchronously) invoking the affected event listeners in the appropriate order.
+func (e *_EventTarget) Dispatch(event *Event) {
+	event.Target = e.box
+
+	// Capturing Phase
+	event.phase = eventPhaseCapturing
+	for ancestor := range e.box.Base().ancestorsForward() {
+		if event.propagationStopped {
+			return
+		}
+		box := ancestor.Base()
+		for _, handler := range box._EventTarget.handlers[event.Type] {
+			if !handler.options.Capture {
+				continue
+			}
+			event.Current = box
+			handler.handler(event)
+			if event.propagationStopped {
+				return
+			}
+		}
+	}
+
+	// at target
+	event.Current = e.box
+	event.phase = eventPhaseAtTarget
+	for _, handler := range e.box.Base()._EventTarget.handlers[event.Type] {
+		handler.handler(event)
+		if event.propagationStopped {
+			return
+		}
+	}
+
+	// bubbling
+	// TODO 不是所有事件都需要冒泡
+	event.phase = eventPhaseBubbling
+	for ancestor := range e.box.Base().Ancestors() {
+		if event.propagationStopped {
+			return
+		}
+		box := ancestor.Base()
+		for _, handler := range box._EventTarget.handlers[event.Type] {
+			if handler.options.Capture {
+				continue
+			}
+			event.Current = box
+			handler.handler(event)
+			if event.propagationStopped {
+				return
+			}
+		}
+	}
 }

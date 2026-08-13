@@ -8,6 +8,8 @@ import (
 	"log"
 	"math"
 	"net/url"
+	"reflect"
+	"slices"
 	"strconv"
 
 	_ "image/jpeg"
@@ -36,6 +38,10 @@ type Constraints struct {
 	PrefersMaxHeight bool
 }
 
+// 所有可布局盒子的基类。
+//
+// 注意：由于是直接内嵌的（非指针），而有些内部字段本身也需要引用此盒子本身，
+// 这种情况无法初始化。这个步骤放到了 transformNode。
 type BaseBox struct {
 	ID  string
 	Tag string
@@ -53,6 +59,10 @@ type BaseBox struct {
 	Parent   Box
 	Children []Box
 
+	// 每一个盒子都是事件容器对象。
+	// 但是盒子是否可处理事件本身与focusable不直接有关。
+	_EventTarget
+
 	// 来自内联样式的值和样式计算的最终结果。
 	inlineStyles Styles
 	// 注意，样式计算结束后，computedStyles不应该再被修改（除presetWidth百分比计算）。
@@ -69,6 +79,7 @@ type BaseBox struct {
 // 创建一个基类盒子。
 //
 // 返回的不是指针。
+// 所以不要在这里初始化内部循环引用（比如： eventTarget.box）。
 func NewBaseBox(doc *Document, tagName string) BaseBox {
 	return BaseBox{Document: doc, Tag: tagName}
 }
@@ -109,6 +120,12 @@ func (b *BaseBox) ClassToggle(class string, force ...any) {
 	b.classChanged()
 }
 
+// 获取焦点。使其能接受键盘等事件处理。
+func (b *BaseBox) Activate() {
+	b.Document.activate(b)
+}
+
+// 祖先回溯。从父亲到祖宗。
 func (b *BaseBox) Ancestors() iter.Seq[Box] {
 	return func(yield func(Box) bool) {
 		for p := b.Parent; p != nil; p = p.Base().Parent {
@@ -118,10 +135,26 @@ func (b *BaseBox) Ancestors() iter.Seq[Box] {
 		}
 	}
 }
+func (b *BaseBox) ancestorsForward() iter.Seq[Box] {
+	var boxes []Box
+	for p := b.Parent; p != nil; p = p.Base().Parent {
+		boxes = append(boxes, p)
+	}
+	return func(yield func(Box) bool) {
+		for _, box := range slices.Backward(boxes) {
+			if !yield(box) {
+				break
+			}
+		}
+	}
+}
 
 func (b *BaseBox) AppendChild(child Box) {
 	if child == nil {
 		panic(`Child is nil`)
+	}
+	if child.Base()._EventTarget.box == nil {
+		panic(`事件对象未完成初始化:` + reflect.TypeOf(child).String())
 	}
 	b.Children = append(b.Children, child)
 	child.Base().Parent = b
@@ -1139,7 +1172,7 @@ type _ScrollState struct {
 }
 
 func NewScroll(doc *Document) *Scroll {
-	return &Scroll{
+	scroll := &Scroll{
 		BaseBox: NewBaseBox(doc, `scroll`),
 		rows:    1,
 		cols:    1,
@@ -1149,6 +1182,14 @@ func NewScroll(doc *Document) *Scroll {
 			itemOffset: 0,
 		},
 	}
+
+	scroll.Listen(KeyboardEvent, func(e *Event) {
+		if e.Keyboard.KeyDown {
+			scroll.navigate(e.Keyboard.Name)
+		}
+	}, EventOptions{})
+
+	return scroll
 }
 
 // TODO 取消重复计算，大小不变的情况下只需要计算一次。
@@ -1227,7 +1268,9 @@ type _ScrollChild struct {
 }
 
 func _NewScrollChild(doc *Document) *_ScrollChild {
-	return &_ScrollChild{BaseBox: NewBaseBox(doc, `scroll-child`)}
+	box := &_ScrollChild{BaseBox: NewBaseBox(doc, `scroll-child`)}
+	box._EventTarget.box = box
+	return box
 }
 
 func (b *_ScrollChild) Draw(canvas *Canvas) {
@@ -1320,7 +1363,7 @@ func (b *Scroll) SetItems(count int, create func() (root Box, user any), bind fu
 	}
 }
 
-func (b *Scroll) Navigate(name KeyName) {
+func (b *Scroll) navigate(name KeyName) {
 	// 目前只支持上下滚动
 	if !(name == Up || name == Down || name == Left || name == Right) {
 		return
@@ -1430,6 +1473,28 @@ func (b *Scroll) DataIndex() int {
 	return b.rowIndex*b.cols + b.colIndex + b.itemOffset
 }
 
+// 暂时忽略错误。
+func (b *Scroll) SetIndex(rowIndex, colIndex, dataIndexOffset int) {
+	if rowIndex < 0 || rowIndex >= b.rows {
+		return
+	}
+	if colIndex < 0 || colIndex >= b.cols {
+		return
+	}
+	if rowIndex*b.cols+colIndex+dataIndexOffset >= b.count {
+		return
+	}
+
+	b.rowIndex = rowIndex
+	b.colIndex = colIndex
+	b.itemOffset = dataIndexOffset
+
+	childIndex := rowIndex*b.cols + b.colIndex
+	b.Children[childIndex].Base().ClassAdd(`selected`)
+
+	b.Document.RequestPaint()
+}
+
 // 返回数据总量。
 func (b *Scroll) DataCount() int {
 	return b.count
@@ -1454,6 +1519,8 @@ func (b *Scroll) Deselect() {
 	b.colIndex = 0
 	// 好像可以不用归位？
 	b.itemOffset = 0
+
+	b.Document.RequestPaint()
 }
 
 // 返回当前的选中状态信息，可用于后期恢复。

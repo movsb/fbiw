@@ -17,7 +17,7 @@ var embedded embed.FS
 func main() {
 	app := fbiw.NewApp(
 		context.Background(), embedded,
-		fbiw.WithSystemFont(os.DirFS(`.`), `../regular.ttf`),
+		fbiw.WithSystemFont(os.DirFS(`..`), `regular.ttf`),
 	)
 	defer app.Close()
 
@@ -26,38 +26,24 @@ func main() {
 	scroll := doc.GetBoxByID(`scroll`).(*fbiw.Scroll)
 
 	type _Item struct {
-		Root fbiw.Box
-		Text *fbiw.Text `css:"text"`
+		root fbiw.Box
+		text *fbiw.Text `css:"text"`
 	}
 
 	scroll.SetItems(7,
 		func() (fbiw.Box, any) {
 			item := fbiw.Unmarshal[_Item](doc, `<block background-color="tan"><text></text></block>`)
-			return item.Root, item
+			return item.root, item
 		},
 		func(item any, index int) {
 			item2 := item.(*_Item)
-			item2.Text.SetText(fmt.Sprint(index))
+			item2.text.SetText(fmt.Sprint(index))
 		},
 	)
 
-	doc.SetDelegator(&Window{
-		doc:    doc,
-		scroll: scroll,
-	})
+	scroll.Activate()
 
 	app.Show(doc)
 
 	app.Run()
-}
-
-type Window struct {
-	doc    *fbiw.Document
-	scroll *fbiw.Scroll
-}
-
-func (w *Window) HandleKeyboardEvent(name fbiw.KeyName, pressed bool) {
-	if pressed {
-		w.scroll.Navigate(name)
-	}
 }

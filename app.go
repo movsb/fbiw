@@ -32,7 +32,7 @@ type App struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	system chan Event
+	system chan *Event
 
 	display *Display
 	canvas  *Canvas
@@ -87,7 +87,7 @@ func NewApp(
 		// 可能。除非是在主线程中调用了只给其它线程调用的Async方法，
 		// 那确实有可能死锁。（Async已经改了，连在其它线程给主线程
 		// 投递消息也新开了一个线程。创建goroutine跟不要钱一样。）
-		system: make(chan Event, 8),
+		system: make(chan *Event, 8),
 	}
 
 	for _, opt := range options {
@@ -121,6 +121,9 @@ func (app *App) New(name string, skinDir string) *Document {
 	}
 	doc.display = false
 	doc.app = app
+	// 默认把焦点设置给根元素。
+	doc.root.Base().Activate()
+	// 追加到后面（最上层窗口）
 	app.documents = append(app.documents, doc)
 	return doc
 }
@@ -143,13 +146,15 @@ func (app *App) Dirty() {
 	// 可能就死锁了。
 	go func() {
 		select {
-		case app.system <- Event{Type: appDirty}:
+		case app.system <- &Event{Type: appDirty}:
 		case <-app.ctx.Done():
 		}
 	}()
 }
 
 // 把文档设置为显示状态。
+//
+// 显示后键盘事件发发送到这里。
 func (app *App) Show(doc *Document, show ...bool) {
 	if len(show) > 0 {
 		doc.display = show[0]
@@ -174,7 +179,7 @@ func (app *App) Show(doc *Document, show ...bool) {
 // 这下就永远也不会死锁了。
 func (app *App) Async(callback func()) {
 	go func() {
-		app.system <- Event{
+		app.system <- &Event{
 			Type:          asyncCallback,
 			asyncCallback: callback,
 		}
@@ -184,7 +189,7 @@ func (app *App) Async(callback func()) {
 func (app *App) Run() {
 	menuPressed := false
 	startPressed := false
-	pollEvents(app.ctx, app.system, app.sync, func(event Event) {
+	pollEvents(app.ctx, app.system, app.sync, func(event *Event) {
 		switch event.Type {
 		case QuitEvent:
 			app.cancel()
@@ -198,9 +203,9 @@ func (app *App) Run() {
 			// 暂时固定给所有APP。
 			switch event.Keyboard.Name {
 			case Menu:
-				menuPressed = event.Keyboard.Pressed
+				menuPressed = event.Keyboard.KeyDown
 			case Start:
-				startPressed = event.Keyboard.Pressed
+				startPressed = event.Keyboard.KeyDown
 			}
 			if menuPressed && startPressed {
 				app.cancel()
@@ -208,11 +213,12 @@ func (app *App) Run() {
 			}
 
 			// 只发送给前台文档。
+			// TODO 除非有系统级事件监听器？
 			for _, doc := range slices.Backward(app.documents) {
 				if !doc.display {
 					continue
 				}
-				doc.handleKeyboardEvent(event.Keyboard)
+				doc.handleEvent(event)
 				break
 			}
 		}
@@ -246,7 +252,7 @@ func (app *App) DetachAsync() {
 // 需要在主线程中调用。
 // 用于Linux系统独占，MacOS无效。
 //
-// Attach和Detach必须成对调用。
+// Attach(Async)和Detach(Async)必须成对调用。
 func (app *App) Attach() {
 	app.detached--
 	if app.detached < 0 {
@@ -293,8 +299,4 @@ func (app *App) sync() {
 
 	app.display.Sync()
 	app.dirty = false
-}
-
-type Delegator interface {
-	HandleKeyboardEvent(name KeyName, pressed bool)
 }

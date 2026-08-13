@@ -69,13 +69,13 @@ func openDisplay() *Display {
 	return d
 }
 
-func pollEvents(ctx context.Context, system chan Event, sync func(), handler func(Event)) {
+func pollEvents(ctx context.Context, system chan *Event, sync func(), handler func(*Event)) {
 	sendKey := func(name KeyName, pressed bool) {
-		handler(Event{
+		handler(&Event{
 			Type: KeyboardEvent,
 			Keyboard: KeyboardEventArgs{
 				Name:    name,
-				Pressed: pressed,
+				KeyDown: pressed,
 			},
 		})
 	}
@@ -116,7 +116,7 @@ func pollEvents(ctx context.Context, system chan Event, sync func(), handler fun
 		}
 		switch event := sdl.PollEvent().(type) {
 		case *sdl.QuitEvent:
-			handler(Event{Type: QuitEvent})
+			handler(&Event{Type: QuitEvent})
 			return
 		case *sdl.KeyboardEvent:
 			pressed := event.Type == sdl.KEYDOWN
