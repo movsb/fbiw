@@ -628,7 +628,7 @@ func (doc *Document) walkNode(box Box, callback func(box Box) bool) bool {
 	if !callback(box) {
 		return false
 	}
-	for _, child := range box.Base().Children {
+	for _, child := range box.Children() {
 		if !doc.walkNode(child, callback) {
 			return false
 		}

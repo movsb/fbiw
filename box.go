@@ -11,6 +11,7 @@ import (
 	"reflect"
 	"slices"
 	"strconv"
+	"strings"
 
 	_ "image/jpeg"
 	_ "image/png"
@@ -31,6 +32,27 @@ type Box interface {
 	// 所以除根元素外（因为它是0，0），其它在Draw之前都要调整canvas到offset，
 	// 即：父元素在遍历子元素Draw的时候记得根据子元素的{x,y}作offset。
 	Draw(canvas *Canvas)
+
+	// 设置属性值。
+	// 可以是CSS样式值、盒子自己提供的属性。
+	SetProp(key, val string) error
+
+	/// 慢慢地把所有盒子的基类已实现方法转移到这里。
+
+	// 返回盒子当前的样式最终计算结果。
+	//
+	// 返回的是指针，不要尝试修改。
+	GetComputedStyles() *Styles
+
+	// 返回孩子盒子列表。
+	Children() []Box
+
+	// 类名操作相关函数。
+	ClassSet(class string)
+	ClassAdd(class string)
+	ClassRemove(class string)
+	ClassContains(class string) bool
+	ClassToggle(class string, force ...any)
 }
 
 type Constraints struct {
@@ -55,9 +77,11 @@ type BaseBox struct {
 	// 用于存放用户任意数据。
 	dataset map[string]any
 
-	Document *Document
-	Parent   Box
-	Children []Box
+	Document    *Document
+	Parent      Box
+	PrevSibling Box
+	NextSibling Box
+	children    []Box
 
 	// 每一个盒子都是事件容器对象。
 	// 但是盒子是否可处理事件本身与focusable不直接有关。
@@ -98,6 +122,9 @@ func (b *BaseBox) Base() *BaseBox {
 // 只应参考 Width 和 Height。X、Y 目前是相对于父元素的，不太有参考意义。
 func (b *BaseBox) GetLayoutBox() Rect {
 	return b.layoutBox
+}
+func (b *BaseBox) GetComputedStyles() *Styles {
+	return &b.computedStyles
 }
 
 func (b *BaseBox) ClassSet(class string) {
@@ -149,6 +176,17 @@ func (b *BaseBox) ancestorsForward() iter.Seq[Box] {
 	}
 }
 
+func (b *BaseBox) Children() []Box {
+	return b.children
+}
+
+func (b *BaseBox) lastChild() Box {
+	if n := len(b.children); n > 0 {
+		return b.children[n-1]
+	}
+	return nil
+}
+
 func (b *BaseBox) AppendChild(child Box) {
 	if child == nil {
 		panic(`Child is nil`)
@@ -156,8 +194,16 @@ func (b *BaseBox) AppendChild(child Box) {
 	if child.Base()._EventTarget.box == nil {
 		panic(`事件对象未完成初始化:` + reflect.TypeOf(child).String())
 	}
-	b.Children = append(b.Children, child)
+
+	prevLastChild := b.lastChild()
+	b.children = append(b.children, child)
 	child.Base().Parent = b
+
+	if prevLastChild != nil {
+		prevLastChild.Base().NextSibling = child
+		child.Base().PrevSibling = prevLastChild
+	}
+
 	if b.Document != nil {
 		b.Document.layoutDirty = true
 		b.Document.style(b, true)
@@ -334,7 +380,7 @@ func (b *BaseBox) draw(canvas *Canvas, drawChildren bool) {
 	}
 
 	if drawChildren {
-		for _, child := range b.Children {
+		for _, child := range b.children {
 			if !displaying(child) {
 				continue
 			}
@@ -378,7 +424,7 @@ func blockCalc(b *BaseBox, availWidth, availHeight int, constraints Constraints)
 	// 如果有 Spacer（未设定大小的），则留到后面均匀地铺满。
 	zeroSpacers := []Box{}
 
-	for _, child := range b.Children {
+	for _, child := range b.children {
 		if !displaying(child) {
 			continue
 		}
@@ -449,7 +495,7 @@ func blockCalc(b *BaseBox, availWidth, availHeight int, constraints Constraints)
 	// 水平对齐需要对每一个子元素单独改（因为它们是在垂直方向排列的，不在一条水平线上）。
 	alignCenter := computed.Align.String == `both` || computed.Align.String == `center`
 
-	for _, child := range b.Children {
+	for _, child := range b.children {
 		if !displaying(child) {
 			continue
 		}
@@ -505,7 +551,7 @@ func inlineCalc(b *BaseBox, availWidth, availHeight int, constraints Constraints
 	// 如果有 Spacer（未设定大小的），则均匀地铺满。
 	zeroSpacers := []Box{}
 
-	for _, child := range b.Children {
+	for _, child := range b.children {
 		if !displaying(child) {
 			continue
 		}
@@ -582,7 +628,7 @@ func inlineCalc(b *BaseBox, availWidth, availHeight int, constraints Constraints
 	// 垂直对齐需要对每一个子元素单独改（因为它们是水平排列的，不在一条竖线上）。
 	alignMiddle := computed.Align.String == `both` || computed.Align.String == `middle`
 
-	for _, child := range b.Children {
+	for _, child := range b.children {
 		if !displaying(child) {
 			continue
 		}
@@ -656,7 +702,7 @@ func (b *Stack) Calc(availWidth, availHeight int, constrains Constraints) {
 
 	contentMaxHeight := 0
 
-	for _, child := range b.Children {
+	for _, child := range b.children {
 		if !displaying(child) {
 			continue
 		}
@@ -711,7 +757,7 @@ func (b *Stack) Calc(availWidth, availHeight int, constrains Constraints) {
 	// 最后再重新调整 Y
 	offsetX := b.ncWidth()
 	offsetY := b.ncWidth()
-	for _, child := range b.Children {
+	for _, child := range b.children {
 		if !displaying(child) {
 			continue
 		}
@@ -830,9 +876,18 @@ func NewText(doc *Document) *Text {
 // 设置普通文本。
 func (t *Text) SetText(text string) {
 	t.textParts.children = nil
-	t.Children = nil
+	t.children = nil
 	t.AppendChild(text)
 	t.expandTextNodes()
+}
+
+// 获取普通文件。
+func (t *Text) GetText() string {
+	sb := strings.Builder{}
+	for _, run := range t.textRuns {
+		sb.WriteString(run.Data)
+	}
+	return sb.String()
 }
 
 // 这个方法重写了基类的方法，只在 transform 中被调用。
@@ -1214,7 +1269,7 @@ func (b *Scroll) Calc(availWidth, availHeight int, constraints Constraints) {
 		avgWidth  = average(contentAvailWidth, b.cols)
 	)
 
-	for i, child := range b.Children {
+	for i, child := range b.children {
 		child.(*_ScrollChild).forceCalc(offsetX, offsetY, avgWidth, avgHeight)
 		// 需要换行了
 		if (i+1)%b.cols == 0 {
@@ -1239,7 +1294,7 @@ func (b *Scroll) Calc(availWidth, availHeight int, constraints Constraints) {
 	)
 
 	// 可能还未初始化。
-	if len(b.Children) > 0 {
+	if len(b.children) > 0 {
 		b.adjust()
 	}
 }
@@ -1290,7 +1345,7 @@ func (b *_ScrollChild) forceCalc(x, y int, contentAvailWidth, avgHeight int) {
 	childContentAvailWidth := contentAvailWidth - b.ncWidth()*2
 	childContentAvailHeight := avgHeight - b.ncWidth()*2
 
-	child := base.Children[0]
+	child := base.children[0]
 	base = child.Base()
 	base.layoutBox.Width = childContentAvailWidth
 	base.layoutBox.Height = childContentAvailHeight
@@ -1338,7 +1393,7 @@ func (b *Scroll) SetProp(key, value string) error {
 //   - create 给元素创建视图
 //   - bind 绑定元素到视图
 func (b *Scroll) SetItems(count int, create func() (root Box, user any), bind func(user any, index int)) {
-	b.Children = nil
+	b.children = nil
 	b.count = count
 	b.bind = bind
 	b.rowIndex = -1
@@ -1423,13 +1478,13 @@ func (b *Scroll) navigate(name KeyName) {
 	}
 
 	// 取消选中原来的
-	if childIndex := oldRowIndex*b.cols + oldColIndex; childIndex >= 0 && childIndex <= len(b.Children)-1 {
-		b.Children[childIndex].Base().ClassRemove(`selected`)
+	if childIndex := oldRowIndex*b.cols + oldColIndex; childIndex >= 0 && childIndex <= len(b.children)-1 {
+		b.children[childIndex].Base().ClassRemove(`selected`)
 	}
 
 	// 更新选中
-	if childIndex := b.rowIndex*b.cols + b.colIndex; childIndex >= 0 && childIndex <= len(b.Children)-1 {
-		b.Children[childIndex].Base().ClassAdd(`selected`)
+	if childIndex := b.rowIndex*b.cols + b.colIndex; childIndex >= 0 && childIndex <= len(b.children)-1 {
+		b.children[childIndex].Base().ClassAdd(`selected`)
 	}
 
 	// 如果物理列表没变（前面类名不会变化）、但是虚拟列表滚动了，
@@ -1451,7 +1506,7 @@ func (b *Scroll) maxDataRow() int {
 func (b *Scroll) adjust() {
 	for r := range b.rows {
 		for c := range b.cols {
-			child := b.Children[r*b.cols+c].(*_ScrollChild)
+			child := b.children[r*b.cols+c].(*_ScrollChild)
 			display := child.dataIndex() <= b.count-1
 			displayValue := child.computedStyles.Display
 			if displayValue.Empty() || displayValue.Bool != display {
@@ -1488,7 +1543,7 @@ func (b *Scroll) SetIndex(rowIndex, colIndex, dataIndexOffset int) {
 	b.itemOffset = dataIndexOffset
 
 	childIndex := rowIndex*b.cols + b.colIndex
-	b.Children[childIndex].Base().ClassAdd(`selected`)
+	b.children[childIndex].Base().ClassAdd(`selected`)
 
 	b.Document.RequestPaint()
 }
@@ -1510,8 +1565,8 @@ func (b *Scroll) DataRowIndex() int {
 // 取消选中当前的选中项。
 func (b *Scroll) Deselect() {
 	childIndex := b.rowIndex*b.cols + b.colIndex
-	if childIndex >= 0 && childIndex <= len(b.Children)-1 {
-		b.Children[childIndex].Base().ClassRemove(`selected`)
+	if childIndex >= 0 && childIndex <= len(b.children)-1 {
+		b.children[childIndex].Base().ClassRemove(`selected`)
 	}
 	b.rowIndex = -1
 	b.colIndex = 0
@@ -1536,8 +1591,8 @@ func (b *Scroll) SetState(state any) {
 
 	b._ScrollState = st
 	childIndex := b.rowIndex*b.cols + b.colIndex
-	if childIndex >= 0 && childIndex <= len(b.Children)-1 {
-		b.Children[childIndex].Base().ClassAdd(`selected`)
+	if childIndex >= 0 && childIndex <= len(b.children)-1 {
+		b.children[childIndex].Base().ClassAdd(`selected`)
 	}
 
 	b.Document.RequestPaint()
