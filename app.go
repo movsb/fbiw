@@ -51,7 +51,12 @@ type App struct {
 	// 是否脱离到系统后台。
 	// 在系统后台的时候不刷屏、不处理键盘事件。
 	// 重新附加后，屏幕会刷新一次。
-	detached bool
+	//
+	// 类型为整数，记录detach次数。
+	// 比如：进入游戏时detach一次，此时还未attach；
+	// 但是又出现了osd屏幕，会再次detach。
+	// detached为0时表示未detach。
+	detached int
 }
 
 func NewApp(
@@ -185,7 +190,7 @@ func (app *App) Run() {
 			app.cancel()
 			return
 		case KeyboardEvent:
-			if app.detached {
+			if app.detached > 0 {
 				return
 			}
 
@@ -225,8 +230,10 @@ func (app *App) AddFont(family string, bold, italic bool, fsys fs.FS, path strin
 // 脱离当前与操作系统的事件交互，比如屏幕、键盘。
 // 需要在主线程中调用。
 // 用于Linux系统独占，MacOS无效。
+//
+// Attach和Detach必须成对调用。
 func (app *App) Detach() {
-	app.detached = true
+	app.detached++
 }
 
 func (app *App) DetachAsync() {
@@ -238,9 +245,16 @@ func (app *App) DetachAsync() {
 // 重新夺取操作系统事件交互，比如屏幕、键盘。
 // 需要在主线程中调用。
 // 用于Linux系统独占，MacOS无效。
+//
+// Attach和Detach必须成对调用。
 func (app *App) Attach() {
-	app.detached = false
-	app.Dirty()
+	app.detached--
+	if app.detached < 0 {
+		panic(`Attach后为负数`)
+	}
+	if app.detached == 0 {
+		app.Dirty()
+	}
 }
 
 func (app *App) AttachAsync() {
@@ -251,7 +265,7 @@ func (app *App) AttachAsync() {
 
 // 真正执行检测是否需要重新布局或重绘的地方。
 func (app *App) sync() {
-	if app.detached {
+	if app.detached > 0 {
 		return
 	}
 
