@@ -1183,10 +1183,8 @@ func NewScroll(doc *Document) *Scroll {
 		},
 	}
 
-	scroll.Listen(KeyboardEvent, func(e *Event) {
-		if e.Keyboard.KeyDown {
-			scroll.navigate(e.Keyboard.Name)
-		}
+	scroll.Listen(StickDownEvent, func(e *Event) {
+		scroll.navigate(e.Stick.Name)
 	}, EventOptions{})
 
 	return scroll

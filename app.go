@@ -194,18 +194,18 @@ func (app *App) Run() {
 		case QuitEvent:
 			app.cancel()
 			return
-		case KeyboardEvent:
+		case StickDownEvent, StickUpEvent:
 			if app.detached > 0 {
 				return
 			}
 
 			// 按“菜单”和“开始”可以退出。
 			// 暂时固定给所有APP。
-			switch event.Keyboard.Name {
+			switch event.Stick.Name {
 			case Menu:
-				menuPressed = event.Keyboard.KeyDown
+				menuPressed = event.Type == StickDownEvent
 			case Start:
-				startPressed = event.Keyboard.KeyDown
+				startPressed = event.Type == StickDownEvent
 			}
 			if menuPressed && startPressed {
 				app.cancel()

@@ -102,13 +102,16 @@ const (
 	appDirty
 
 	QuitEvent
-	KeyboardEvent
+
+	// 游戏控制器按键按下或弹起。
+	// Stick 是 JoyStick 的标准非正式简写。
+	// 不用Key*，因为以后要扩展给键盘用。
+	StickDownEvent
+	StickUpEvent
 )
 
-type KeyboardEventArgs struct {
+type KeyEventArgs struct {
 	Name KeyName
-	// 表示是按下(KeyDown)还是弹起(KeyUp)
-	KeyDown bool
 }
 
 // 整个系统使用的事件类型。
@@ -131,7 +134,7 @@ type Event struct {
 
 	// 以下属于事件数据，随事件类型选择其一。
 	asyncCallback func()
-	Keyboard      KeyboardEventArgs
+	Stick         KeyEventArgs
 }
 
 func (e *Event) Capturing() bool {
@@ -146,10 +149,6 @@ func (e *Event) AtTarget() bool {
 
 func (e *Event) StopPropagation() {
 	e.propagationStopped = true
-}
-
-func (e *Event) KeyDown(name KeyName) bool {
-	return e.Keyboard.KeyDown && e.Keyboard.Name == name
 }
 
 // [EventTarget - Web APIs | MDN](https://developer.mozilla.org/en-US/docs/Web/API/EventTarget)

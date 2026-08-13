@@ -72,10 +72,9 @@ func openDisplay() *Display {
 func pollEvents(ctx context.Context, system chan *Event, sync func(), handler func(*Event)) {
 	sendKey := func(name KeyName, pressed bool) {
 		handler(&Event{
-			Type: KeyboardEvent,
-			Keyboard: KeyboardEventArgs{
-				Name:    name,
-				KeyDown: pressed,
+			Type: Iif(pressed, StickDownEvent, StickUpEvent),
+			Stick: KeyEventArgs{
+				Name: name,
 			},
 		})
 	}

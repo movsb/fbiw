@@ -128,9 +128,9 @@ func waitForVSync(fd int) error {
 	return nil
 }
 
-func pollEvents(ctx context.Context, system chan Event, sync func(), handler func(Event)) {
-	ch := make(chan Event)
-	go _pollEvents(ctx, func(e Event) {
+func pollEvents(ctx context.Context, system chan *Event, sync func(), handler func(*Event)) {
+	ch := make(chan *Event)
+	go _pollEvents(ctx, func(e *Event) {
 		select {
 		case ch <- e:
 			// default:
@@ -155,7 +155,7 @@ func pollEvents(ctx context.Context, system chan Event, sync func(), handler fun
 	}
 }
 
-func _pollEvents(ctx context.Context, handler func(Event)) {
+func _pollEvents(ctx context.Context, handler func(*Event)) {
 	matches, err := filepath.Glob("/dev/input/event*")
 	if err != nil {
 		panic(err)
@@ -185,11 +185,10 @@ func _pollEvents(ctx context.Context, handler func(Event)) {
 	}{}
 
 	send := func(name KeyName, pressed bool) {
-		handler(Event{
-			Type: KeyboardEvent,
-			Keyboard: KeyboardEventArgs{
-				Name:    name,
-				Pressed: pressed,
+		handler(&Event{
+			Type: Iif(pressed, StickDownEvent, StickUpEvent),
+			Stick: KeyEventArgs{
+				Name: name,
 			},
 		})
 	}
