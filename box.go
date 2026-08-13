@@ -1239,7 +1239,7 @@ func NewScroll(doc *Document) *Scroll {
 	}
 
 	scroll.Listen(StickDownEvent, func(e *Event) {
-		scroll.navigate(e.Stick.Name)
+		scroll.navigate(e)
 	}, EventOptions{})
 
 	return scroll
@@ -1416,7 +1416,9 @@ func (b *Scroll) SetItems(count int, create func() (root Box, user any), bind fu
 	}
 }
 
-func (b *Scroll) navigate(name KeyName) {
+func (b *Scroll) navigate(event *Event) {
+	name := event.Stick.Name
+
 	// 目前只支持上下滚动
 	if !(name == Up || name == Down || name == Left || name == Right) {
 		return
@@ -1490,8 +1492,10 @@ func (b *Scroll) navigate(name KeyName) {
 	// 如果物理列表没变（前面类名不会变化）、但是虚拟列表滚动了，
 	// 则需要主动告知文档更新，否则不会重绘。
 	if oldItemOffset != b.itemOffset {
-		b.Document.paintDirty = true
+		b.Document.RequestPaint()
 	}
+
+	event.StopPropagation()
 }
 
 func (b *Scroll) curDataRow() int {
