@@ -186,6 +186,15 @@ func (app *App) Async(callback func()) {
 	}()
 }
 
+// 投递退出事件，app.Run() 结束运行。
+func (app *App) Quit() {
+	go func() {
+		app.system <- &Event{
+			Type: QuitEvent,
+		}
+	}()
+}
+
 func (app *App) Run() {
 	menuPressed := false
 	startPressed := false
