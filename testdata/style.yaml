@@ -14,7 +14,7 @@
           specificity: 1
       declarations: []
 
-#2
+#3
 - style: '#content block.selected {}'
   rules:
     - selector:
@@ -26,10 +26,20 @@
           specificity: 257
       declarations: []
 
-#3
+#4
 - style: '#id {}'
   rules:
     - selector:
         - id: id
           specificity: 65536
+      declarations: []
+
+#5
+- style: 'block > * {}'
+  rules:
+    - selector:
+        - tag: block
+          specificity: 1
+          combinator: 1
+        - asterisk: true
       declarations: []

@@ -100,10 +100,9 @@ type StyleParseTest struct {
 func TestParseStyle(t *testing.T) {
 	cases := LoadTestCases[StyleParseTest](`testdata/style.yaml`)
 	for i, tc := range cases {
-		_ = i
 		sheet, err := ParseStyle([]byte(tc.Style))
 		if err != nil {
-			t.Error(err)
+			t.Errorf("#%d, %v", i+1, err)
 			continue
 		}
 		for i, r := range tc.Rules {
@@ -112,8 +111,56 @@ func TestParseStyle(t *testing.T) {
 			}
 		}
 		if !reflect.DeepEqual(tc.Rules, sheet.Rules) {
-			t.Errorf("解析不一致：\nwant: %v\ngot:  %v", tc.Rules, sheet.Rules)
+			t.Errorf("解析不一致: #%d\nwant: %+v\ngot:  %+v", i+1, tc.Rules, sheet.Rules)
 			continue
+		}
+	}
+}
+
+func TestQuery(t *testing.T) {
+	type _Test struct {
+		Selector string
+		HTML     string
+		Boxes    []string
+	}
+
+	cases := LoadTestCases[_Test](`testdata/query.yaml`)
+	for i, tc := range cases {
+		// 早期非标准页面兼容
+		if strings.HasPrefix(tc.HTML, `<block`) || strings.HasPrefix(tc.HTML, `<inline`) {
+			updated := `<document><style>` +
+				`</style>` +
+				tc.HTML +
+				`</document>`
+			tc.HTML = updated
+		}
+
+		doc := _NewDocument(
+			1024, 768,
+			fstest.MapFS{
+				`main.html`: &fstest.MapFile{
+					Data: []byte(tc.HTML),
+					Mode: 0644,
+				},
+			},
+			nil, nil,
+		)
+		if err := doc.load(`main.html`, `.`); err != nil {
+			t.Errorf(`文档解析失败：#%d: %v`, i, err)
+			continue
+		}
+
+		boxes := doc.QuerySelectorAll(tc.Selector)
+		if len(boxes) != len(tc.Boxes) {
+			t.Errorf(`选择结果数不相等: #%d: %d vs. %d`, i+1, len(tc.Boxes), len(boxes))
+			continue
+		}
+		for i := range len(boxes) {
+			id1 := boxes[i].Base().ID
+			id2 := tc.Boxes[i]
+			if id1 != id2 {
+				t.Errorf(`盒子ID不一样: #%d: %s vs. %s`, i, id2, id1)
+			}
 		}
 	}
 }

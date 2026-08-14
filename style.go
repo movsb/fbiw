@@ -41,6 +41,9 @@ type Styles struct {
 
 	// 显示属性。布尔类型。
 	// 如果为true，参与排版；如果为false，完全隐藏。
+	// 此属性虽非继承属性，但是子盒子即便为true但父盒子为false时，
+	// 此子盒子仍然不会被显示。所以不能通过判断子盒子的display是否
+	// 为true来判断子盒子是否正处于显示状态。
 	Display Value
 }
 
@@ -509,10 +512,22 @@ type _Rule struct {
 
 type Selector = []NodeSelector
 
+type _Combinator uint8
+
+const (
+	// block > inline
+	childCombinator _Combinator = iota + 1
+)
+
 type NodeSelector struct {
 	Tag   string
 	Class []string
 	ID    string
+
+	// match all
+	Asterisk bool
+	// match child/sibling...
+	Combinator _Combinator
 
 	// 可直接比较大小，但不等于真实的css相关性，需要转换。
 	// 8 + 8 + 8   +  8
@@ -623,7 +638,7 @@ func (b *BufioReader) peekByte() byte {
 	return c[0]
 }
 
-func ParseSelector(selector string) Selector {
+func parseSelectorString(selector string) Selector {
 	buf := BufioReader{
 		Reader: bufio.NewReader(strings.NewReader(selector)),
 	}
@@ -636,7 +651,8 @@ func ParseSelector(selector string) Selector {
 //   - block
 //   - #id
 //   - .class
-//   - block inline
+//   - *
+//   - >
 func parseSelector(buf *BufioReader) []NodeSelector {
 	selectors := []NodeSelector{}
 	current := NodeSelector{}
@@ -656,20 +672,41 @@ func parseSelector(buf *BufioReader) []NodeSelector {
 		} else if isIdentChar(b) {
 			current.Tag = parseIdent(buf)
 			current.Specificity += 1 << 0
+		} else if b == '*' {
+			buf.Discard(1)
+			current.Asterisk = true
 		} else if b == ',' || b == '{' || b == 0 {
 			break
+		} else if b == '>' {
+
 		} else {
-			panic(`不认识的字符`)
+			panic(`不认识的字符:` + string(b))
 		}
-		if b := buf.peekByte(); b == ' ' || b == '\t' || b == 0 || b == '{' {
-			selectors = append(selectors, current)
-			current = NodeSelector{}
-			buf.skipSpaces()
+		if b := buf.peekByte(); b == ' ' || b == '\t' || b == '*' || b == '>' || b == 0 || b == '{' {
+			if b == '>' {
+				buf.Discard(1)
+				if len(selectors) <= 0 {
+					panic(`无效child combinator`)
+				}
+				last := &selectors[len(selectors)-1]
+				last.Combinator = childCombinator
+				buf.skipSpaces()
+			} else {
+				selectors = append(selectors, current)
+				current = NodeSelector{}
+				buf.skipSpaces()
+			}
 		}
 	}
 
 	if len(selectors) <= 0 {
 		panic(`没有选择器。`)
+	}
+
+	// 最后一个不能有 combinator
+	last := selectors[len(selectors)-1]
+	if last.Combinator != 0 {
+		panic(`最后一个选择器不能有Combinator`)
 	}
 
 	return selectors

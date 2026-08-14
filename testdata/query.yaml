@@ -1,0 +1,23 @@
+#1
+- selector: block.root *
+  html: |
+    <block class=root>
+      <block id=b1>
+        <block id=b2></block>
+        <block id=b3></block>
+      </block>
+    </block>
+
+  boxes: [b1,b2,b3]
+
+#2
+- selector: block.root > *
+  html: |
+    <block class=root>
+      <block id=b1>
+        <block></block>
+        <block></block>
+      </block>
+    </block>
+
+  boxes: [b1]

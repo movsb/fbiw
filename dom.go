@@ -43,7 +43,7 @@ type Document struct {
 	// 文档内 <style> 元素提供的样式
 	styleSheet *Sheet
 
-	// 文档body根节点（不是<document>本身，而是其下的第一个Box）。
+	// 文档body根节点。
 	// parse完成后写入。
 	root Box
 
@@ -274,7 +274,7 @@ func Bind(to any, box Box) {
 			continue
 		}
 
-		parsedSelector := ParseSelector(selector)
+		parsedSelector := parseSelectorString(selector)
 
 		// 普通成员，非切片。只选择一个盒子。
 		if field.Type.Kind() != reflect.Slice {
@@ -478,6 +478,16 @@ func (doc *Document) Focus(box Box) {
 
 // >>> 事件处理
 
+// 获取根节点。不是<document>本身，而是其下的第一个Box。
+func (doc *Document) Root() Box {
+	return doc.root
+}
+
+// 绑定 doc.root 到 to，参考 [Bind]。
+func (doc *Document) Bind(to any) {
+	Bind(to, doc.root)
+}
+
 // 获取指定ID的元素。
 func (doc *Document) GetBoxByID(id string) Box {
 	var out Box
@@ -495,7 +505,7 @@ func (doc *Document) GetBoxByID(id string) Box {
 // 找不到返回空，错误的selector直接崩溃。
 func (doc *Document) QuerySelector(selector string) Box {
 	var outBox Box
-	sel := ParseSelector(selector)
+	sel := parseSelectorString(selector)
 	walkBox(doc.root, func(box Box) bool {
 		if (_Styler{doc}).match(box, sel) {
 			outBox = box
@@ -509,7 +519,7 @@ func (doc *Document) QuerySelector(selector string) Box {
 // 选择所有匹配的元素。
 func (doc *Document) QuerySelectorAll(selector string) []Box {
 	var outBoxes []Box
-	sel := ParseSelector(selector)
+	sel := parseSelectorString(selector)
 	walkBox(doc.root, func(box Box) bool {
 		if (_Styler{doc}).match(box, sel) {
 			outBoxes = append(outBoxes, box)
@@ -747,6 +757,7 @@ func Define[T Box](name string, void bool, new func(doc *Document) T) {
 }
 
 // 这个类的存在只是不想document下有太多不相关的方法。
+// TODO doc只是提供默认样式，考虑移除，减少依赖
 type _Styler struct {
 	doc *Document
 }
@@ -891,6 +902,9 @@ func (s _Styler) match(node Box, selector Selector) bool {
 
 // 判断单个简单选择器是否匹配当前节点。
 func (s _Styler) _matchSelf(node Box, selector NodeSelector) bool {
+	if selector.Asterisk {
+		return true
+	}
 	return (selector.Tag == `` || selector.Tag == node.Base().Tag) &&
 		(len(selector.Class) == 0 || node.Base().class.ContainsAll(selector.Class...)) &&
 		(selector.ID == `` || selector.ID == node.Base().ID)
@@ -909,6 +923,15 @@ func (s _Styler) _matchAncestorsRecursive(node Box, ancestorSelectors Selector, 
 	if backIndex < 0 {
 		return true
 	}
+
+	// 如果前一个选择器有combinator，可以快速在此判断。
+	if ancestorSelectors[backIndex].Combinator == childCombinator {
+		parent := node.Base().Parent
+		if parent != nil && !s._matchSelf(parent, ancestorSelectors[backIndex]) {
+			return false
+		}
+	}
+
 	for ancestor := range node.Base().Ancestors() {
 		if s._matchSelf(ancestor, ancestorSelectors[backIndex]) {
 			if s._matchAncestorsRecursive(ancestor, ancestorSelectors, backIndex-1) {
