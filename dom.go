@@ -249,18 +249,23 @@ func Unmarshal[T any, Content string | []byte](owner *Document, content Content)
 	}
 
 	var t T
-	rv := reflect.ValueOf(&t).Elem()
+	Bind(&t, root)
+	return &t
+}
+
+// 根据to结构体中的css tags从box中查找对应的盒子并设置到to中。
+//
+// 支持单个元素和切片。
+func Bind(to any, box Box) {
+	doc := box.Document()
+	rv := reflect.ValueOf(to).Elem()
 	for field, fieldValue := range rv.Fields() {
 		if field.Name == `root` {
 			if field.Type != reflect.TypeFor[Box]() {
-				panic(`root必须是Box`)
+				panic(`root必须是Box类型`)
 			}
 			ptr := reflect.NewAt(field.Type, unsafe.Pointer(fieldValue.UnsafeAddr()))
-			ptr.Elem().Set(reflect.ValueOf(root))
-			continue
-		}
-
-		if !field.Type.Implements(reflect.TypeFor[Box]()) {
+			ptr.Elem().Set(reflect.ValueOf(box))
 			continue
 		}
 
@@ -270,28 +275,62 @@ func Unmarshal[T any, Content string | []byte](owner *Document, content Content)
 		}
 
 		parsedSelector := ParseSelector(selector)
-		var outBox Box
-		owner.walkNode(root, func(box Box) bool {
-			if (_Styler{owner}).match(box, parsedSelector) {
-				outBox = box
-				return false
+
+		// 普通成员，非切片。只选择一个盒子。
+		if field.Type.Kind() != reflect.Slice {
+			if !field.Type.Implements(reflect.TypeFor[Box]()) {
+				log.Panicf(`此类型未实现Box接口: %s(%v)`, field.Name, field.Type.String())
 			}
-			return true
-		})
-		if outBox == nil {
-			log.Panicf(`选择不到指定的元素: name: %s, css: %s`, field.Name, selector)
-		}
 
-		if !reflect.ValueOf(outBox).CanConvert(field.Type) {
-			log.Panicf(`类型不匹配：%v vs. %T`, field.Type.String(), outBox)
-		}
+			var outBox Box
+			walkBox(box, func(box Box) bool {
+				if (_Styler{doc: doc}).match(box, parsedSelector) {
+					outBox = box
+					return false
+				}
+				return true
+			})
 
-		converted := reflect.ValueOf(outBox).Convert(field.Type)
-		ptr := reflect.NewAt(field.Type, unsafe.Pointer(fieldValue.UnsafeAddr()))
-		ptr.Elem().Set(converted)
+			if outBox == nil {
+				log.Panicf(`选择不到指定的盒子: name: %s, css: %s`, field.Name, selector)
+			}
+			if !reflect.ValueOf(outBox).CanConvert(field.Type) {
+				log.Panicf(`类型不匹配: %v vs. %T`, field.Type.String(), outBox)
+			}
+
+			converted := reflect.ValueOf(outBox).Convert(field.Type)
+			ptr := reflect.NewAt(field.Type, unsafe.Pointer(fieldValue.UnsafeAddr()))
+			ptr.Elem().Set(converted)
+		} else {
+			elemType := field.Type.Elem()
+			if !elemType.Implements(reflect.TypeFor[Box]()) {
+				log.Panicf(`切片元素未实现Box接口: %s(%v)`, field.Name, elemType.String())
+			}
+
+			var outBoxes []Box
+			walkBox(box, func(box Box) bool {
+				if (_Styler{doc: doc}.match(box, parsedSelector)) {
+					outBoxes = append(outBoxes, box)
+					return true
+				}
+				return true
+			})
+
+			slice := reflect.MakeSlice(field.Type, 0, len(outBoxes))
+
+			// 找不到盒子（列表）不是错误。
+			for _, box := range outBoxes {
+				if !reflect.ValueOf(box).CanConvert(elemType) {
+					log.Panicf(`类型不匹配: %v vs. %T`, elemType.String(), box)
+				}
+				converted := reflect.ValueOf(box).Convert(elemType)
+				slice = reflect.Append(slice, converted)
+			}
+
+			ptr := reflect.NewAt(field.Type, unsafe.Pointer(fieldValue.UnsafeAddr()))
+			ptr.Elem().Set(slice)
+		}
 	}
-
-	return &t
 }
 
 // 标记文档内容脏掉了，需要重绘。
@@ -442,7 +481,7 @@ func (doc *Document) Focus(box Box) {
 // 获取指定ID的元素。
 func (doc *Document) GetBoxByID(id string) Box {
 	var out Box
-	doc.walkNode(doc.root, func(box Box) bool {
+	walkBox(doc.root, func(box Box) bool {
 		if box.Base().ID == id {
 			out = box
 			return false
@@ -457,7 +496,7 @@ func (doc *Document) GetBoxByID(id string) Box {
 func (doc *Document) QuerySelector(selector string) Box {
 	var outBox Box
 	sel := ParseSelector(selector)
-	doc.walkNode(doc.root, func(box Box) bool {
+	walkBox(doc.root, func(box Box) bool {
 		if (_Styler{doc}).match(box, sel) {
 			outBox = box
 			return false
@@ -471,7 +510,7 @@ func (doc *Document) QuerySelector(selector string) Box {
 func (doc *Document) QuerySelectorAll(selector string) []Box {
 	var outBoxes []Box
 	sel := ParseSelector(selector)
-	doc.walkNode(doc.root, func(box Box) bool {
+	walkBox(doc.root, func(box Box) bool {
 		if (_Styler{doc}).match(box, sel) {
 			outBoxes = append(outBoxes, box)
 		}
@@ -623,13 +662,12 @@ func (doc *Document) paint(canvas *Canvas) {
 	doc.root.Draw(canvas)
 }
 
-// 此方法只是属于doc，但是并不使用doc。
-func (doc *Document) walkNode(box Box, callback func(box Box) bool) bool {
+func walkBox(box Box, callback func(box Box) bool) bool {
 	if !callback(box) {
 		return false
 	}
 	for _, child := range box.Children() {
-		if !doc.walkNode(child, callback) {
+		if !walkBox(child, callback) {
 			return false
 		}
 	}
@@ -714,7 +752,7 @@ type _Styler struct {
 }
 
 func (s _Styler) Style(box Box, descendents bool, sheet *Sheet) (outErr error) {
-	s.doc.walkNode(box, func(box Box) bool {
+	walkBox(box, func(box Box) bool {
 		var rules []RuleMatch
 		if DefaultStyles != nil {
 			rules = append(rules, s.findRulesFor(box, DefaultStyles)...)

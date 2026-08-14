@@ -149,3 +149,38 @@ func BenchmarkDrawString(b *testing.B) {
 		}
 	})
 }
+
+func TestBind(t *testing.T) {
+	doc := _NewDocument(100, 100, nil, nil, nil)
+	root, _, err := parseDocument(doc, strings.NewReader(`
+<document>
+<block>
+	<inline>
+		<text>111</text>
+	</inline>
+	<inline>
+		<img><img><img>
+	</inline>
+</block>
+</document>
+	`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	to := struct {
+		root    Box
+		text    *Text    `css:"text"`
+		images1 []Box    `css:"img"`
+		images2 []*Image `css:"img"`
+	}{}
+	Bind(&to, root)
+	if to.root == nil {
+		panic(`root == nil`)
+	}
+	if to.text == nil || to.text.GetText() != `111` {
+		panic(`错误`)
+	}
+	if len(to.images1) != 3 || len(to.images2) != 3 {
+		panic(`个数错误`)
+	}
+}

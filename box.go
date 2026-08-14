@@ -44,8 +44,17 @@ type Box interface {
 	// 返回的是指针，不要尝试修改。
 	GetComputedStyles() *Styles
 
+	// 返回所属文档。
+	Document() *Document
 	// 返回孩子盒子列表。
 	Children() []Box
+
+	// 获取焦点。使其能接受键盘等事件处理。
+	Activate()
+
+	// 事件监听与分发。
+	Listen(ty EventType, handler func(*Event), options EventOptions) func()
+	Dispatch(event *Event)
 
 	// 类名操作相关函数。
 	ClassSet(class string)
@@ -59,6 +68,8 @@ type Constraints struct {
 	PrefersMaxWidth  bool
 	PrefersMaxHeight bool
 }
+
+var _ Box = (*BaseBox)(nil)
 
 // 所有可布局盒子的基类。
 //
@@ -77,7 +88,7 @@ type BaseBox struct {
 	// 用于存放用户任意数据。
 	dataset map[string]any
 
-	Document    *Document
+	document    *Document
 	Parent      Box
 	PrevSibling Box
 	NextSibling Box
@@ -105,7 +116,7 @@ type BaseBox struct {
 // 返回的不是指针。
 // 所以不要在这里初始化内部循环引用（比如： eventTarget.box）。
 func NewBaseBox(doc *Document, tagName string) BaseBox {
-	return BaseBox{Document: doc, Tag: tagName}
+	return BaseBox{document: doc, Tag: tagName}
 }
 
 type Rect struct {
@@ -147,9 +158,8 @@ func (b *BaseBox) ClassToggle(class string, force ...any) {
 	b.classChanged()
 }
 
-// 获取焦点。使其能接受键盘等事件处理。
 func (b *BaseBox) Activate() {
-	b.Document.activate(b)
+	b.document.activate(b)
 }
 
 // 祖先回溯。从父亲到祖宗。
@@ -174,6 +184,10 @@ func (b *BaseBox) ancestorsForward() iter.Seq[Box] {
 			}
 		}
 	}
+}
+
+func (b *BaseBox) Document() *Document {
+	return b.document
 }
 
 func (b *BaseBox) Children() []Box {
@@ -204,9 +218,9 @@ func (b *BaseBox) AppendChild(child Box) {
 		child.Base().PrevSibling = prevLastChild
 	}
 
-	if b.Document != nil {
-		b.Document.layoutDirty = true
-		b.Document.style(b, true)
+	if b.document != nil {
+		b.document.layoutDirty = true
+		b.document.style(b, true)
 	}
 }
 
@@ -218,14 +232,14 @@ func (b *BaseBox) SetProp(key string, val string) error {
 	reInherit, reLayout, rePaint, err := b.inlineStyles.Set(key, val)
 	if err == nil {
 		// 文档解析过程中也会调用进来，所以需要判断。
-		if b.Document.root != nil {
-			b.Document.style(b, reInherit)
+		if b.document.root != nil {
+			b.document.style(b, reInherit)
 		}
 		if reLayout {
-			b.Document.layoutDirty = true
+			b.document.layoutDirty = true
 		}
 		if rePaint {
-			b.Document.paintDirty = true
+			b.document.paintDirty = true
 		}
 		return nil
 	} else {
@@ -240,9 +254,9 @@ func (b *BaseBox) SetProp(key string, val string) error {
 	case `id`:
 		// 改ID也会影响样式选择，所以需要重新排版
 		b.ID = val
-		b.Document.layoutDirty = true
-		if b.Document.root != nil {
-			b.Document.style(b, true)
+		b.document.layoutDirty = true
+		if b.document.root != nil {
+			b.document.style(b, true)
 		}
 	case `class`:
 		// 改class也会影响样式选择，所以需要重新排版
@@ -276,9 +290,9 @@ func (b *BaseBox) SetData(name string, value any) {
 }
 
 func (b *BaseBox) classChanged() {
-	b.Document.layoutDirty = true
-	if b.Document.root != nil {
-		b.Document.style(b, true)
+	b.document.layoutDirty = true
+	if b.document.root != nil {
+		b.document.style(b, true)
 	}
 }
 
@@ -362,12 +376,12 @@ func (b *BaseBox) draw(canvas *Canvas, drawChildren bool) {
 		width := layoutWidth - borderWidth*2
 		height := layoutHeight - borderWidth*2
 		canvas := canvas.Offset(borderWidth, borderWidth)
-		img, _ := b.Document._loadImage(src, width, height, true)
+		img, _ := b.document._loadImage(src, width, height, true)
 		if len(img.Pixels) > 0 {
 			canvas.DrawImage(img, width, height)
 		} else {
-			b.Document.loadImageAsync(src, width, height, func(di DecodedImage, err error) {
-				b.Document.RequestPaint()
+			b.document.loadImageAsync(src, width, height, func(di DecodedImage, err error) {
+				b.document.RequestPaint()
 			})
 		}
 	} else if bcv := b.computedStyles.BackgroundColor; !bcv.Empty() && !bcv.Color.None() {
@@ -832,7 +846,7 @@ func (p *_TextParts) appendChildOrText(owner Box, child any) {
 	if box, ok := child.(Box); ok {
 		owner.Base().AppendChild(box)
 	} else {
-		if doc := owner.Base().Document; doc != nil {
+		if doc := owner.Document(); doc != nil {
 			doc.layoutDirty = true
 		}
 	}
@@ -971,7 +985,7 @@ func (t *Text) SegmentInline(availWidth, availHeight int) bool {
 			}
 		}
 
-		face := t.Document.LoadFaceWithFallback(t.textRuns[t.textRunIndex].Owner)
+		face := t.document.LoadFaceWithFallback(t.textRuns[t.textRunIndex].Owner)
 		end, runWidth, err := face.Segment(
 			t.textRuns[t.textRunIndex].Data[t.textRunDataIndex:],
 			availWidth-width)
@@ -1045,7 +1059,7 @@ func (t *Text) Draw(canvas *Canvas) {
 
 			text := fragment.Run.Data[fragment.Start:fragment.End]
 			canvas.drawStringDevice(text,
-				t.Document.LoadFaceWithFallback(owner),
+				t.document.LoadFaceWithFallback(owner),
 				owner.Base().computedStyles.Color.Color,
 				rc.Width, rc.Height,
 			)
@@ -1116,8 +1130,8 @@ func (b *Image) SetProp(key string, val string) error {
 		}
 		b.src = val
 		b.status = imageLoadStatusNone
-		if b.Document != nil {
-			b.Document.RequestLayout()
+		if b.document != nil {
+			b.document.RequestLayout()
 		}
 		return nil
 	default:
@@ -1147,13 +1161,13 @@ func (b *Image) Calc(availWidth, availHeight int, constraints Constraints) {
 
 	switch b.status {
 	case imageLoadStatusNone:
-		if img, err := b.Document.loadImageSync(b.src, b.layoutBox.Width, b.layoutBox.Height); err == nil {
+		if img, err := b.document.loadImageSync(b.src, b.layoutBox.Width, b.layoutBox.Height); err == nil {
 			b.decodedImage = img
 			b.status = imageLoadStatusSucceeded
 			b.Calc(availWidth, availHeight, constraints)
 			return
 		} else {
-			b.Document.loadImageAsync(b.src,
+			b.document.loadImageAsync(b.src,
 				b.layoutBox.Width, b.layoutBox.Height,
 				func(img DecodedImage, err error) {
 					if err != nil {
@@ -1162,7 +1176,7 @@ func (b *Image) Calc(availWidth, availHeight int, constraints Constraints) {
 					}
 					b.decodedImage = img
 					b.status = imageLoadStatusSucceeded
-					b.Document.RequestLayout()
+					b.document.RequestLayout()
 				},
 			)
 			b.status = imageLoadStatusStarted
@@ -1405,7 +1419,7 @@ func (b *Scroll) SetItems(count int, create func() (root Box, user any), bind fu
 	for r := range b.rows {
 		for c := range b.cols {
 			box, user := create()
-			wrapper := _NewScrollChild(b.Document)
+			wrapper := _NewScrollChild(b.document)
 			wrapper.user = user
 			wrapper.scroll = b
 			wrapper.rowIndex = r
@@ -1492,7 +1506,7 @@ func (b *Scroll) navigate(event *Event) {
 	// 如果物理列表没变（前面类名不会变化）、但是虚拟列表滚动了，
 	// 则需要主动告知文档更新，否则不会重绘。
 	if oldItemOffset != b.itemOffset {
-		b.Document.RequestPaint()
+		b.document.RequestPaint()
 	}
 
 	event.StopPropagation()
@@ -1549,7 +1563,7 @@ func (b *Scroll) SetIndex(rowIndex, colIndex, dataIndexOffset int) {
 	childIndex := rowIndex*b.cols + b.colIndex
 	b.children[childIndex].Base().ClassAdd(`selected`)
 
-	b.Document.RequestPaint()
+	b.document.RequestPaint()
 }
 
 // 返回数据总量。
@@ -1577,7 +1591,7 @@ func (b *Scroll) Deselect() {
 	// 好像可以不用归位？
 	b.itemOffset = 0
 
-	b.Document.RequestPaint()
+	b.document.RequestPaint()
 }
 
 // 返回当前的选中状态信息，可用于后期恢复。
@@ -1599,5 +1613,5 @@ func (b *Scroll) SetState(state any) {
 		b.children[childIndex].Base().ClassAdd(`selected`)
 	}
 
-	b.Document.RequestPaint()
+	b.document.RequestPaint()
 }
