@@ -290,3 +290,12 @@
   calc:
     inline: [500,0,24,68]
 
+#22 带padding的居中计算错误
+- html: |
+    <block>
+    	<block width="200" height="200" padding="50" align="both">
+    		<block width="50" height="50" id=b1></block>
+    	</block>
+    </block>
+  calc:
+    b1: [75,75,50,50]

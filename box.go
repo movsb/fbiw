@@ -502,7 +502,7 @@ func blockCalc(b *BaseBox, availWidth, availHeight int, constraints Constraints)
 	// 对于block来说，垂直方向不止一个元素，需要整体平移。
 	offsetY := b.ncWidth()
 	if align := computed.Align.String; align == `both` || align == `middle` {
-		offsetY += (b.layoutBox.Height - contentHeight) / 2
+		offsetY += (b.layoutBox.Height - b.ncWidth()*2 - contentHeight) / 2
 	}
 
 	// 然后是水平对齐。
@@ -635,7 +635,7 @@ func inlineCalc(b *BaseBox, availWidth, availHeight int, constraints Constraints
 	// 对于inline来说，水平方向不止一个元素，需要整体平移。
 	// BUG: inline 是可以跨行的。这里没有考虑多行元素的对齐。
 	if align := computed.Align.String; align == `both` || align == `center` {
-		offsetX += (b.layoutBox.Width - contentWidth) / 2
+		offsetX += (b.layoutBox.Width - b.ncWidth()*2 - contentWidth) / 2
 	}
 
 	// 然后是垂直对齐。也只处理了单行元素。
