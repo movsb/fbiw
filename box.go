@@ -1499,12 +1499,16 @@ func (b *_ScrollState) navigate(name KeyName) bool {
 		}
 	case Left:
 		// 左右可以翻页（只针对于1列的盒子）
-		if b.colIndex > 0 {
+		if b.cols == 1 {
+			b.pageLeft()
+		} else if b.colIndex > 0 {
 			b.colIndex--
 		}
 	case Right:
 		// 左右可以翻页（只针对于1列的盒子）
-		if b.rowIndex >= 0 {
+		if b.cols == 1 {
+			b.pageRight()
+		} else if b.rowIndex >= 0 {
 			maxCol := b.cols - 1
 			if b.curDataRow() == b.maxDataRow() && b.count%b.cols != 0 {
 				maxCol = b.count%b.cols - 1
@@ -1516,6 +1520,32 @@ func (b *_ScrollState) navigate(name KeyName) bool {
 	}
 
 	return old != *b
+}
+
+func (b *_ScrollState) pageLeft() {
+	if b.rowIndex < 0 {
+		return
+	}
+	if b.itemOffset >= b.rows {
+		b.itemOffset -= b.rows
+		return
+	}
+
+	b.rowIndex = 0
+	b.itemOffset = 0
+}
+
+func (b *_ScrollState) pageRight() {
+	if b.rowIndex < 0 || b.count == 0 {
+		return
+	}
+	if b.itemOffset+b.rows+b.rowIndex < b.count {
+		b.itemOffset += b.rows
+		return
+	}
+
+	b.rowIndex = min(b.rows-1, b.count-1)
+	b.itemOffset = b.count - 1 - b.rowIndex
 }
 
 func (b *_ScrollState) curDataRow() int {
