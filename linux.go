@@ -10,7 +10,9 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
+	"time"
 	"unsafe"
 
 	"golang.org/x/sys/unix"
@@ -184,14 +186,9 @@ func _pollEvents(ctx context.Context, handler func(*Event)) {
 		Value int32
 	}{}
 
-	send := func(name KeyName, pressed bool) {
-		handler(&Event{
-			Type: Iif(pressed, StickDownEvent, StickUpEvent),
-			Stick: KeyEventArgs{
-				Name: name,
-			},
-		})
-	}
+	repeater := newKeyRepeater(ctx, 500*time.Millisecond, 100*time.Millisecond, handler)
+	defer repeater.close()
+	send := repeater.send
 
 	keyMaps := map[uint16]KeyName{
 		305: A,
@@ -210,7 +207,31 @@ func _pollEvents(ctx context.Context, handler func(*Event)) {
 		173: Home,
 	}
 
-	var upOrLeft bool
+	// EV_ABS 的方向键在松开时只上报 0，所以分别记录两个轴当前
+	// 按下的方向。不能共用一个 bool，否则同时操作横纵轴会串键。
+	axes := map[uint16]KeyName{}
+	sendAxis := func(code uint16, value int32, negative, positive KeyName) {
+		if value == 0 {
+			if old, ok := axes[code]; ok {
+				send(old, false)
+				delete(axes, code)
+			}
+			return
+		}
+
+		name := positive
+		if value < 0 {
+			name = negative
+		}
+		if old, ok := axes[code]; ok {
+			if old == name {
+				return
+			}
+			send(old, false)
+		}
+		axes[code] = name
+		send(name, true)
+	}
 
 	for {
 		select {
@@ -224,49 +245,115 @@ func _pollEvents(ctx context.Context, handler func(*Event)) {
 		}
 		switch ev.Type {
 		case 1:
-			// 重复按键
-			if ev.Code == 2 {
-				continue
-			}
-			pressed := ev.Value == 1
 			if mapped, ok := keyMaps[ev.Code]; ok {
-				send(mapped, pressed)
+				switch ev.Value {
+				case 0:
+					send(mapped, false)
+				case 1:
+					send(mapped, true)
+				case 2:
+					// 内核自动重复。这里统一由 keyRepeater 产生，避免
+					// 不同输入设备的重复行为和频率不一致。
+				}
 			}
 		case 3:
 			switch ev.Code {
-			// 好奇怪，同时用17表示上和下，松开都是0，无法直接区分。
 			case 17:
-				switch ev.Value {
-				case -1:
-					send(Up, true)
-					upOrLeft = true
-				case 1:
-					send(Down, true)
-					upOrLeft = false
-				case 0:
-					if upOrLeft {
-						send(Up, false)
-					} else {
-						send(Down, false)
-					}
-				}
+				sendAxis(ev.Code, ev.Value, Up, Down)
 			case 16:
-				switch ev.Value {
-				case -1:
-					send(Left, true)
-					upOrLeft = true
-				case 1:
-					send(Right, true)
-					upOrLeft = false
-				case 0:
-					if upOrLeft {
-						send(Left, false)
-					} else {
-						send(Right, false)
-					}
-				}
+				sendAxis(ev.Code, ev.Value, Left, Right)
 			}
 		}
 		// fmt.Printf("Keyboard: type=%d code=%d value=%d\n", ev.Type, ev.Code, ev.Value)
+	}
+}
+
+// keyRepeater 把一次按下模拟成桌面键盘式的自动重复：先立即发送一次
+// StickDownEvent，等待 delay 后持续发送 StickDownEvent，直到收到松开。
+type keyRepeater struct {
+	ctx      context.Context
+	delay    time.Duration
+	interval time.Duration
+	handler  func(*Event)
+
+	mu   sync.Mutex
+	held map[KeyName]context.CancelFunc
+}
+
+func newKeyRepeater(ctx context.Context, delay, interval time.Duration, handler func(*Event)) *keyRepeater {
+	return &keyRepeater{
+		ctx:      ctx,
+		delay:    delay,
+		interval: interval,
+		handler:  handler,
+		held:     make(map[KeyName]context.CancelFunc),
+	}
+}
+
+func (r *keyRepeater) emit(name KeyName, pressed bool) {
+	r.handler(&Event{
+		Type:  Iif(pressed, StickDownEvent, StickUpEvent),
+		Stick: KeyEventArgs{Name: name},
+	})
+}
+
+func (r *keyRepeater) send(name KeyName, pressed bool) {
+	r.mu.Lock()
+	if !pressed {
+		if cancel, ok := r.held[name]; ok {
+			cancel()
+			delete(r.held, name)
+		}
+		r.emit(name, false)
+		r.mu.Unlock()
+		return
+	}
+
+	if _, alreadyHeld := r.held[name]; alreadyHeld {
+		r.mu.Unlock()
+		return
+	}
+	repeatCtx, cancel := context.WithCancel(r.ctx)
+	r.held[name] = cancel
+	r.emit(name, true)
+	r.mu.Unlock()
+
+	go r.repeat(repeatCtx, name)
+}
+
+func (r *keyRepeater) repeat(ctx context.Context, name KeyName) {
+	timer := time.NewTimer(r.delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return
+	case <-timer.C:
+	}
+
+	ticker := time.NewTicker(r.interval)
+	defer ticker.Stop()
+	for {
+		r.mu.Lock()
+		if ctx.Err() != nil {
+			r.mu.Unlock()
+			return
+		}
+		r.emit(name, true)
+		r.mu.Unlock()
+
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
+}
+
+func (r *keyRepeater) close() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for name, cancel := range r.held {
+		cancel()
+		delete(r.held, name)
 	}
 }
