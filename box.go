@@ -1220,22 +1220,26 @@ func (b *Image) Draw(canvas *Canvas) {
 type Scroll struct {
 	BaseBox
 
-	// 列表的行数。
-	rows int
-	// 列表的列数。
-	cols int
-	gap  int
+	gap int
 
-	count int
-	bind  func(user any, index int)
+	bind func(user any, index int)
 
 	_ScrollState
 }
 
 type _ScrollState struct {
+	// 列表的数据总量。
+	count int
+
+	// 列表的行数。
+	rows int
+	// 列表的列数。
+	cols int
+
 	// child selection index
 	rowIndex int
 	colIndex int
+
 	// 虚拟滚动的item顶部起始元素。
 	itemOffset int
 }
@@ -1243,9 +1247,9 @@ type _ScrollState struct {
 func NewScroll(doc *Document) *Scroll {
 	scroll := &Scroll{
 		BaseBox: NewBaseBox(doc, `scroll`),
-		rows:    1,
-		cols:    1,
 		_ScrollState: _ScrollState{
+			rows:       1,
+			cols:       1,
 			rowIndex:   -1,
 			colIndex:   -1,
 			itemOffset: 0,
@@ -1433,18 +1437,39 @@ func (b *Scroll) SetItems(count int, create func() (root Box, user any), bind fu
 func (b *Scroll) navigate(event *Event) {
 	name := event.Stick.Name
 
-	// 目前只支持上下滚动
 	if !(name == Up || name == Down || name == Left || name == Right) {
 		return
 	}
 
-	var (
-		oldRowIndex   = b.rowIndex
-		oldColIndex   = b.colIndex
-		oldItemOffset = b.itemOffset
-	)
+	oldState := b._ScrollState
+	if !b._ScrollState.navigate(name) {
+		return
+	}
 
-	// 计算新的索引
+	// 取消选中原来的
+	if childIndex := oldState.rowIndex*oldState.cols + oldState.colIndex; childIndex >= 0 && childIndex <= len(b.children)-1 {
+		b.children[childIndex].Base().ClassRemove(`selected`)
+	}
+
+	// 更新选中
+	if childIndex := b.rowIndex*b.cols + b.colIndex; childIndex >= 0 && childIndex <= len(b.children)-1 {
+		b.children[childIndex].Base().ClassAdd(`selected`)
+	}
+
+	// 如果物理列表没变（前面类名不会变化）、但是虚拟列表滚动了，
+	// 则需要主动告知文档更新，否则不会重绘。
+	if oldState.itemOffset != b.itemOffset {
+		b.document.RequestPaint()
+	}
+
+	event.StopPropagation()
+}
+
+// navigate 计算一次导航后的选中状态。
+// 返回值表示状态是否发生了变化。
+func (b *_ScrollState) navigate(name KeyName) bool {
+	old := *b
+
 	switch name {
 	case Up:
 		switch {
@@ -1459,7 +1484,7 @@ func (b *Scroll) navigate(event *Event) {
 	case Down:
 		// 先加再判断错误
 		if b.curDataRow() >= b.maxDataRow() {
-			return
+			return false
 		}
 		// 行增加成功说明下一行一定有数据。
 		b.rowIndex++
@@ -1473,10 +1498,12 @@ func (b *Scroll) navigate(event *Event) {
 			b.rowIndex--
 		}
 	case Left:
+		// 左右可以翻页（只针对于1列的盒子）
 		if b.colIndex > 0 {
 			b.colIndex--
 		}
 	case Right:
+		// 左右可以翻页（只针对于1列的盒子）
 		if b.rowIndex >= 0 {
 			maxCol := b.cols - 1
 			if b.curDataRow() == b.maxDataRow() && b.count%b.cols != 0 {
@@ -1488,36 +1515,15 @@ func (b *Scroll) navigate(event *Event) {
 		}
 	}
 
-	// 如果没有变化，什么也不要做，减少刷新
-	if (oldRowIndex == b.rowIndex && oldColIndex == b.colIndex) && oldItemOffset == b.itemOffset {
-		return
-	}
-
-	// 取消选中原来的
-	if childIndex := oldRowIndex*b.cols + oldColIndex; childIndex >= 0 && childIndex <= len(b.children)-1 {
-		b.children[childIndex].Base().ClassRemove(`selected`)
-	}
-
-	// 更新选中
-	if childIndex := b.rowIndex*b.cols + b.colIndex; childIndex >= 0 && childIndex <= len(b.children)-1 {
-		b.children[childIndex].Base().ClassAdd(`selected`)
-	}
-
-	// 如果物理列表没变（前面类名不会变化）、但是虚拟列表滚动了，
-	// 则需要主动告知文档更新，否则不会重绘。
-	if oldItemOffset != b.itemOffset {
-		b.document.RequestPaint()
-	}
-
-	event.StopPropagation()
+	return old != *b
 }
 
-func (b *Scroll) curDataRow() int {
+func (b *_ScrollState) curDataRow() int {
 	return b.rowIndex + b.itemOffset/b.cols
 }
 
 // [0,rows-1]
-func (b *Scroll) maxDataRow() int {
+func (b *_ScrollState) maxDataRow() int {
 	return b.count/b.cols + Iif(b.count%b.cols > 0, 1, 0) - 1
 }
 
