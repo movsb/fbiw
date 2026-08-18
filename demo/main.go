@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"embed"
 	_ "embed"
 	"net/http"
@@ -22,12 +21,12 @@ func init() {
 var embedded embed.FS
 
 func main() {
-	app := fbiw.NewApp(context.Background(), embedded)
+	app := fbiw.NewApp()
 	defer app.Close()
 
 	app.AddFont(`system`, false, false, os.DirFS(`.`), `regular.ttf`)
 
-	doc := app.New(`main.html`, `skin`)
+	doc := app.New(embedded, `main.html`)
 
 	app.Show(doc)
 

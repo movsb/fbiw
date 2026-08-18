@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"embed"
 	_ "embed"
 	"fmt"
@@ -15,13 +14,10 @@ import (
 var embedded embed.FS
 
 func main() {
-	app := fbiw.NewApp(
-		context.Background(), embedded,
-		fbiw.WithSystemFont(os.DirFS(`..`), `regular.ttf`),
-	)
+	app := fbiw.NewApp(fbiw.WithSystemFont(os.DirFS(`..`), `regular.ttf`))
 	defer app.Close()
 
-	doc := app.New(`main.html`, `skin`)
+	doc := app.New(embedded, `main.html`)
 
 	scroll := doc.GetBoxByID(`scroll`).(*fbiw.Scroll)
 

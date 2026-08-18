@@ -46,6 +46,8 @@ type Box interface {
 
 	// 返回所属文档。
 	Document() *Document
+	// 返回父亲盒子。
+	Parent() Box
 	// 返回孩子盒子列表。
 	Children() []Box
 
@@ -89,7 +91,7 @@ type BaseBox struct {
 	dataset map[string]any
 
 	document    *Document
-	Parent      Box
+	parent      Box
 	PrevSibling Box
 	NextSibling Box
 	children    []Box
@@ -165,7 +167,7 @@ func (b *BaseBox) Activate() {
 // 祖先回溯。从父亲到祖宗。
 func (b *BaseBox) Ancestors() iter.Seq[Box] {
 	return func(yield func(Box) bool) {
-		for p := b.Parent; p != nil; p = p.Base().Parent {
+		for p := b.Parent(); p != nil; p = p.Parent() {
 			if !yield(p) {
 				break
 			}
@@ -174,7 +176,7 @@ func (b *BaseBox) Ancestors() iter.Seq[Box] {
 }
 func (b *BaseBox) ancestorsForward() iter.Seq[Box] {
 	var boxes []Box
-	for p := b.Parent; p != nil; p = p.Base().Parent {
+	for p := b.Parent(); p != nil; p = p.Parent() {
 		boxes = append(boxes, p)
 	}
 	return func(yield func(Box) bool) {
@@ -188,6 +190,10 @@ func (b *BaseBox) ancestorsForward() iter.Seq[Box] {
 
 func (b *BaseBox) Document() *Document {
 	return b.document
+}
+
+func (b *BaseBox) Parent() Box {
+	return b.parent
 }
 
 func (b *BaseBox) Children() []Box {
@@ -211,7 +217,7 @@ func (b *BaseBox) AppendChild(child Box) {
 
 	prevLastChild := b.lastChild()
 	b.children = append(b.children, child)
-	child.Base().Parent = b
+	child.Base().parent = b
 
 	if prevLastChild != nil {
 		prevLastChild.Base().NextSibling = child
@@ -1597,7 +1603,7 @@ func (b *Scroll) SetIndex(rowIndex, colIndex, dataIndexOffset int) {
 	b.itemOffset = dataIndexOffset
 
 	childIndex := rowIndex*b.cols + b.colIndex
-	b.children[childIndex].Base().ClassAdd(`selected`)
+	b.children[childIndex].ClassAdd(`selected`)
 
 	b.document.RequestPaint()
 }
@@ -1620,7 +1626,7 @@ func (b *Scroll) DataRowIndex() int {
 func (b *Scroll) Deselect() {
 	childIndex := b.rowIndex*b.cols + b.colIndex
 	if childIndex >= 0 && childIndex <= len(b.children)-1 {
-		b.children[childIndex].Base().ClassRemove(`selected`)
+		b.children[childIndex].ClassRemove(`selected`)
 	}
 	b.rowIndex = -1
 	b.colIndex = 0
@@ -1646,7 +1652,7 @@ func (b *Scroll) SetState(state any) {
 	b._ScrollState = st
 	childIndex := b.rowIndex*b.cols + b.colIndex
 	if childIndex >= 0 && childIndex <= len(b.children)-1 {
-		b.children[childIndex].Base().ClassAdd(`selected`)
+		b.children[childIndex].ClassAdd(`selected`)
 	}
 
 	b.document.RequestPaint()

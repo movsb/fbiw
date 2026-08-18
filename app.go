@@ -10,6 +10,12 @@ import (
 
 type Option func(app *App)
 
+func WithContext(ctx context.Context) Option {
+	return func(app *App) {
+		app.ctx = ctx
+	}
+}
+
 // 添加系统字体。失败并不会退出。
 func WithSystemFont(fsys fs.FS, path string) Option {
 	return func(app *App) {
@@ -38,7 +44,6 @@ type App struct {
 	canvas  *Canvas
 	images  *ImageManager
 	fonts   *FontManager
-	root    fs.FS
 
 	// 层叠的窗口列表。
 	// 上面的在后面。
@@ -59,20 +64,10 @@ type App struct {
 	detached int
 }
 
-func NewApp(
-	ctx context.Context,
-	fileSystem fs.FS,
-	options ...Option,
-) *App {
-	ctx, cancel := context.WithCancel(ctx)
-
+func NewApp(options ...Option) *App {
 	display := openDisplay()
 
 	app := &App{
-		ctx:    ctx,
-		cancel: cancel,
-
-		root:    fileSystem,
 		display: display,
 		canvas:  NewCanvas(display),
 		images:  NewImageManager(),
@@ -94,6 +89,14 @@ func NewApp(
 		opt(app)
 	}
 
+	if app.ctx == nil {
+		app.ctx = context.Background()
+	}
+
+	ctx, cancel := context.WithCancel(app.ctx)
+	app.ctx = ctx
+	app.cancel = cancel
+
 	return app
 }
 
@@ -111,18 +114,18 @@ func (app *App) Context() context.Context {
 // 创建新的文档，并绑定到此App上作为前台窗口。
 //
 // 创建的文档默认不显示，需要 Show()。
-func (app *App) New(name string, skinDir string) *Document {
+func (app *App) New(fsys fs.FS, name string) *Document {
 	doc := _NewDocument(
 		app.canvas.width, app.canvas.height,
-		app.root, app.fonts, app.images,
+		fsys, app.fonts, app.images,
 	)
-	if err := doc.load(name, skinDir); err != nil {
+	if err := doc.load(name); err != nil {
 		panic(err)
 	}
 	doc.display = false
 	doc.app = app
 	// 默认把焦点设置给根元素。
-	doc.root.Base().Activate()
+	doc.root.Activate()
 	// 追加到后面（最上层窗口）
 	app.documents = append(app.documents, doc)
 	return doc

@@ -44,7 +44,7 @@ func TestCalc(t *testing.T) {
 			},
 			fontManager, imageManager,
 		)
-		if err := doc.load(`main.html`, `.`); err != nil {
+		if err := doc.load(`main.html`); err != nil {
 			t.Errorf(`文档解析失败：#%d: %v`, i, err)
 			continue
 		}
@@ -145,7 +145,7 @@ func TestQuery(t *testing.T) {
 			},
 			nil, nil,
 		)
-		if err := doc.load(`main.html`, `.`); err != nil {
+		if err := doc.load(`main.html`); err != nil {
 			t.Errorf(`文档解析失败：#%d: %v`, i, err)
 			continue
 		}

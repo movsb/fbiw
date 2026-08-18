@@ -10,7 +10,6 @@ import (
 	"log"
 	"net/url"
 	"os"
-	"path"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -29,10 +28,9 @@ type Document struct {
 	app     *App
 	display bool
 
-	// 资源包
+	// 资源包。
+	// html文件和img资源等放这里。
 	fsys fs.FS
-	// HTML内引用的所有资源文件基于此目录。
-	skinDir string
 
 	fontManager  *FontManager
 	imageManager *ImageManager
@@ -87,7 +85,7 @@ func (doc *Document) Close() {
 // 文件来源于初始化时的文件系统。
 //
 // TODO 按理说这个方法应该是 NewDocument 调用的，但是现在还在 app 那。
-func (doc *Document) load(name string, skinDir string) error {
+func (doc *Document) load(name string) error {
 	doc.name = name
 
 	fp, err := doc.fsys.Open(name)
@@ -114,11 +112,6 @@ func (doc *Document) load(name string, skinDir string) error {
 	if err := doc.style(doc.root, true); err != nil {
 		return err
 	}
-
-	if skinDir == `` {
-		skinDir = `.`
-	}
-	doc.skinDir = skinDir
 
 	doc.layoutDirty = true
 	doc.paintDirty = true
@@ -690,7 +683,7 @@ func walkBox(box Box, callback func(box Box) bool) bool {
 // checking: 只检测是否存在缓存。
 func (doc *Document) _loadImage(src string, width, height int, checking bool) (DecodedImage, error) {
 	if !strings.Contains(src, `:`) {
-		return doc.imageManager.GetImageScaledCached(doc.fsys, path.Join(doc.skinDir, src), width, height, checking)
+		return doc.imageManager.GetImageScaledCached(doc.fsys, src, width, height, checking)
 	}
 	if u, err := url.Parse(src); err == nil {
 		switch u.Scheme {
@@ -834,8 +827,8 @@ func (s _Styler) computeStyles(node Box, rules []RuleMatch) error {
 		}
 		if field.Type == reflect.TypeFor[Value]() {
 			setFromParent := false
-			for parent := node.Base().Parent; parent != nil; parent = parent.Base().Parent {
-				parentValue := reflect.ValueOf(&parent.Base().computedStyles)
+			for parent := node.Parent(); parent != nil; parent = parent.Parent() {
+				parentValue := reflect.ValueOf(parent.GetComputedStyles())
 				parentField := parentValue.Elem().FieldByIndex(field.Index)
 				value3 := parentField.Interface().(Value)
 				if !value3.Empty() {
@@ -926,7 +919,7 @@ func (s _Styler) _matchAncestorsRecursive(node Box, ancestorSelectors Selector, 
 
 	// 如果前一个选择器有combinator，可以快速在此判断。
 	if ancestorSelectors[backIndex].Combinator == childCombinator {
-		parent := node.Base().Parent
+		parent := node.Parent()
 		if parent != nil && !s._matchSelf(parent, ancestorSelectors[backIndex]) {
 			return false
 		}

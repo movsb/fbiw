@@ -2,7 +2,9 @@ package fbiw
 
 import (
 	"io"
+	"io/fs"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strconv"
 
@@ -88,4 +90,13 @@ func LoadTestCases[T any](path string) []*T {
 	}
 
 	return t
+}
+
+// 返回此函数的调用者的目录文件系统。
+func CallerDir() fs.FS {
+	_, file, _, ok := runtime.Caller(1)
+	if !ok {
+		panic(`无法获取路径。`)
+	}
+	return os.DirFS(filepath.Dir(file))
 }
