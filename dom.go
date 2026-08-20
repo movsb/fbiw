@@ -22,6 +22,7 @@ import (
 
 type Document struct {
 	// 调试用的。
+	// 实际可能等于创建文档时指定的文件。
 	name string
 
 	// 为 app 框架服务的数据。
@@ -35,6 +36,12 @@ type Document struct {
 	fontManager  *FontManager
 	imageManager *ImageManager
 
+	// 文档标题。
+	// 来源于<title></title>。
+	// 标题可用于自动显示在状态栏上。
+	title string
+
+	// 文档初始可用尺寸。
 	width, height int
 	// 默认样式总是用于初始化拷贝，所以不需要用指针，方便拷贝并覆盖。
 	defaultStyles Styles
@@ -94,12 +101,13 @@ func (doc *Document) load(name string) error {
 	}
 	defer fp.Close()
 
-	root, sheet, err := parseDocument(doc, fp)
+	parsed, err := parseDocument(doc, fp)
 	if err != nil {
 		return fmt.Errorf(`文档解析失败：%w`, err)
 	}
-	doc.root = root
-	doc.styleSheet = sheet
+	doc.title = parsed.title
+	doc.root = parsed.root
+	doc.styleSheet = parsed.style
 
 	// 计算文档默认样式。
 	docBox := _DocBox{BaseBox: BaseBox{Tag: `document`}}
@@ -124,6 +132,12 @@ type _DocBox struct {
 	BaseBox
 }
 
+type _ParsedDocumentData struct {
+	title string
+	root  Box
+	style *Sheet
+}
+
 // html parser 的问题：
 //
 //   - <spacer/> 写法不支持。html5 没有自闭合标签，会被解析成 <spacer>（“/”直接没了），
@@ -135,55 +149,74 @@ type _DocBox struct {
 // Unmarshal 那边也要用，所以独立出来。
 //
 // 只是解析文档，不会计算样式。
-func parseDocument(owner *Document, content io.Reader) (Box, *Sheet, error) {
+func parseDocument(owner *Document, content io.Reader) (*_ParsedDocumentData, error) {
 	context := &html.Node{Type: html.ElementNode, DataAtom: atom.Div, Data: `div`}
 	nodes, err := html.ParseFragment(content, context)
 	if err != nil {
-		return nil, nil, fmt.Errorf(`文档解析失败：%w`, err)
+		return nil, fmt.Errorf(`文档解析失败：%w`, err)
 	}
 	// 去掉根节点所有的文本节点，确保只有一个节点。
 	nodes = slices.DeleteFunc(nodes, func(node *html.Node) bool {
 		return node.Type != html.ElementNode
 	})
 	if len(nodes) != 1 {
-		return nil, nil, fmt.Errorf(`找不到文档的元素节点`)
+		return nil, fmt.Errorf(`找不到文档的元素节点`)
 	}
 
 	first := nodes[0]
 	if first.Data != `document` {
-		return nil, nil, fmt.Errorf(`根节点需要是 <document>`)
+		return nil, fmt.Errorf(`根节点需要是 <document>`)
 	}
 
 	var (
+		titleNode *html.Node
 		styleNode *html.Node
 		bodyNode  *html.Node
 	)
 	for child := range first.ChildNodes() {
 		switch child.Type {
 		case html.ElementNode:
-			if child.DataAtom == atom.Style {
+			if child.DataAtom == atom.Title {
+				if titleNode != nil {
+					return nil, fmt.Errorf(`重复的标题节点`)
+				}
+				titleNode = child
+			} else if child.DataAtom == atom.Style {
 				if styleNode != nil {
-					return nil, nil, fmt.Errorf(`重复的样式节点`)
+					return nil, fmt.Errorf(`重复的样式节点`)
 				}
 				styleNode = child
 			} else if child.Data == `block` {
 				if bodyNode != nil {
-					return nil, nil, fmt.Errorf(`根元素下重复节点`)
+					return nil, fmt.Errorf(`根元素下重复节点`)
 				}
 				bodyNode = child
 			} else if child.Data == `inline` {
 				if bodyNode != nil {
-					return nil, nil, fmt.Errorf(`根元素下重复节点`)
+					return nil, fmt.Errorf(`根元素下重复节点`)
 				}
 				bodyNode = child
 			} else {
-				return nil, nil, fmt.Errorf(`根元素下不认识的节点：%s`, child.Data)
+				return nil, fmt.Errorf(`根元素下不认识的节点：%s`, child.Data)
 			}
 		case html.TextNode:
 			if strings.TrimSpace(child.Data) != `` {
-				return nil, nil, fmt.Errorf(`根元素下不能有文本内容`)
+				return nil, fmt.Errorf(`根元素下不能有文本内容`)
 			}
 		case html.CommentNode:
+		}
+	}
+
+	var title string
+	if titleNode != nil {
+		if titleNode.FirstChild == nil {
+			title = ``
+		} else if titleNode.FirstChild.NextSibling != nil {
+			return nil, fmt.Errorf(`标题太复杂`)
+		} else if titleNode.FirstChild.Type != html.TextNode {
+			return nil, fmt.Errorf(`标题不是文本节点`)
+		} else {
+			title = titleNode.FirstChild.Data
 		}
 	}
 
@@ -193,29 +226,29 @@ func parseDocument(owner *Document, content io.Reader) (Box, *Sheet, error) {
 		if styleNode.FirstChild == nil {
 			sheet = &Sheet{}
 		} else if styleNode.FirstChild.NextSibling != nil {
-			return nil, nil, fmt.Errorf(`样式格式错误`)
+			return nil, fmt.Errorf(`样式格式错误`)
 		} else if styleNode.FirstChild.Type != html.TextNode {
-			return nil, nil, fmt.Errorf(`不是文本节点`)
+			return nil, fmt.Errorf(`不是文本节点`)
 		} else {
 			textData := styleNode.FirstChild.Data
 			sheet2, err := ParseStyle([]byte(textData))
 			if err != nil {
-				return nil, nil, fmt.Errorf(`样式解析失败：%w`, err)
+				return nil, fmt.Errorf(`样式解析失败：%w`, err)
 			}
 			sheet = sheet2
 		}
 	}
 
 	if bodyNode == nil {
-		return nil, nil, fmt.Errorf(`缺少block节点`)
+		return nil, fmt.Errorf(`缺少block节点`)
 	}
 
 	box, err := _NodeTransformer{owner}.Transform(bodyNode)
 	if err != nil {
-		return nil, nil, fmt.Errorf(`文档内容节点解析失败：%w`, err)
+		return nil, fmt.Errorf(`文档内容节点解析失败：%w`, err)
 	}
 
-	return box, sheet, nil
+	return &_ParsedDocumentData{title: title, style: sheet, root: box}, nil
 }
 
 // 反序列化content(html)到指定结构体中。
@@ -236,13 +269,13 @@ func Unmarshal[T any, Content string | []byte](owner *Document, content Content)
 	buf.Write([]byte(content))
 	buf.WriteString(`</document>`)
 
-	root, _, err := parseDocument(owner, buf)
+	parsed, err := parseDocument(owner, buf)
 	if err != nil {
 		panic(err)
 	}
 
 	var t T
-	Bind(&t, root)
+	Bind(&t, parsed.root)
 	return &t
 }
 
@@ -470,6 +503,11 @@ func (doc *Document) Focus(box Box) {
 */
 
 // >>> 事件处理
+
+// 获取文档标题（可能为空，如果没有设置的话）。
+func (doc *Document) Title() string {
+	return doc.title
+}
 
 // 获取根节点。不是<document>本身，而是其下的第一个Box。
 func (doc *Document) Root() Box {

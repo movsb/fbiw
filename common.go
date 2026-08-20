@@ -103,6 +103,8 @@ const (
 
 	QuitEvent
 
+	DocChange
+
 	// 游戏控制器按键按下或弹起。
 	// Stick 是 JoyStick 的标准非正式简写。
 	// 不用Key*，因为以后要扩展给键盘用。
@@ -112,6 +114,12 @@ const (
 
 type KeyEventArgs struct {
 	Name KeyName
+}
+
+type DocChangeArgs struct {
+	// 当前活跃文档。
+	// 如果没有，可能为空。
+	Doc *Document
 }
 
 // 整个系统使用的事件类型。
@@ -125,9 +133,9 @@ type Event struct {
 	Type EventType
 
 	phase _EventPhase
-	// 事件真实发生的对象。
-	Target Box
-	// 当前处理阶段的对象。
+	// 事件真实发生的对象 以及 当前处理阶段的对象。
+	// 对于 App 而言，此 Boxes 无效。
+	Target  Box
 	Current Box
 
 	propagationStopped bool
@@ -135,6 +143,7 @@ type Event struct {
 	// 以下属于事件数据，随事件类型选择其一。
 	asyncCallback func()
 	Stick         KeyEventArgs
+	DocChange     DocChangeArgs
 }
 
 func (e *Event) Capturing() bool {
@@ -240,7 +249,13 @@ func (e *_EventTarget) Dispatch(event *Event) {
 	// at target
 	event.Current = e.box
 	event.phase = eventPhaseAtTarget
-	for _, handler := range e.box.Base()._EventTarget.handlers[event.Type] {
+	// 特别注意：app不是box，但是也用到了。
+	// 捕捉和冒泡阶段因为没有祖先，所以一切正常。
+	// 但是这个地方由于是目标自身，所以可以自己使用自己，而不是base()。
+	// app : e.box.Base()._Event... 返回的是一个空的BaseBox。
+	// 不要使用  e.box.Base()._EventTarget.handlers，
+	// 直接使用 e.handlers 就行。
+	for _, handler := range e.handlers[event.Type] {
 		handler.handler(event)
 		if event.propagationStopped {
 			return

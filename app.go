@@ -62,6 +62,13 @@ type App struct {
 	// 但是又出现了osd屏幕，会再次detach。
 	// detached为0时表示未detach。
 	detached int
+
+	// 假装是一个事件目标？比如文档切换？
+	// 但是由于其内部有一个box（且不能为空），
+	// 我只能填一个空的base了，暂时。
+	// 其实按照web的定义，这个box应该是any，
+	// 但是由于我这里非box的场景极少，所以暂时定义成box了。
+	_EventTarget
 }
 
 func NewApp(options ...Option) *App {
@@ -97,6 +104,9 @@ func NewApp(options ...Option) *App {
 	app.ctx = ctx
 	app.cancel = cancel
 
+	// 未初始化任何内容，也不应该使用它。
+	app._EventTarget.box = &BaseBox{}
+
 	return app
 }
 
@@ -127,6 +137,8 @@ func (app *App) New(fsys fs.FS, name string) *Document {
 	// 默认把焦点设置给根元素。
 	doc.root.Activate()
 	// 追加到后面（最上层窗口）
+	// 但是由于没有显示，不需要放触发事件。
+	// 默认不显示还有意义吗？
 	app.documents = append(app.documents, doc)
 	return doc
 }
@@ -136,6 +148,11 @@ func (app *App) _CloseDocument(doc *Document) {
 		return d == doc
 	})
 	app.Dirty()
+
+	app.Dispatch(&Event{
+		Type:      DocChange,
+		DocChange: DocChangeArgs{Doc: app.topDoc()},
+	})
 }
 
 // 同步标记为脏，异步等待下次刷新。
@@ -155,6 +172,16 @@ func (app *App) Dirty() {
 	}()
 }
 
+func (app *App) topDoc() *Document {
+	for _, doc := range slices.Backward(app.documents) {
+		if !doc.display {
+			continue
+		}
+		return doc
+	}
+	return nil
+}
+
 // 把文档设置为显示状态。
 //
 // 显示后键盘事件发发送到这里。
@@ -163,6 +190,14 @@ func (app *App) Show(doc *Document, show ...bool) {
 		doc.display = show[0]
 	} else {
 		doc.display = true
+	}
+	if doc.display && app.topDoc() == doc {
+		app.Dispatch(&Event{
+			Type: DocChange,
+			DocChange: DocChangeArgs{
+				Doc: doc,
+			},
+		})
 	}
 	doc.RequestPaint()
 }

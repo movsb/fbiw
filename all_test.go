@@ -199,7 +199,7 @@ func BenchmarkDrawString(b *testing.B) {
 
 func TestBind(t *testing.T) {
 	doc := _NewDocument(100, 100, nil, nil, nil)
-	root, _, err := parseDocument(doc, strings.NewReader(`
+	parsed, err := parseDocument(doc, strings.NewReader(`
 <document>
 <block>
 	<inline>
@@ -220,7 +220,7 @@ func TestBind(t *testing.T) {
 		images1 []Box    `css:"img"`
 		images2 []*Image `css:"img"`
 	}{}
-	Bind(&to, root)
+	Bind(&to, parsed.root)
 	if to.root == nil {
 		panic(`root == nil`)
 	}
