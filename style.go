@@ -45,7 +45,40 @@ type Styles struct {
 	// 此子盒子仍然不会被显示。所以不能通过判断子盒子的display是否
 	// 为true来判断子盒子是否正处于显示状态。
 	Display Value
+
+	// 填充方式。
+	Fill Value
 }
+
+// 可替换对象内容的填充方式。
+// [object-fit CSS property - CSS | MDN](https://developer.mozilla.org/en-US/docs/Web/CSS/Reference/Properties/object-fit)
+//
+// 目前的canvas绘图不能超出范围，所以暂时不支持 cover 和 none。
+// 大多数时候用 scale-down 足够？
+type Fill uint8
+
+const (
+	// The replaced content is sized to fill the element's content box. This is the initial value.
+	// The entire object will completely fill the box. If the object's aspect ratio does not
+	// match the aspect ratio of its box, then the object will be stretched to fit.
+	// 会使图片变形。
+	FillStretch Fill = iota // 拉伸，默认
+	// The replaced content is scaled to maintain its aspect ratio while fitting within the element's content box.
+	// The entire object is made to fill the box, while preserving its aspect ratio,
+	// so the object will be "letter-boxed" or "pillar-boxed" if its aspect ratio does not match the aspect ratio of the box.
+	// 在容器内完整显示。大的会缩小、小的会放大。
+	FillContain
+	// The replaced content is sized to maintain its aspect ratio while filling the element's entire content box.
+	// If the object's aspect ratio does not match the aspect ratio of its box, then the object will be clipped to fit.
+	// 放大图片，会容器被填满，但是图片会被裁剪。
+	FillCover
+	// The replaced content is not resized.
+	// 保持图片原始大小。大图会超出范围。
+	FillNone
+	// The content is sized as if none or contain were specified, whichever would result in a smaller concrete object size.
+	// 优先保持图片原始大小，但是如果大小超过容器，会缩小到容器大小。
+	FillScaleDown
+)
 
 var DefaultStyles = Must1(ParseStyle([]byte(`
 document {
@@ -200,6 +233,29 @@ func (s *Styles) Set(name string, raw string) (affectInherit, affectLayout, affe
 		affectLayout = true
 		outErr = setBoolean(&s.Display, raw, true)
 		return
+	case `fill`:
+		affectLayout = true
+		switch raw {
+		case ``, `stretch`:
+			s.Fill = NumberValue(0)
+		case `none`:
+			// 太大的图片绘制会超出canvas范围，还没修bug
+			// 大多数时候使用 scale-down 其实足够。
+			panic(`目前不支持none填充模式`)
+			s.Fill = NumberValue(int(FillNone))
+		case `contain`:
+			s.Fill = NumberValue(int(FillContain))
+		case `cover`:
+			panic(`目前不支持cover填充模式`)
+			s.Fill = NumberValue(int(FillCover))
+		case `scale-down`:
+			s.Fill = NumberValue(int(FillScaleDown))
+		default:
+			outErr = fmt.Errorf(`不认识的填充方式: %s`, raw)
+			return
+		}
+		affectLayout = true
+		return
 	}
 }
 
@@ -244,6 +300,9 @@ func (v Value) IsBool() bool {
 }
 func (v Value) IsColor() bool {
 	return v.Type == VTColor
+}
+func (v Value) Fill() Fill {
+	return Fill(v.Number)
 }
 
 func StringValue(s string) Value {

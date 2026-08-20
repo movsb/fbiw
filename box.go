@@ -387,7 +387,9 @@ func (b *BaseBox) draw(canvas *Canvas, drawChildren bool) {
 			canvas.DrawImage(img, width, height)
 		} else {
 			b.document.loadImageAsync(src, width, height, func(di DecodedImage, err error) {
-				b.document.RequestPaint()
+				if err == nil {
+					b.document.RequestPaint()
+				}
 			})
 		}
 	} else if bcv := b.computedStyles.BackgroundColor; !bcv.Empty() && !bcv.Color.None() {
@@ -1104,13 +1106,18 @@ func (t *ItalicText) AppendChild(child any) {
 	t.textParts.appendChildOrText(t, child)
 }
 
+// 为什么比web的图片要多一个parsing状态？
+// 因为内部缓存的是已经解码/转码/缩放后的图片，原始图片不保存。
+// 计算一次，绘制多次。
 type _ImageLoadingStatus uint8
 
 const (
-	imageLoadStatusNone      _ImageLoadingStatus = iota // 还没开始
-	imageLoadStatusStarted                              // 已经开始，但是还没完成
-	imageLoadStatusSucceeded                            // 完成，并且加载成功
-	imageLoadStatusFailed                               // 完成，并且加载失败
+	imageLoadStatusNone     _ImageLoadingStatus = iota // 还没开始
+	imageLoadStatusParsing                             // 解析配置中
+	imageLoadStatusParsed                              // 解析完成，已取得基础配置
+	imageLoadStatusDecoding                            // 缩放中
+	imageLoadStatusDecoded                             // 完成，并且加载成功
+	imageLoadStatusFailed                              // 完成，并且加载失败
 )
 
 type Image struct {
@@ -1120,6 +1127,7 @@ type Image struct {
 
 	status _ImageLoadingStatus
 	// 异步加载成功后写在这里。
+	// 如果是仅解析成功，只包含尺寸信息。
 	decodedImage DecodedImage
 }
 
@@ -1167,46 +1175,89 @@ func (b *Image) Calc(availWidth, availHeight int, constraints Constraints) {
 
 	switch b.status {
 	case imageLoadStatusNone:
-		if img, err := b.document.loadImageSync(b.src, b.layoutBox.Width, b.layoutBox.Height); err == nil {
+		// 如果有缓存的大小信息，直接用。
+		if img, err := b.document.loadImageConfigSync(b.src); err == nil {
 			b.decodedImage = img
-			b.status = imageLoadStatusSucceeded
+			b.status = imageLoadStatusParsed
 			b.Calc(availWidth, availHeight, constraints)
 			return
+		}
+
+		// 如果缓存的原始尺寸信息，异步加载。
+		b.document.loadImageConfigAsync(b.src,
+			func(img DecodedImage, err error) {
+				if err != nil {
+					b.status = imageLoadStatusFailed
+					return
+				}
+				b.decodedImage = img
+				b.status = imageLoadStatusParsed
+				b.document.RequestLayout()
+			},
+		)
+		b.status = imageLoadStatusParsing
+		return
+	case imageLoadStatusParsing:
+		break
+	case imageLoadStatusParsed:
+		// 图片元数据加载成功，获得了真实尺寸，重新布局。
+		fittingWidth, fittingHeight := 0, 0
+
+		if b.layoutBox.Width == 0 || b.layoutBox.Height == 0 {
+			fittingWidth = b.decodedImage.Width
+			fittingHeight = b.decodedImage.Height
 		} else {
-			b.document.loadImageAsync(b.src,
-				b.layoutBox.Width, b.layoutBox.Height,
-				func(img DecodedImage, err error) {
-					if err != nil {
-						b.status = imageLoadStatusFailed
-						return
-					}
-					b.decodedImage = img
-					b.status = imageLoadStatusSucceeded
-					b.document.RequestLayout()
-				},
-			)
-			b.status = imageLoadStatusStarted
+			switch fill := Fill(b.computedStyles.Fill.Number); fill {
+			case FillStretch:
+				fittingWidth = b.layoutBox.Width
+				fittingHeight = b.layoutBox.Height
+			case FillContain, FillCover:
+				scaleX := float64(b.layoutBox.Width) / float64(b.decodedImage.Width)
+				scaleY := float64(b.layoutBox.Height) / float64(b.decodedImage.Height)
+				scale := Iif(fill == FillContain, min(scaleX, scaleY), max(scaleX, scaleY))
+				fittingWidth = int(float64(b.decodedImage.Width) * scale)
+				fittingHeight = int(float64(b.decodedImage.Height) * scale)
+			case FillNone:
+				fittingWidth = b.decodedImage.Width
+				fittingHeight = b.decodedImage.Height
+			case FillScaleDown:
+				scaleX := float64(b.layoutBox.Width) / float64(b.decodedImage.Width)
+				scaleY := float64(b.layoutBox.Height) / float64(b.decodedImage.Height)
+				scale := min(scaleX, scaleY)
+				if scale < 1 {
+					fittingWidth = int(float64(b.decodedImage.Width) * scale)
+					fittingHeight = int(float64(b.decodedImage.Height) * scale)
+				} else {
+					fittingWidth = b.decodedImage.Width
+					fittingHeight = b.decodedImage.Height
+				}
+			}
+		}
+
+		if fittingWidth == 0 || fittingHeight == 0 {
+			b.status = imageLoadStatusFailed
 			return
 		}
-	case imageLoadStatusStarted:
-		// 图片加载中，啥也不能干？
+
+		b.document.loadImageAsync(b.src, fittingWidth, fittingHeight, func(di DecodedImage, err error) {
+			if err != nil {
+				b.status = imageLoadStatusFailed
+				return
+			}
+			b.decodedImage = di
+			b.status = imageLoadStatusDecoded
+			b.document.RequestPaint()
+		})
+
+		b.status = imageLoadStatusDecoding
 		return
-	case imageLoadStatusSucceeded:
-		width, height := 0, 0
-		img := b.decodedImage
-
-		scaleW := float32(img.Width) / float32(availWidth)
-		scaleH := float32(img.Height) / float32(availHeight)
-		if scaleW > scaleH {
-			width = availWidth
-			height = int(float32(img.Height) / float32(scaleW))
-		} else {
-			width = int(float32(img.Width) / float32(scaleH))
-			height = availHeight
+	case imageLoadStatusDecoded:
+		if b.layoutBox.Width == 0 {
+			b.layoutBox.Width = b.decodedImage.Width
 		}
-
-		b.layoutBox.Width = Iif(constraints.PrefersMaxWidth, availWidth, width)
-		b.layoutBox.Height = Iif(constraints.PrefersMaxHeight, availHeight, height)
+		if b.layoutBox.Height == 0 {
+			b.layoutBox.Height = b.decodedImage.Height
+		}
 	case imageLoadStatusFailed:
 		return
 	}
@@ -1215,11 +1266,14 @@ func (b *Image) Calc(availWidth, availHeight int, constraints Constraints) {
 func (b *Image) Draw(canvas *Canvas) {
 	b.Base().draw(canvas, false)
 
-	w := b.layoutBox.Width
-	h := b.layoutBox.Height
-
-	if b.status == imageLoadStatusSucceeded {
-		canvas.DrawImage(b.decodedImage, w, h)
+	if b.status == imageLoadStatusDecoded {
+		// TODO 没处理border和padding
+		// 图片的宽度和高度不一定等于容器的，所以居中。
+		width := b.decodedImage.Width
+		height := b.decodedImage.Height
+		offsetX := (b.layoutBox.Width - width) / 2
+		offsetY := (b.layoutBox.Height - height) / 2
+		canvas.Offset(offsetX, offsetY).DrawImage(b.decodedImage, width, height)
 	}
 }
 

@@ -9,6 +9,7 @@ import (
 	"strconv"
 
 	"github.com/goccy/go-yaml"
+	"github.com/mattn/go-isatty"
 	"golang.org/x/sys/unix"
 )
 
@@ -67,7 +68,7 @@ func captureStdoutStderr(w io.Writer) error {
 }
 
 func init() {
-	if runtime.GOOS == `linux` {
+	if runtime.GOOS == `linux` && !isatty.IsTerminal(os.Stdout.Fd()) {
 		// 文件不用关。
 		logFile, err := os.OpenFile(`/tmp/fbiw.log`, os.O_WRONLY|os.O_CREATE|os.O_APPEND|os.O_SYNC, 0600)
 		if err == nil {

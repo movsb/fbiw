@@ -769,6 +769,39 @@ func (doc *Document) loadImageAsync(src string, width, height int, callback func
 	}()
 }
 
+func (doc *Document) _loadImageConfig(src string, checking bool) (DecodedImage, error) {
+	if !strings.Contains(src, `:`) {
+		return doc.imageManager.decodeImageConfigCached(doc.fsys, src, checking)
+	}
+	if u, err := url.Parse(src); err == nil {
+		switch u.Scheme {
+		case `os`:
+			if u, err := url.PathUnescape(u.Opaque); err == nil {
+				if filepath.IsAbs(u) {
+					return doc.imageManager.decodeImageConfigCached(os.DirFS(`/`), u[1:], checking)
+				} else {
+					return doc.imageManager.decodeImageConfigCached(os.DirFS(`.`), u, checking)
+				}
+			}
+		}
+	}
+
+	return DecodedImage{}, fmt.Errorf(`不支持的来源：%s`, src)
+}
+
+// 同步加载图片配置，如果没有缓存，返回不存在。
+func (doc *Document) loadImageConfigSync(src string) (DecodedImage, error) {
+	return doc._loadImageConfig(src, true)
+}
+func (doc *Document) loadImageConfigAsync(src string, callback func(DecodedImage, error)) {
+	go func() {
+		img, err := doc._loadImageConfig(src, false)
+		doc.app.Async(func() {
+			callback(img, err)
+		})
+	}()
+}
+
 func (doc *Document) LoadFaceWithFallback(box Box) *FontFace {
 	return doc.fontManager.GetFaceWithFallback(
 		box.Base().computedStyles.FontFamily.String,

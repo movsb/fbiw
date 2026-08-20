@@ -6,8 +6,8 @@ import (
 	"image"
 	"image/color"
 	"image/draw"
+	_ "image/jpeg"
 	"image/png"
-	_ "image/png"
 	"io/fs"
 	"log"
 	"os"
@@ -331,6 +331,10 @@ type _ImageCacheKey struct {
 	path          string
 	width, height int
 }
+type _ImageConfigCacheKey struct {
+	fsys fs.FS
+	path string
+}
 
 // 用标准库的 draw.Draw 造成了极多不必要的计算，
 // 而目标屏幕的内存格式是确定的（B、G、R、A），都不是 [image.RGBA] 或
@@ -342,18 +346,56 @@ type DecodedImage struct {
 }
 
 type ImageManager struct {
-	cache *lru.TTLCache[_ImageCacheKey, DecodedImage]
+	contentCache *lru.TTLCache[_ImageCacheKey, DecodedImage]
+	configCache  *lru.TTLCache[_ImageConfigCacheKey, DecodedImage]
 }
 
 func NewImageManager() *ImageManager {
 	return &ImageManager{
 		// https://github.com/phuslu/lru/issues/32
-		cache: lru.NewTTLCache(1024, lru.WithShards[_ImageCacheKey, DecodedImage](1)),
+		contentCache: lru.NewTTLCache(1024, lru.WithShards[_ImageCacheKey, DecodedImage](1)),
+		configCache:  lru.NewTTLCache(1024, lru.WithShards[_ImageConfigCacheKey, DecodedImage](1)),
 	}
 }
 
 func (m *ImageManager) Close() {
-	m.cache = nil
+	m.configCache = nil
+	m.contentCache = nil
+}
+
+func (m *ImageManager) decodeImageConfigCached(fsys fs.FS, path string, checking bool) (DecodedImage, error) {
+	key := _ImageConfigCacheKey{
+		fsys: fsys,
+		path: path,
+	}
+	if checking {
+		img, found := m.configCache.Get(key)
+		if found {
+			return img, nil
+		}
+		return img, os.ErrNotExist
+	}
+	img, err, _ := m.configCache.GetOrLoad(context.Background(), key,
+		func(ctx context.Context, _ _ImageConfigCacheKey) (DecodedImage, time.Duration, error) {
+			width, height, err := m.decodeImageConfig(fsys, path)
+			return DecodedImage{Width: width, Height: height}, time.Minute * 30, err
+		},
+	)
+	return img, err
+}
+
+func (m *ImageManager) decodeImageConfig(fsys fs.FS, path string) (int, int, error) {
+	fp, err := fsys.Open(path)
+	if err != nil {
+		log.Println(err, path)
+		return 0, 0, err
+	}
+	defer fp.Close()
+	img, _, err := image.DecodeConfig(fp)
+	if err != nil {
+		return 0, 0, err
+	}
+	return img.Width, img.Height, nil
 }
 
 // 如果 width和height均为0，返回原图大小。
@@ -438,13 +480,13 @@ func (m *ImageManager) getImageCached(fsys fs.FS, path string, width, height int
 		height: height,
 	}
 	if checking {
-		img, found := m.cache.Get(key)
+		img, found := m.contentCache.Get(key)
 		if found {
 			return img, nil
 		}
 		return img, os.ErrNotExist
 	}
-	img, err, _ := m.cache.GetOrLoad(context.Background(), key,
+	img, err, _ := m.contentCache.GetOrLoad(context.Background(), key,
 		func(ctx context.Context, _ _ImageCacheKey) (DecodedImage, time.Duration, error) {
 			decoded, err := m.decodeImage(fsys, path, width, height)
 			return decoded, time.Minute * 30, err
