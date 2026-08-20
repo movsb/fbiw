@@ -19,7 +19,7 @@ func main() {
 
 	doc := app.New(embedded, `main.html`)
 
-	scroll := doc.GetBoxByID(`scroll`).(*fbiw.Scroll)
+	scroll := doc.GetBoxByID[*fbiw.Scroll](`scroll`)
 
 	type _Item struct {
 		root fbiw.Box
@@ -27,13 +27,12 @@ func main() {
 	}
 
 	scroll.SetItems(7,
-		func() (fbiw.Box, any) {
+		func() (fbiw.Box, *_Item) {
 			item := fbiw.Unmarshal[_Item](doc, `<block background-color="tan"><text></text></block>`)
 			return item.root, item
 		},
-		func(item any, index int) {
-			item2 := item.(*_Item)
-			item2.text.SetText(fmt.Sprint(index))
+		func(item *_Item, index int) {
+			item.text.SetText(fmt.Sprint(index))
 		},
 	)
 

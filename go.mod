@@ -1,6 +1,6 @@
 module github.com/movsb/fbiw
 
-go 1.26.5
+go 1.27
 
 require (
 	github.com/anthonynsimon/bild v0.17.0

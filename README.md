@@ -329,12 +329,11 @@ type Item struct {
 
 scroll.SetItems(
     100,
-    func() (fbiw.Box, any) {
+    func() (fbiw.Box, *Item) {
         item := fbiw.Unmarshal[Item](doc, `<block><text></text></block>`)
         return item.root, item
     },
-    func(user any, index int) {
-        item := user.(*Item)
+    func(item *Item, index int) {
         item.text.SetText(fmt.Sprintf("项目 %d", index))
     },
 )

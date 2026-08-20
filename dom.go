@@ -520,11 +520,17 @@ func (doc *Document) Bind(to any) {
 }
 
 // 获取指定ID的元素。
-func (doc *Document) GetBoxByID(id string) Box {
-	var out Box
+func (doc *Document) GetBoxByID[T Box](id string) T {
+	var out T
+	var ok bool
 	walkBox(doc.root, func(box Box) bool {
 		if box.Base().ID == id {
-			out = box
+			out, ok = box.(T)
+			if !ok {
+				from := reflect.TypeOf(box).String()
+				to := reflect.TypeFor[T]().String()
+				log.Panicf(`盒子类型不正确: %s: %s -> %s`, id, from, to)
+			}
 			return false
 		}
 		return true
@@ -534,12 +540,21 @@ func (doc *Document) GetBoxByID(id string) Box {
 
 // 根据CSS选元素。
 // 找不到返回空，错误的selector直接崩溃。
-func (doc *Document) QuerySelector(selector string) Box {
-	var outBox Box
+//
+// 使用泛型而不是以Box作为返回值，是因为我内部可以检测到类型不匹配
+// 并报告更准确的错误信息。
+func (doc *Document) QuerySelector[T Box](selector string) T {
+	var outBox T
+	var ok bool
 	sel := parseSelectorString(selector)
 	walkBox(doc.root, func(box Box) bool {
 		if (_Styler{doc}).match(box, sel) {
-			outBox = box
+			outBox, ok = box.(T)
+			if !ok {
+				from := reflect.TypeOf(box).String()
+				to := reflect.TypeFor[T]().String()
+				log.Panicf(`盒子类型不正确: %s: %s -> %s`, selector, from, to)
+			}
 			return false
 		}
 		return true
@@ -548,12 +563,12 @@ func (doc *Document) QuerySelector(selector string) Box {
 }
 
 // 选择所有匹配的元素。
-func (doc *Document) QuerySelectorAll(selector string) []Box {
-	var outBoxes []Box
+func (doc *Document) QuerySelectorAll[T Box](selector string) []T {
+	var outBoxes []T
 	sel := parseSelectorString(selector)
 	walkBox(doc.root, func(box Box) bool {
 		if (_Styler{doc}).match(box, sel) {
-			outBoxes = append(outBoxes, box)
+			outBoxes = append(outBoxes, box.(T))
 		}
 		return true
 	})

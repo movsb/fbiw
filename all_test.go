@@ -57,7 +57,7 @@ func TestCalc(t *testing.T) {
 		doc.layout()
 
 		for id, rect := range tc.Calc {
-			box := doc.GetBoxByID(id)
+			box := doc.GetBoxByID[Box](id)
 			if box == nil {
 				panic(`指定编号的盒子没找到：` + id)
 			}
@@ -72,7 +72,7 @@ func TestCalc(t *testing.T) {
 			}
 		}
 		for id, styles := range tc.Computed {
-			box := doc.GetBoxByID(id)
+			box := doc.GetBoxByID[Box](id)
 			if box == nil {
 				panic(`指定编号的盒子没找到：` + id)
 			}
@@ -150,7 +150,7 @@ func TestQuery(t *testing.T) {
 			continue
 		}
 
-		boxes := doc.QuerySelectorAll(tc.Selector)
+		boxes := doc.QuerySelectorAll[Box](tc.Selector)
 		if len(boxes) != len(tc.Boxes) {
 			t.Errorf(`选择结果数不相等: #%d: %d vs. %d`, i+1, len(tc.Boxes), len(boxes))
 			continue

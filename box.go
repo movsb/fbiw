@@ -1416,7 +1416,18 @@ func (b *Scroll) SetProp(key, value string) error {
 //   - count 元素个数
 //   - create 给元素创建视图
 //   - bind 绑定元素到视图
-func (b *Scroll) SetItems(count int, create func() (root Box, user any), bind func(user any, index int)) {
+func (b *Scroll) SetItems[T any](count int, create func() (root Box, user T), bind func(user T, index int)) {
+	b._setItems(count,
+		func() (root Box, user any) {
+			return create()
+		},
+		func(user any, index int) {
+			bind(user.(T), index)
+		},
+	)
+}
+
+func (b *Scroll) _setItems(count int, create func() (root Box, user any), bind func(user any, index int)) {
 	b.children = nil
 	b.count = count
 	b.bind = bind
