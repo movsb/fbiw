@@ -346,7 +346,17 @@ func BoolValue(v bool) Value {
 // 与设备的像素格式匹配（低端序）
 type Color uint32
 
-const ColorNone = Color(0x00010101)
+const (
+	ColorNone = Color(0x00010101)
+
+	// 特殊的打洞色。
+	// 使用此色后，此块屏幕区域会直接清空成透明色。
+	//
+	// 此值的特殊背景：游戏机的GPU可以在UI层下面叠加一层
+	// 视频层，由于在UI层下面，这就要求UI层透明。最简单的办法是
+	// 直接清空需要的区域，而不是隐藏下面的所以文档/控件层，太麻烦了。
+	ColorClear = Color(0x00020202)
+)
 
 func ColorFromRGBA(r, g, b, a uint8) Color {
 	out := uint32(0)
@@ -444,8 +454,12 @@ func ParseColor(c string) (_ Value, outErr error) {
 	if len(c) == 0 {
 		return Value{}, nil
 	}
-	if c == `none` {
+
+	switch c {
+	case `none`:
 		return ColorValue(ColorNone), nil
+	case `clear`:
+		return ColorValue(ColorClear), nil
 	}
 
 	defer func() {

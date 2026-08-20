@@ -173,7 +173,11 @@ func (c *Canvas) FillRect(x, y, width, height int, color Color) {
 	}
 
 	// 如果是完全不透明色，则直接覆盖。
-	if color.A() == 255 {
+	// 或者是需要“打洞”的颜色。
+	if color.A() == 255 || color == ColorClear {
+		if color == ColorClear {
+			color = 0
+		}
 		var line0 []byte
 		for yy := y0; yy < y1; yy++ {
 			offset := c.width*4*yy + x0*4
