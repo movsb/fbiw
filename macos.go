@@ -69,9 +69,13 @@ func openDisplay() *Display {
 	return d
 }
 
-func pollEvents(ctx context.Context, system chan *Event, sync func(), handler func(*Event)) {
+func pollEvents(
+	ctx context.Context, cancel context.CancelFunc,
+	unblock chan struct{}, unblockHandler func(),
+	sync func(), eventHandler func(*Event),
+) {
 	sendKey := func(name KeyName, pressed bool) {
-		handler(&Event{
+		eventHandler(&Event{
 			Type: Iif(pressed, StickDownEvent, StickUpEvent),
 			Stick: KeyEventArgs{
 				Name: name,
@@ -96,26 +100,16 @@ func pollEvents(ctx context.Context, system chan *Event, sync func(), handler fu
 	}
 
 	for {
-		polled := false
 		select {
 		case <-ctx.Done():
 			return
-		case event := <-system:
-			switch event.Type {
-			case asyncCallback:
-				event.asyncCallback()
-				polled = true
-			case appDirty:
-				polled = true
-			default:
-				handler(event)
-				polled = true
-			}
+		case <-unblock:
+			unblockHandler()
 		default:
 		}
 		switch event := sdl.PollEvent().(type) {
 		case *sdl.QuitEvent:
-			handler(&Event{Type: QuitEvent})
+			cancel()
 			return
 		case *sdl.KeyboardEvent:
 			pressed := event.Type == sdl.KEYDOWN
@@ -123,10 +117,7 @@ func pollEvents(ctx context.Context, system chan *Event, sync func(), handler fu
 			if mapped, ok := keyMaps[key]; ok {
 				sendKey(mapped, pressed)
 			}
-			polled = true
 		}
-		if polled {
-			sync()
-		}
+		sync()
 	}
 }

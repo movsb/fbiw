@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"log"
 	"slices"
+	"sync"
 	"time"
 )
 
@@ -38,7 +39,15 @@ type App struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	system chan *Event
+	// 事件合并机制。
+	// 来自主线程和其它线程的消息只管往这里面塞，
+	// 塞完了只是尝试往容量只有1的队列里面写。
+	// 能写进去则说明主消息循环还未被唤醒，写不进去
+	// 则说明队列里面已经有阻塞的消息等待处理了，不需要
+	// 多次唤醒，直接drop即可。
+	lock    sync.Mutex
+	pending []func()
+	unblock chan struct{}
 
 	display *Display
 	canvas  *Canvas
@@ -80,16 +89,8 @@ func NewApp(options ...Option) *App {
 		images:  NewImageManager(),
 		fonts:   NewFontManager(),
 
-		// 像是Show之类的改动绘制的函数不应该主动调用sync方法，
-		// 如果调用，可能阻塞？因为正在处理事件，主循环没执行。
-		//
-		// 数值是随意设置的，并不是一定要这么大。最理想的（或者说
-		// 最应该）的做法是不要缓冲，因为这个机制的实现就是为了给
-		// 其它线程往主线程投递消息用的，本来就不应该有任何阻塞的
-		// 可能。除非是在主线程中调用了只给其它线程调用的Async方法，
-		// 那确实有可能死锁。（Async已经改了，连在其它线程给主线程
-		// 投递消息也新开了一个线程。创建goroutine跟不要钱一样。）
-		system: make(chan *Event, 8),
+		// 容量一定为1，见前面定义时的说明。
+		unblock: make(chan struct{}, 1),
 	}
 
 	for _, opt := range options {
@@ -160,16 +161,7 @@ func (app *App) _CloseDocument(doc *Document) {
 // 只起标记作用，文档是否需要重绘还要看文档本身。
 func (app *App) Dirty() {
 	app.dirty = true
-
-	// 现在有可能正处于事件处理过程中，主循环没循环，
-	// 系统事件也没及时处理，所以开个线程去写，否则
-	// 可能就死锁了。
-	go func() {
-		select {
-		case app.system <- &Event{Type: appDirty}:
-		case <-app.ctx.Done():
-		}
-	}()
+	app.wakeUp()
 }
 
 func (app *App) topDoc() *Document {
@@ -202,74 +194,79 @@ func (app *App) Show(doc *Document, show ...bool) {
 	doc.RequestPaint()
 }
 
+// 唤醒消息循环以处理挂起的异步调用和脏处理过程。
+// 写不进去说明有积压的事件等待处理，可以安全丢弃事件。
+func (app *App) wakeUp() {
+	select {
+	case app.unblock <- struct{}{}:
+	default:
+	}
+}
+
 // 用于其它线程创建一个将来会在主线程中调用的回调函数。
 //
 // 方便用于在非主线程中安全更新UI操作。
-// 调用会立即返回，不会阻塞。除非你敢在主线程中调用此函数，那就死给你看。
-// 每次回调都会额外触发 sync 以检测是否有内容更新。
-//
-// 我认怂了：某些用于创建服务的函数，比如启动WebDAV。如果启动，回调才会在线程中被调用；
-// 但是如果启动失败（比如很早期的检查阶段），根本就不会走到线程中去。而是在主线程就
-// 直接回调回去了，这时候回调函数仍然以为自己处理其它线程中（函数肯定明确说了是在其它线程中调用的回调），
-// 然后就会调用这个Async，但是此时确实是在主线程，并且尝试往app.system队列塞异步回调事件，就会直接死锁。
-//
-// 为了缓和这个现象（或者说错误的编写方式），我直接在线程中投递消息了，
-// 这下就永远也不会死锁了。
+// 调用会立即返回，不会阻塞。
+// 每次回调都会额外触发检测是否有绘制更新。
 func (app *App) Async(callback func()) {
-	go func() {
-		app.system <- &Event{
-			Type:          asyncCallback,
-			asyncCallback: callback,
-		}
-	}()
+	app.lock.Lock()
+	app.pending = append(app.pending, callback)
+	app.lock.Unlock()
+	app.wakeUp()
 }
 
-// 投递退出事件，app.Run() 结束运行。
+// 使 app.Run() 结束运行。
 func (app *App) Quit() {
-	go func() {
-		app.system <- &Event{
-			Type: QuitEvent,
-		}
-	}()
+	app.cancel()
 }
 
 func (app *App) Run() {
 	menuPressed := false
 	startPressed := false
-	pollEvents(app.ctx, app.system, app.sync, func(event *Event) {
-		switch event.Type {
-		case QuitEvent:
-			app.cancel()
-			return
-		case StickDownEvent, StickUpEvent:
-			if app.detached > 0 {
-				return
+	pollEvents(
+		app.ctx, app.cancel,
+		app.unblock,
+		func() {
+			app.lock.Lock()
+			pending := app.pending
+			app.pending = nil
+			app.lock.Unlock()
+			for _, callback := range pending {
+				callback()
 			}
-
-			// 按“菜单”和“开始”可以退出。
-			// 暂时固定给所有APP。
-			switch event.Stick.Name {
-			case Menu:
-				menuPressed = event.Type == StickDownEvent
-			case Start:
-				startPressed = event.Type == StickDownEvent
-			}
-			if menuPressed && startPressed {
-				app.cancel()
-				return
-			}
-
-			// 只发送给前台文档。
-			// TODO 除非有系统级事件监听器？
-			for _, doc := range slices.Backward(app.documents) {
-				if !doc.display {
-					continue
+		},
+		app.sync,
+		func(event *Event) {
+			switch event.Type {
+			case StickDownEvent, StickUpEvent:
+				if app.detached > 0 {
+					return
 				}
-				doc.handleEvent(event)
-				break
+
+				// 按“菜单”和“开始”可以退出。
+				// 暂时固定给所有APP。
+				switch event.Stick.Name {
+				case Menu:
+					menuPressed = event.Type == StickDownEvent
+				case Start:
+					startPressed = event.Type == StickDownEvent
+				}
+				if menuPressed && startPressed {
+					app.cancel()
+					return
+				}
+
+				// 只发送给前台文档。
+				// TODO 除非有系统级事件监听器？
+				for _, doc := range slices.Backward(app.documents) {
+					if !doc.display {
+						continue
+					}
+					doc.handleEvent(event)
+					break
+				}
 			}
-		}
-	})
+		})
 }
 
 func (app *App) AddFont(family string, bold, italic bool, fsys fs.FS, path string) error {

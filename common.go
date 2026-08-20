@@ -98,10 +98,8 @@ type EventType uint
 const (
 	UnknownEvent EventType = iota + 1
 
-	asyncCallback
-	appDirty
-
-	QuitEvent
+	// asyncCallback
+	// appDirty
 
 	DocChange
 
@@ -141,9 +139,8 @@ type Event struct {
 	propagationStopped bool
 
 	// 以下属于事件数据，随事件类型选择其一。
-	asyncCallback func()
-	Stick         KeyEventArgs
-	DocChange     DocChangeArgs
+	Stick     KeyEventArgs
+	DocChange DocChangeArgs
 }
 
 func (e *Event) Capturing() bool {

@@ -130,11 +130,15 @@ func waitForVSync(fd int) error {
 	return nil
 }
 
-func pollEvents(ctx context.Context, system chan *Event, sync func(), handler func(*Event)) {
-	ch := make(chan *Event)
-	go _pollEvents(ctx, func(e *Event) {
+func pollEvents(
+	ctx context.Context, cancel context.CancelFunc,
+	unblock chan struct{}, unblockHandler func(),
+	sync func(), eventHandler func(*Event),
+) {
+	keyEvents := make(chan *Event)
+	go _pollKeyboardEvents(ctx, func(e *Event) {
 		select {
-		case ch <- e:
+		case keyEvents <- e:
 			// default:
 		}
 	})
@@ -142,22 +146,16 @@ func pollEvents(ctx context.Context, system chan *Event, sync func(), handler fu
 		select {
 		case <-ctx.Done():
 			return
-		case e := <-ch:
-			handler(e)
-		case e := <-system:
-			switch e.Type {
-			case asyncCallback:
-				e.asyncCallback()
-			case appDirty:
-			default:
-				handler(e)
-			}
+		case e := <-keyEvents:
+			eventHandler(e)
+		case <-unblock:
+			unblockHandler()
 		}
 		sync()
 	}
 }
 
-func _pollEvents(ctx context.Context, handler func(*Event)) {
+func _pollKeyboardEvents(ctx context.Context, handler func(*Event)) {
 	matches, err := filepath.Glob("/dev/input/event*")
 	if err != nil {
 		panic(err)
