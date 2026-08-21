@@ -399,6 +399,14 @@ func (doc *Document) RequestPaintAsync() {
 	})
 }
 
+// 包装 app.Async 给自定义组件吗？那边没有 app。
+func (doc *Document) Async(callback func()) {
+	if doc.app == nil {
+		log.Panicln(`Document.RequestPaintAsync 未绑定 App`)
+	}
+	doc.app.Async(callback)
+}
+
 // 需要重新布局或者重新绘制？
 func (doc *Document) dirty() bool {
 	return doc.layoutDirty || doc.paintDirty
