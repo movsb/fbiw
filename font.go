@@ -13,9 +13,8 @@ import (
 )
 
 type FontManager struct {
-	fonts      map[_FontKey]*_FontValue
-	faces      map[_FontFaceKey]*FontFace
-	nextFaceID uint32
+	fonts map[_FontKey]*_FontValue
+	faces map[_FontFaceKey]*FontFace
 }
 
 func NewFontManager() *FontManager {
@@ -89,29 +88,24 @@ func (fm *FontManager) AddFont(fsys fs.FS, path string, family string, bold, ita
 	return nil
 }
 
-// 尝试找字体，找不到返回系统字体。
-// 如果系统字体也找不到，直接崩溃。
-func (fm *FontManager) GetFaceWithFallback(family string, size int, bold bool, italic bool) *FontFace {
-	face, err := fm.GetFace(family, size, bold, italic)
+// 返回系统字体。
+//
+// 如果有样式的系统字体找不到，会返回非粗体、非斜体版本。
+// 如果还是找不到，就直接崩溃。
+func (fm *FontManager) GetSystemFace(size int, bold bool, italic bool) *FontFace {
+	system, err := fm.GetFace(`system`, size, bold, italic)
 	if err == nil {
-		return face
+		return system
 	}
-
-	if !(family == `system` && !bold && !italic) {
-		system, err := fm.GetFace(`system`, size, bold, italic)
-		if err == nil {
-			return system
-		}
-		// 怎么连对应形状的系统字体也找不到？
-		system, err = fm.GetFace(`system`, size, false, false)
-		if err == nil {
-			return system
-		}
+	// 怎么连对应形状的系统字体也找不到？
+	system, err = fm.GetFace(`system`, size, false, false)
+	if err == nil {
+		return system
 	}
-
 	panic(`没有任何可用的系统字体，没救了。`)
 }
 
+// 返回指定名字的字体。
 func (fm *FontManager) GetFace(family string, size int, bold bool, italic bool) (*FontFace, error) {
 	faceKey := _FontFaceKey{
 		Family: family,
@@ -142,9 +136,7 @@ func (fm *FontManager) GetFace(family string, size int, bold bool, italic bool) 
 		return nil, fmt.Errorf(`无法创建字体样式：%w`, err)
 	}
 
-	fm.nextFaceID++
 	fontFace := &FontFace{
-		ID:    fm.nextFaceID,
 		Face:  theFace,
 		cache: map[rune]GlyphValue{},
 	}
@@ -155,7 +147,6 @@ func (fm *FontManager) GetFace(family string, size int, bold bool, italic bool) 
 }
 
 type FontFace struct {
-	ID uint32
 	font.Face
 
 	cache map[rune]GlyphValue
@@ -227,9 +218,14 @@ func (ff *FontFace) GlyphCached(r rune) GlyphValue {
 	return value
 }
 
+func (ff FontFace) HasGlyph(r rune) bool {
+	_, ok := ff.GlyphAdvance(r)
+	return ok
+}
+
 // 把文本 text 按最大宽度切割成子串。
 // 返回子串结束点索引（不含此位置），子串宽度。
-func (ff FontFace) Segment(text string, maxWidth int) (int, int, error) {
+func SegmentText(text string, maxWidth int, faces []*FontFace) (int, int, error) {
 	var width fixed.Int26_6
 	var index int
 	for {
@@ -240,9 +236,18 @@ func (ff FontFace) Segment(text string, maxWidth int) (int, int, error) {
 		if char == utf8.RuneError {
 			return 0, 0, fmt.Errorf(`无效字符`)
 		}
+		// 找哪个字体库提供了此glyph。
+		face := faces[0]
+		for _, f := range faces {
+			if f.HasGlyph(char) {
+				face = f
+				break
+			}
+		}
 		// NOTE 此处的 MeasureString 方法返回的不是精确整数值（ceil过），
 		// 每次只算一个字符然后再在一起作为总宽度可能会导致误差越来越大。
-		nextCharWidth := ff.MeasureString(text[index : index+size])
+		// TODO 换成 GlyphAdvance
+		nextCharWidth := face.MeasureString(text[index : index+size])
 		if width+nextCharWidth > fixed.I(maxWidth) {
 			return index, width.Ceil(), nil
 		}

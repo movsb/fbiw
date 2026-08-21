@@ -1028,8 +1028,10 @@ func (t *Text) SegmentInline(availWidth, availHeight int) bool {
 
 		var (
 			currentRun  = &t.textRuns[t.textRunIndex]
-			face        = t.document.LoadFaceWithFallback(currentRun.Owner)
 			widthRemain = contentAvailWidth - width
+
+			// 虽然确实支持多个字体fallback，但是行高却始终使用第一个字体的高度。
+			faces = t.document.LoadFaces(currentRun.Owner)
 		)
 
 		// 如果有换行符，需要提前结束。
@@ -1038,7 +1040,7 @@ func (t *Text) SegmentInline(availWidth, availHeight int) bool {
 			// 换行符不保存，直接丢弃。
 			t.textRunDataIndex++
 			// 如果是空行，则可能没有行高。
-			line.MaxHeight = max(line.MaxHeight, face.TextHeight())
+			line.MaxHeight = max(line.MaxHeight, faces[0].TextHeight())
 			break
 		}
 
@@ -1048,7 +1050,7 @@ func (t *Text) SegmentInline(availWidth, availHeight int) bool {
 			maxDataIndex = t.textRunDataIndex + newLinePos
 		}
 
-		end, runWidth, err := face.Segment(currentRun.Data[t.textRunDataIndex:maxDataIndex], widthRemain)
+		end, runWidth, err := SegmentText(currentRun.Data[t.textRunDataIndex:maxDataIndex], widthRemain, faces)
 		if err != nil {
 			// 好像啥也干不了
 			return false
@@ -1065,11 +1067,11 @@ func (t *Text) SegmentInline(availWidth, availHeight int) bool {
 			Run:       currentRun,
 			Start:     t.textRunDataIndex,
 			End:       t.textRunDataIndex + end,
-			layoutBox: Rect{Width: runWidth, Height: face.TextHeight()},
+			layoutBox: Rect{Width: runWidth, Height: faces[0].TextHeight()},
 		})
 
 		// 每次的字体可能不同，需要持续更新行高。
-		line.MaxHeight = max(line.MaxHeight, face.TextHeight())
+		line.MaxHeight = max(line.MaxHeight, faces[0].TextHeight())
 
 		// 更新到索引，下次循环会自动切换到一下，如果有必要。
 		t.textRunDataIndex += end
@@ -1140,7 +1142,7 @@ func (t *Text) Draw(canvas *Canvas) {
 
 			text := fragment.Run.Data[fragment.Start:fragment.End]
 			canvas.drawStringDevice(text,
-				t.document.LoadFaceWithFallback(owner),
+				t.document.LoadFaces(owner),
 				owner.Base().computedStyles.Color.Color,
 				rc.Width, rc.Height,
 			)

@@ -706,8 +706,6 @@ func (doc *Document) style(box Box, descendents bool) error {
 //
 // TODO 把计算方式从元素自身拆解到这里来。
 func (doc *Document) layout() {
-	// doc.root.Base().computedStyles.Width = NumberValue(doc.width)
-	// doc.root.Base().computedStyles.Height = NumberValue(doc.height)
 	doc.root.Calc(doc.width, doc.height, Constraints{
 		PrefersMaxWidth:  true,
 		PrefersMaxHeight: true,
@@ -810,13 +808,35 @@ func (doc *Document) loadImageConfigAsync(src string, callback func(DecodedImage
 	}()
 }
 
-func (doc *Document) LoadFaceWithFallback(box Box) *FontFace {
-	return doc.fontManager.GetFaceWithFallback(
-		box.Base().computedStyles.FontFamily.String,
-		box.Base().computedStyles.FontSize.Number,
-		box.Base().computedStyles.FontBold.Bool,
-		box.Base().computedStyles.FontItalic.Bool,
+// 加载指定的字体。
+//
+// font-family 是可以指定多个的，所以返回切片。
+// 每次返回总是会把 system 字体作为最后一个返回。
+func (doc *Document) LoadFaces(box Box) []*FontFace {
+	faces := make([]*FontFace, 0, 4)
+
+	var (
+		computed = box.GetComputedStyles()
+		family   = computed.FontFamily.String
+		size     = computed.FontSize.Number
+		bold     = computed.FontBold.Bool
+		italic   = computed.FontItalic.Bool
 	)
+
+	for _, name := range ParseFontFamily(family) {
+		face, err := doc.fontManager.GetFace(name, size, bold, italic)
+		if err != nil {
+			face, err = doc.fontManager.GetFace(name, size, false, false)
+		}
+		if err != nil {
+			log.Panicf(`找不到指定的字体: %s: %v`, name, err)
+		}
+		faces = append(faces, face)
+	}
+
+	faces = append(faces, doc.fontManager.GetSystemFace(size, bold, italic))
+
+	return faces
 }
 
 type _BoxRegistryItem struct {

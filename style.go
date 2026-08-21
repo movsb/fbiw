@@ -572,6 +572,22 @@ var presetColors = map[string]uint32{
 	`black`:          0xFF000000,
 }
 
+func ParseFontFamily(s string) (out []string) {
+	for _, name := range strings.Split(s, `,`) {
+		name = strings.TrimSpace(name)
+		if len(name) > 2 {
+			if r := name[0]; r == '"' || r == '\'' {
+				name = name[1:]
+			}
+			if r := name[len(name)-1]; r == '"' || r == '\'' {
+				name = name[:len(name)-1]
+			}
+		}
+		out = append(out, name)
+	}
+	return
+}
+
 type Rule struct {
 	// 只表示单条选择器（类似逗号分隔的会被拆成多条）
 	Selector     Selector

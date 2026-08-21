@@ -240,17 +240,17 @@ func (c *Canvas) DrawBorder(cr Color, w, h int, borderWidth int) {
 // 画字符串，以指定的字体、指定的颜色、于当前位置。
 //
 // width 和 height 目前应该没有使用，会完整画完指定的字符串。
-func (c *Canvas) DrawString(text string, face *FontFace, color Color, width, height int) {
-	c.drawStringDevice(text, face, color, width, height)
+func (c *Canvas) DrawString(text string, faces []*FontFace, color Color, width, height int) {
+	c.drawStringDevice(text, faces, color, width, height)
 }
 
 // 内部方法：只是简单地调用官方库在当前位置画完字符串。
-func (c *Canvas) drawStringStd(text string, face *FontFace, color Color, width, height int) {
+func (c *Canvas) drawStringStd(text string, faces []*FontFace, color Color, width, height int) {
 	drawer := font.Drawer{
 		Dst:  c.toDrawable(width, height),
 		Src:  image.NewUniform(color.NRGBA()),
-		Face: face,
-		Dot:  fixed.Point26_6{X: 0, Y: face.Metrics().Ascent},
+		Face: faces[0],
+		Dot:  fixed.Point26_6{X: 0, Y: faces[0].Metrics().Ascent},
 	}
 	drawer.DrawString(text)
 }
@@ -274,15 +274,22 @@ cpu: Apple M2 Pro
 BenchmarkDrawString/dev-12                102585             10063 ns/op               0 B/op          0 allocs/op
 BenchmarkDrawString/std-12                  4749            225611 ns/op           29408 B/op       7333 allocs/op
 */
-func (c *Canvas) drawStringDevice(text string, face *FontFace, color Color, width, height int) {
+func (c *Canvas) drawStringDevice(text string, faces []*FontFace, color Color, width, height int) {
 	prev := rune(-1)
-	dot := fixed.Point26_6{X: 0, Y: face.Metrics().Ascent}
+	dot := fixed.Point26_6{X: 0, Y: faces[0].Metrics().Ascent}
 	for _, next := range text {
 		if prev >= 0 {
-			dot.X += face.Kern(prev, next)
+			dot.X += faces[0].Kern(prev, next)
 		}
 
-		glyph := face.GlyphCached(next)
+		glyph := faces[0].GlyphCached(next)
+		for _, fa := range faces {
+			if fa.HasGlyph(next) {
+				glyph = fa.GlyphCached(next)
+				break
+			}
+		}
+
 		if glyph.Width == 0 || glyph.Height == 0 {
 			dot.X += glyph.Advance
 			prev = next
