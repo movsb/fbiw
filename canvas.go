@@ -11,6 +11,7 @@ import (
 	"io/fs"
 	"log"
 	"os"
+	"simd/archsimd"
 	"time"
 	"unsafe"
 
@@ -195,6 +196,12 @@ func (c *Canvas) FillRect(x, y, width, height int, color Color) {
 	}
 
 	// 带透明通道的颜色需要和背景混合。
+	// 提出来方便做性能测试。
+	fillAlphaBlend5(c, color, x0, x1, y0, y1)
+}
+
+// 基线标准
+func fillAlphaBlend1(c *Canvas, color Color, x0, x1, y0, y1 int) {
 	a, ia := color.A(), 255-color.A()
 	for yy := y0; yy < y1; yy++ {
 		offset := c.width*4*yy + x0*4
@@ -204,6 +211,186 @@ func (c *Canvas) FillRect(x, y, width, height int, color Color) {
 			p[1] = uint8((int(color.G())*int(a) + int(p[1])*int(ia)) / 255)
 			p[2] = uint8((int(color.R())*int(a) + int(p[2])*int(ia)) / 255)
 			p[3] = 255
+		}
+	}
+}
+
+// 查表法
+func fillAlphaBlend2(c *Canvas, color Color, x0, x1, y0, y1 int) {
+	a := int(color.A())
+	ia := 255 - a
+
+	b := int(color.B()) * a
+	g := int(color.G()) * a
+	r := int(color.R()) * a
+
+	var blendB [256]uint8
+	var blendG [256]uint8
+	var blendR [256]uint8
+
+	for i := range 256 {
+		blendB[i] = uint8((b + i*ia) / 255)
+		blendG[i] = uint8((g + i*ia) / 255)
+		blendR[i] = uint8((r + i*ia) / 255)
+	}
+
+	rowBytes := (x1 - x0) * 4
+
+	for yy := y0; yy < y1; yy++ {
+		offset := (yy*c.width + x0) * 4
+		p := c.buffer[offset : offset+rowBytes]
+
+		for i := 0; i < rowBytes; i += 4 {
+			p[i+0] = blendB[p[i+0]]
+			p[i+1] = blendG[p[i+1]]
+			p[i+2] = blendR[p[i+2]]
+			p[i+3] = 255
+		}
+	}
+}
+
+// 不精确：/255 ---> >>8
+func fillAlphaBlend3(c *Canvas, color Color, x0, x1, y0, y1 int) {
+	a := int(color.A())
+
+	// 注意这里是256，数学上更正确？
+	ia := 256 - a
+
+	b := int(color.B()) * a
+	g := int(color.G()) * a
+	r := int(color.R()) * a
+
+	var blendB [256]uint8
+	var blendG [256]uint8
+	var blendR [256]uint8
+
+	for i := range 256 {
+		blendB[i] = uint8((b + i*ia) >> 8)
+		blendG[i] = uint8((g + i*ia) >> 8)
+		blendR[i] = uint8((r + i*ia) >> 8)
+	}
+
+	rowBytes := (x1 - x0) * 4
+
+	for yy := y0; yy < y1; yy++ {
+		offset := (yy*c.width + x0) * 4
+		p := c.buffer[offset : offset+rowBytes]
+
+		for i := 0; i < rowBytes; i += 4 {
+			p[i+0] = blendB[p[i+0]]
+			p[i+1] = blendG[p[i+1]]
+			p[i+2] = blendR[p[i+2]]
+			p[i+3] = 255
+		}
+	}
+}
+
+// uint32 + SWAR + >>8
+func fillAlphaBlend4(c *Canvas, color Color, x0, x1, y0, y1 int) {
+	a := uint32(color.A())
+	ia := uint32(256) - a
+
+	// B、R 分别占两个 16-bit lane。
+	srcBR := uint32(color.B()) | uint32(color.R())<<16
+	srcBR *= a
+
+	srcG := uint32(color.G()) * a
+
+	width := x1 - x0
+
+	for yy := y0; yy < y1; yy++ {
+		offset := (yy*c.width + x0) * 4
+
+		for x := range width {
+			p := (*uint32)(unsafe.Pointer(&c.buffer[offset+x*4]))
+			dst := *p
+
+			// B 和 R 一次计算。
+			br := ((srcBR + (dst&0x00ff00ff)*ia) >> 8) & 0x00ff00ff
+			// G 单独计算。
+			g := ((srcG + ((dst>>8)&0xff)*ia) >> 8) & 0xff
+
+			*p = 0xff000000 | br | g<<8
+		}
+	}
+}
+
+// archsimd / ARM64 NEON
+//
+// 思路：
+//
+//	一个 Uint32x4 = 4 个 BGRA8888 像素。
+//	每个 uint32 lane 内继续使用 fillAlphaBlend4 的 SWAR 技巧：
+//	B/R 两个 16-bit lane 一起算，G 单独算。
+func fillAlphaBlend5(c *Canvas, color Color, x0, x1, y0, y1 int) {
+	a := uint32(color.A())
+	ia := uint32(256) - a
+
+	srcBR := (uint32(color.B()) | uint32(color.R())<<16) * a
+	srcG := uint32(color.G()) * a
+
+	vIA := archsimd.BroadcastUint32x4(ia)
+	vSrcBR := archsimd.BroadcastUint32x4(srcBR)
+	vSrcG := archsimd.BroadcastUint32x4(srcG)
+
+	vMaskBR := archsimd.BroadcastUint32x4(0x00ff00ff)
+	vMaskG := archsimd.BroadcastUint32x4(0x000000ff)
+	vAlpha := archsimd.BroadcastUint32x4(0xff000000)
+
+	width := x1 - x0
+	vectorWidth := width &^ 3
+
+	for yy := y0; yy < y1; yy++ {
+		offset := (yy*c.width + x0) * 4
+
+		row := c.buffer[offset : offset+width*4]
+
+		// BGRA8888 => 每 4 字节一个 uint32。
+		pixels := unsafe.Slice(
+			(*uint32)(unsafe.Pointer(&row[0])),
+			width,
+		)
+
+		x := 0
+
+		for ; x < vectorWidth; x += 4 {
+			dst := archsimd.LoadUint32x4(pixels[x : x+4])
+
+			// B + R:
+			//
+			// ((dst & 0x00ff00ff) * ia + srcBR) >> 8
+			br := dst.
+				And(vMaskBR).
+				Mul(vIA).
+				Add(vSrcBR).
+				ShiftAllRight(8).
+				And(vMaskBR)
+
+			// G:
+			//
+			// ((((dst >> 8) & 0xff) * ia + srcG) >> 8) << 8
+			g := dst.
+				ShiftAllRight(8).
+				And(vMaskG).
+				Mul(vIA).
+				Add(vSrcG).
+				ShiftAllRight(8).
+				And(vMaskG).
+				ShiftAllLeft(8)
+
+			out := vAlpha.Or(br).Or(g)
+
+			out.Store(pixels[x : x+4])
+		}
+
+		// 最后的 0~3 个像素。
+		for ; x < width; x++ {
+			dst := pixels[x]
+
+			br := ((srcBR + (dst&0x00ff00ff)*ia) >> 8) & 0x00ff00ff
+			g := ((srcG + ((dst>>8)&0xff)*ia) >> 8) & 0xff
+
+			pixels[x] = 0xff000000 | br | g<<8
 		}
 	}
 }

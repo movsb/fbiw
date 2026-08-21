@@ -1,7 +1,11 @@
 {
 	"cSpell.words": [
+		"archsimd",
 		"fbiw",
 		"opentype",
 		"trimui"
-	]
+	],
+	"go.toolsEnvVars": {
+		"GOEXPERIMENT": "simd"
+	}
 }

@@ -3,4 +3,5 @@
 /fbiw
 /*.png
 /.vscode/launch.json
+*.test
 
