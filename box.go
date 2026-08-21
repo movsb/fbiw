@@ -838,10 +838,6 @@ type _TextLine struct {
 	Fragments []_TextRunFragment
 	// 每个片段的face可能不一样
 	MaxHeight int
-
-	// 绘制时的滚动偏移量。
-	// 基于0，而不是nc区。
-	offsetY int
 }
 
 type _TextParts struct {
@@ -894,8 +890,8 @@ type Text struct {
 	textLines        []_TextLine
 	textLineMaxWidth int
 
-	// 对于多行文本，表示当前绘制行的垂直滚动偏移像素。
-	textDrawLineOffsetY int
+	// 对于多行文本，表示当前绘制行的垂直滚动偏移行数。
+	textDrawLineOffset int
 }
 
 func NewText(doc *Document) *Text {
@@ -958,18 +954,13 @@ func (t *Text) expandTextNodes() {
 
 // ≈ 给 block 的子元素 calc用的
 // x y 在外面设置。
+//
+// TODO 没有缓存计算结果，应避免重复计算。
 func (t *Text) SegmentBlock(availWidth, availHeight int) {
 	t.clearStates()
 
 	// availHeight 应该内部没有使用，至少会使用一行行高。
 	for t.SegmentInline(availWidth, availHeight) {
-	}
-
-	// 提前计算出每行的滚动偏移方便绘制的时候作滚动偏移计算。
-	offsetY := 0
-	for i, n := 0, len(t.textLines); i < n; i++ {
-		t.textLines[i].offsetY = offsetY
-		offsetY += t.textLines[i].MaxHeight
 	}
 
 	// 文本的宽度肯定是限制在可用宽度内的，目前超宽的始终折行。
@@ -1004,6 +995,8 @@ func (t *Text) SegmentBlock(availWidth, availHeight int) {
 // 返回是否还有行宽度、行高度，更多内容。
 //
 // calcPos 只表示当前行。
+//
+// TODO 没有缓存计算结果，应避免重复计算。
 func (t *Text) SegmentInline(availWidth, availHeight int) bool {
 	line := _TextLine{}
 
@@ -1103,7 +1096,7 @@ func (t *Text) clearStates() {
 	t.textRunDataIndex = 0
 	t.textLines = nil
 	t.textLineMaxWidth = 0
-	t.textDrawLineOffsetY = 0
+	t.textDrawLineOffset = 0
 }
 
 func (t *Text) blockHeight() int {
@@ -1117,21 +1110,23 @@ func (t *Text) blockHeight() int {
 func (t *Text) Draw(canvas *Canvas) {
 	t.Base().draw(canvas, false)
 
-	top := t.textDrawLineOffsetY
-	bottom := top + (t.layoutBox.Height - t.ncWidth()*2)
-	// log.Println(`顶部与底部:`, top, bottom)
+	if len(t.textLines) <= 0 {
+		return
+	}
 
-	for _, line := range t.textLines {
-		// 这一行已经有部分于绘制区域顶部之上，可以跨过。
-		if lineTop := line.offsetY; lineTop < top {
+	contentMaxHeight := t.layoutBox.Height - t.ncWidth()*2
+
+	drawOffsetY := t.ncWidth()
+
+	for lineNo, line := range t.textLines {
+		if lineNo < t.textDrawLineOffset {
 			continue
 		}
-		// 这一行已经完整位于绘制区域底部之下，可以结束了。
-		if lineBottom := line.offsetY + line.MaxHeight; lineBottom > bottom {
+		// 当前行必须能够完整放进内容区域。
+		if usedHeight := drawOffsetY - t.ncWidth(); usedHeight+line.MaxHeight > contentMaxHeight {
 			break
 		}
 
-		drawOffsetY := t.ncWidth() + line.offsetY
 		drawOffsetX := t.ncWidth()
 
 		for _, fragment := range line.Fragments {
@@ -1151,9 +1146,109 @@ func (t *Text) Draw(canvas *Canvas) {
 			)
 
 			drawOffsetX += rc.Width
-			// log.Println(`绘制了行:`, line.offsetY, line.offsetY+line.MaxHeight)
 		}
+
+		drawOffsetY += line.MaxHeight
 	}
+}
+
+// 向下滚动一行。
+func (t *Text) ScrollLineDown() bool {
+	if t.textDrawLineOffset >= len(t.textLines)-1 {
+		return false
+	}
+
+	t.textDrawLineOffset++
+	t.document.RequestPaint()
+	return true
+}
+
+// 向上滚动一行。
+func (t *Text) ScrollLineUp() bool {
+	if t.textDrawLineOffset <= 0 {
+		return false
+	}
+
+	t.textDrawLineOffset--
+	t.document.RequestPaint()
+	return true
+}
+
+// 向右翻一页。
+func (t *Text) PageRight() bool {
+	if t.textDrawLineOffset >= len(t.textLines)-1 {
+		return false
+	}
+
+	contentHeight := t.layoutBox.Height - t.ncWidth()*2
+
+	height := 0
+	lineCount := 0
+
+	// 计算当前这一页实际显示了多少完整行。
+	for i := t.textDrawLineOffset; i < len(t.textLines); i++ {
+		lineHeight := t.textLines[i].MaxHeight
+
+		if height+lineHeight > contentHeight {
+			break
+		}
+
+		height += lineHeight
+		lineCount++
+	}
+
+	// 极端情况：连一行都放不进去，也至少向下走一行。
+	if lineCount == 0 {
+		lineCount = 1
+	}
+
+	newOffset := min(
+		t.textDrawLineOffset+lineCount,
+		len(t.textLines)-1,
+	)
+
+	if newOffset == t.textDrawLineOffset {
+		return false
+	}
+
+	t.textDrawLineOffset = newOffset
+	t.document.RequestPaint()
+
+	return true
+}
+
+// 向左翻一页。
+func (t *Text) PageLeft() bool {
+	if t.textDrawLineOffset <= 0 {
+		return false
+	}
+
+	contentHeight := t.layoutBox.Height - t.ncWidth()*2
+
+	height := 0
+	newOffset := t.textDrawLineOffset
+
+	// 从当前第一行向前找，尽可能装满一整页。
+	for newOffset > 0 {
+		lineHeight := t.textLines[newOffset-1].MaxHeight
+
+		if height+lineHeight > contentHeight {
+			break
+		}
+
+		height += lineHeight
+		newOffset--
+	}
+
+	// 极端情况下连一行都装不下，也至少向上走一行。
+	if newOffset == t.textDrawLineOffset {
+		newOffset--
+	}
+
+	t.textDrawLineOffset = newOffset
+	t.document.RequestPaint()
+
+	return true
 }
 
 type BoldText struct {
