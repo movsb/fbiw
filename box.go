@@ -1239,6 +1239,13 @@ func (b *Image) Calc(availWidth, availHeight int, constraints Constraints) {
 			return
 		}
 
+		if di, err := b.document.loadImageSync(b.src, fittingWidth, fittingHeight); err == nil {
+			b.decodedImage = di
+			b.status = imageLoadStatusDecoded
+			b.Calc(availWidth, availHeight, constraints)
+			return
+		}
+
 		b.document.loadImageAsync(b.src, fittingWidth, fittingHeight, func(di DecodedImage, err error) {
 			if err != nil {
 				b.status = imageLoadStatusFailed
