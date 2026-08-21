@@ -587,7 +587,7 @@ func inlineCalc(b *BaseBox, availWidth, availHeight int, constraints Constraints
 		} else {
 			if text, ok := child.(*Text); ok {
 				// 只处理了一行，如果要wrap，才能继续处理。
-				text.ClearStates()
+				text.clearStates()
 				text.SegmentInline(contentAvailWidth-contentWidth, contentAvailHeight)
 			} else {
 				child.Base().presetWidth(contentAvailWidth)
@@ -952,7 +952,7 @@ func (t *Text) expandTextNodes() {
 // ≈ 给 block 的子元素 calc用的
 // x y 在外面设置。
 func (t *Text) SegmentBlock(availWidth, availHeight int) {
-	t.ClearStates()
+	t.clearStates()
 	for t.SegmentInline(availWidth, availHeight) {
 	}
 	t.layoutBox.Width = t.textLineMaxWidth + t.ncWidth()*2
@@ -978,6 +978,8 @@ func (t *Text) SegmentBlock(availWidth, availHeight int) {
 // calcPos 只表示当前行。
 func (t *Text) SegmentInline(availWidth, availHeight int) bool {
 	line := _TextLine{}
+
+	// 当前行已经使用的宽度
 	width := 0
 
 	for {
@@ -993,10 +995,29 @@ func (t *Text) SegmentInline(availWidth, availHeight int) bool {
 			}
 		}
 
-		face := t.document.LoadFaceWithFallback(t.textRuns[t.textRunIndex].Owner)
-		end, runWidth, err := face.Segment(
-			t.textRuns[t.textRunIndex].Data[t.textRunDataIndex:],
-			availWidth-width)
+		var (
+			currentRun  = &t.textRuns[t.textRunIndex]
+			face        = t.document.LoadFaceWithFallback(currentRun.Owner)
+			widthRemain = availWidth - width
+		)
+
+		// 如果有换行符，需要提前结束。
+		newLinePos := strings.IndexByte(currentRun.Data[t.textRunDataIndex:], '\n')
+		if newLinePos == 0 {
+			// 换行符不保存，直接丢弃。
+			t.textRunDataIndex++
+			// 如果是空行，则可能没有行高。
+			line.MaxHeight = max(line.MaxHeight, face.TextHeight())
+			break
+		}
+
+		// 有换行符且不在行首，处理最多到换行符前的内容。
+		maxDataIndex := t.textRunDataIndex + len(currentRun.Data[t.textRunDataIndex:])
+		if newLinePos != -1 {
+			maxDataIndex = t.textRunDataIndex + newLinePos
+		}
+
+		end, runWidth, err := face.Segment(currentRun.Data[t.textRunDataIndex:maxDataIndex], widthRemain)
 		if err != nil {
 			// 好像啥也干不了
 			return false
@@ -1004,20 +1025,23 @@ func (t *Text) SegmentInline(availWidth, availHeight int) bool {
 
 		// 挤不了了，真的满了
 		if runWidth == 0 {
+			// TODO 有可能下一个就是换行符，如果不处理，可能导致下次分行的时候产生一个意外的空行。
 			break
 		}
 
 		// 成功塞了一点东西
 		line.Fragments = append(line.Fragments, _TextRunFragment{
-			Run:       &t.textRuns[t.textRunIndex],
+			Run:       currentRun,
 			Start:     t.textRunDataIndex,
 			End:       t.textRunDataIndex + end,
 			layoutBox: Rect{Width: runWidth, Height: face.TextHeight()},
 		})
+
+		// 每次的字体可能不同，需要持续更新行高。
 		line.MaxHeight = max(line.MaxHeight, face.TextHeight())
 
 		// 更新到索引，下次循环会自动切换到一下，如果有必要。
-		t.textRunDataIndex = t.textRunDataIndex + end
+		t.textRunDataIndex += end
 
 		width += runWidth
 	}
@@ -1033,7 +1057,7 @@ func (t *Text) SegmentInline(availWidth, availHeight int) bool {
 }
 
 // 清空分行的内部状态。用于样式更新、内容更新后调用。
-func (t *Text) ClearStates() {
+func (t *Text) clearStates() {
 	t.textRunIndex = 0
 	t.textRunDataIndex = 0
 	t.textLines = nil
@@ -1049,9 +1073,6 @@ func (t *Text) BlockHeight() int {
 }
 
 func (t *Text) Draw(canvas *Canvas) {
-	if t.ID == `query` {
-		t.ID += ``
-	}
 	t.Base().draw(canvas, false)
 	offsetY := t.ncWidth()
 	for _, line := range t.textLines {
