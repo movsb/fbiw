@@ -838,6 +838,10 @@ type _TextLine struct {
 	Fragments []_TextRunFragment
 	// 每个片段的face可能不一样
 	MaxHeight int
+
+	// 绘制时的滚动偏移量。
+	// 基于0，而不是nc区。
+	offsetY int
 }
 
 type _TextParts struct {
@@ -889,6 +893,9 @@ type Text struct {
 	// 用于 Draw。
 	textLines        []_TextLine
 	textLineMaxWidth int
+
+	// 对于多行文本，表示当前绘制行的垂直滚动偏移像素。
+	textDrawLineOffsetY int
 }
 
 func NewText(doc *Document) *Text {
@@ -953,10 +960,31 @@ func (t *Text) expandTextNodes() {
 // x y 在外面设置。
 func (t *Text) SegmentBlock(availWidth, availHeight int) {
 	t.clearStates()
+
+	// availHeight 应该内部没有使用，至少会使用一行行高。
 	for t.SegmentInline(availWidth, availHeight) {
 	}
-	t.layoutBox.Width = t.textLineMaxWidth + t.ncWidth()*2
-	t.layoutBox.Height = t.BlockHeight() + t.ncWidth()*2
+
+	// 提前计算出每行的滚动偏移方便绘制的时候作滚动偏移计算。
+	offsetY := 0
+	for i, n := 0, len(t.textLines); i < n; i++ {
+		t.textLines[i].offsetY = offsetY
+		offsetY += t.textLines[i].MaxHeight
+	}
+
+	// 文本的宽度肯定是限制在可用宽度内的，目前超宽的始终折行。
+	if w := t.computedStyles.Width; w.IsNumber() {
+		t.layoutBox.Width = w.Number
+	} else {
+		t.layoutBox.Width = t.textLineMaxWidth + t.ncWidth()*2
+	}
+
+	// 但是高度就有可能超出盒子的高度了。
+	if h := t.computedStyles.Height; h.IsNumber() {
+		t.layoutBox.Height = h.Number
+	} else {
+		t.layoutBox.Height = min(t.blockHeight()+t.ncWidth()*2, availHeight)
+	}
 }
 
 // 文本排版很特殊：
@@ -979,6 +1007,16 @@ func (t *Text) SegmentBlock(availWidth, availHeight int) {
 func (t *Text) SegmentInline(availWidth, availHeight int) bool {
 	line := _TextLine{}
 
+	computed := &t.computedStyles
+
+	// 根据自身大小及可用空间大小取最佳值。
+	boxMaxWidth := Iif(computed.Width.IsNumber(), computed.Width.Number, availWidth)
+	// boxMaxHeight := Iif(computed.Height.IsNumber(), computed.Height.Number, availHeight)
+
+	// 内容区域可用的大小。
+	contentAvailWidth := boxMaxWidth - t.ncWidth()*2
+	// contentAvailHeight := boxMaxHeight - t.ncWidth()*2
+
 	// 当前行已经使用的宽度
 	width := 0
 
@@ -998,7 +1036,7 @@ func (t *Text) SegmentInline(availWidth, availHeight int) bool {
 		var (
 			currentRun  = &t.textRuns[t.textRunIndex]
 			face        = t.document.LoadFaceWithFallback(currentRun.Owner)
-			widthRemain = availWidth - width
+			widthRemain = contentAvailWidth - width
 		)
 
 		// 如果有换行符，需要提前结束。
@@ -1050,6 +1088,9 @@ func (t *Text) SegmentInline(availWidth, availHeight int) bool {
 	t.textLineMaxWidth = max(t.textLineMaxWidth, width)
 
 	t.layoutBox.Width = width + t.ncWidth()*2
+
+	// 此处的高度是单行的文本高度+非可用区的高度。
+	// 如果是多行文本，此高度需要去重计算。
 	t.layoutBox.Height = line.MaxHeight + t.ncWidth()*2
 
 	return t.textRunIndex < len(t.textRuns)-1 ||
@@ -1062,9 +1103,10 @@ func (t *Text) clearStates() {
 	t.textRunDataIndex = 0
 	t.textLines = nil
 	t.textLineMaxWidth = 0
+	t.textDrawLineOffsetY = 0
 }
 
-func (t *Text) BlockHeight() int {
+func (t *Text) blockHeight() int {
 	h := 0
 	for _, l := range t.textLines {
 		h += l.MaxHeight
@@ -1074,13 +1116,28 @@ func (t *Text) BlockHeight() int {
 
 func (t *Text) Draw(canvas *Canvas) {
 	t.Base().draw(canvas, false)
-	offsetY := t.ncWidth()
+
+	top := t.textDrawLineOffsetY
+	bottom := top + (t.layoutBox.Height - t.ncWidth()*2)
+	// log.Println(`顶部与底部:`, top, bottom)
+
 	for _, line := range t.textLines {
-		offsetX := t.ncWidth()
+		// 这一行已经有部分于绘制区域顶部之上，可以跨过。
+		if lineTop := line.offsetY; lineTop < top {
+			continue
+		}
+		// 这一行已经完整位于绘制区域底部之下，可以结束了。
+		if lineBottom := line.offsetY + line.MaxHeight; lineBottom > bottom {
+			break
+		}
+
+		drawOffsetY := t.ncWidth() + line.offsetY
+		drawOffsetX := t.ncWidth()
+
 		for _, fragment := range line.Fragments {
 			rc := fragment.layoutBox
 			owner := fragment.Run.Owner
-			canvas := canvas.Offset(offsetX, offsetY)
+			canvas := canvas.Offset(drawOffsetX, drawOffsetY)
 
 			if cr := owner.Base().computedStyles.BackgroundColor; cr.IsColor() && !cr.Color.None() {
 				canvas.FillRect(0, 0, rc.Width, rc.Height, cr.Color)
@@ -1093,9 +1150,9 @@ func (t *Text) Draw(canvas *Canvas) {
 				rc.Width, rc.Height,
 			)
 
-			offsetX += rc.Width
+			drawOffsetX += rc.Width
+			// log.Println(`绘制了行:`, line.offsetY, line.offsetY+line.MaxHeight)
 		}
-		offsetY += line.MaxHeight
 	}
 }
 
