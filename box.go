@@ -305,7 +305,7 @@ func (b *BaseBox) classChanged() {
 }
 
 // 如果宽度指定了百分比，其百分比是相对于父元素的，不能等到其它元素占用（并减去）后再计算。
-func (b *BaseBox) presetWidth(parentTotalAvailWidth int) {
+func (b *BaseBox) presetSize(parentTotalAvailWidth, parentTotalAvailHeight int) {
 	if b.computedStyles.Width.IsPercentage() {
 		// 百分比暂时优先级更高，所以如果窗口大小变了。b.Width会怎样？
 		// 因为百分比才是真实的初始化，Width原本是没有的。
@@ -314,6 +314,10 @@ func (b *BaseBox) presetWidth(parentTotalAvailWidth int) {
 		// 正常来说，这个在排版（非样式计算）过程中是只读的，真正的值应该写到 layoutBox。
 		// 但是由于每次计算这个值都会因为百分比变化，没有因为单次排版而被固定，所以看起来没有问题？
 		b.computedStyles.Width = NumberValue(w)
+	}
+	if b.computedStyles.Height.IsPercentage() {
+		h := int(float32(b.computedStyles.Height.Number) / 100 * float32(parentTotalAvailHeight))
+		b.computedStyles.Height = NumberValue(h)
 	}
 }
 
@@ -507,7 +511,7 @@ func blockCalc(b *BaseBox, availWidth, availHeight int, constraints Constraints)
 			if text, ok := child.(*Text); ok {
 				text.SegmentBlock(contentAvailWidth, contentAvailHeight-contentHeight)
 			} else {
-				child.Base().presetWidth(contentAvailWidth)
+				child.Base().presetSize(contentAvailWidth, contentAvailHeight)
 				child.Calc(contentAvailWidth, contentAvailHeight-contentHeight, Constraints{
 					PrefersMaxWidth:  true,
 					PrefersMaxHeight: false,
@@ -630,7 +634,7 @@ func inlineCalc(b *BaseBox, availWidth, availHeight int, constraints Constraints
 				text.clearStates()
 				text.SegmentInline(contentAvailWidth-contentWidth, contentAvailHeight)
 			} else {
-				child.Base().presetWidth(contentAvailWidth)
+				child.Base().presetSize(contentAvailWidth, contentAvailHeight)
 				child.Calc(contentAvailWidth-contentWidth, contentAvailHeight, Constraints{
 					PrefersMaxWidth:  false,
 					PrefersMaxHeight: false,
@@ -788,7 +792,7 @@ func (b *Stack) Calc(availWidth, availHeight int, constrains Constraints) {
 		if text, ok := child.(*Text); ok {
 			text.SegmentBlock(contentAvailWidth, contentAvailHeight)
 		} else {
-			child.Base().presetWidth(contentAvailWidth)
+			child.Base().presetSize(contentAvailWidth, contentAvailHeight)
 			child.Calc(contentAvailWidth, contentAvailHeight, Constraints{
 				PrefersMaxWidth:  b.fill,
 				PrefersMaxHeight: b.fill,
