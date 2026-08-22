@@ -11,6 +11,7 @@
 - 使用类似 HTML 的文档描述界面；
 - 支持标签、ID、class、后代和直接子元素等 CSS 选择器；
 - 内置纵向、横向、叠层和虚拟列表布局；
+- 支持始终位于文档栈上方的系统覆盖层，以及供文档避让覆盖层的安全区域；
 - 支持颜色、背景图片、边框、内边距、尺寸、字体和对齐等样式；
 - 支持 OpenType 字体、字形缓存和文本分段；
 - 支持 PNG 等 Go `image` 包可解码的图片，并提供缩放缓存；
@@ -66,7 +67,6 @@ go get github.com/movsb/fbiw
 package main
 
 import (
-    "context"
     "embed"
 
     "github.com/movsb/fbiw"
@@ -77,13 +77,11 @@ var assets embed.FS
 
 func main() {
     app := fbiw.NewApp(
-        context.Background(),
-        assets,
         fbiw.WithSystemFont(assets, "regular.ttf"),
     )
     defer app.Close()
 
-    doc := app.New("main.html", ".")
+    doc := app.New(assets, "main.html")
     app.Show(doc)
     app.Run()
 }
@@ -110,7 +108,7 @@ func main() {
 规则如下：
 
 - `<document>` 下最多有一个 `<style>`；
-- 内容根节点只能有一个，且必须是 `<block>` 或 `<inline>`；
+- 内容根节点只能有一个，且必须是 `<block>`、`<inline>` 或 `<stack>`；
 - 普通容器中不能直接放置非空文本，文字必须放在 `<text>` 中；
 - `<b>` 和 `<i>` 只能出现在 `<text>`、`<b>` 或 `<i>` 内；
 - `<img>` 和 `<spacer>` 是无子节点元素；
@@ -123,6 +121,7 @@ func main() {
 | `block` | 子元素纵向排列；未指定宽度的普通子元素默认使用可用宽度 |
 | `inline` | 子元素单行横向排列 |
 | `stack` | 子元素叠放在同一位置 |
+| `safe-area` | 根据系统覆盖层占用的四边区域，为内容设置安全内边距 |
 | `scroll` | 固定行列、固定可视槽位的虚拟列表 |
 | `spacer` | 在布局主轴上分配剩余空间 |
 | `button` | 基于普通 Box 的语义化按钮容器 |
@@ -165,6 +164,66 @@ func main() {
 | `both` | 水平和垂直居中 |
 
 当前布局不是 Flexbox：`inline` 不会自动换行，也没有通用 margin、min/max size、绝对定位或通用 overflow 裁剪。
+
+## 系统覆盖层和安全区域
+
+状态栏等系统界面可以作为独立覆盖层，始终绘制在所有普通文档之上。普通文档仍使用完整屏幕，因此背景图片可以延伸至屏幕边缘；需要避免被状态栏遮挡的内容放入 `<safe-area>`。
+
+覆盖层文档使用以下固定 ID 声明四边占用区域：
+
+- `#top` 和 `#bottom` 的布局高度分别作为顶部、底部 inset；
+- `#left` 和 `#right` 的布局宽度分别作为左侧、右侧 inset；
+- 缺少某个元素时，对应 inset 为零。
+
+例如 `status.html`：
+
+```html
+<document>
+<stack fill>
+    <block>
+        <inline id="top" height="48" background-color="#000000E8">
+            <text>状态栏</text>
+        </inline>
+        <spacer></spacer>
+    </block>
+</stack>
+</document>
+```
+
+创建并设置覆盖层：
+
+```go
+overlay := app.NewOverlay(assets, "status.html")
+app.SetOverlay(overlay)
+```
+
+普通文档可以把全屏背景和安全内容叠放：
+
+```html
+<document>
+<stack fill>
+    <img src="background.png" fill="stretch">
+
+    <safe-area fill>
+        <block fill>
+            <text>不会被系统覆盖层遮挡</text>
+        </block>
+    </safe-area>
+</stack>
+</document>
+```
+
+`<safe-area>` 会在布局时自动采用当前四边 inset。覆盖层尺寸改变、被替换或被移除时，显示中的普通文档会重新布局。调用下面任一种方式可以移除覆盖层：
+
+```go
+app.SetOverlay(nil)
+// 或
+overlay.Close()
+```
+
+覆盖层仅负责顶层绘制，不会加入普通文档栈，也不会成为接收按键事件的活动文档。`<safe-area>` 的 padding 由系统占用区域管理，不应另外设置 `padding`；需要额外留白时，在其内部再放置带 padding 的容器。
+
+完整示例见 [`demo/safe`](demo/safe)。
 
 ## 样式
 
@@ -376,7 +435,7 @@ scroll .selected {
 
 ## 图片和字体
 
-相对图片路径基于 `app.New(name, skinDir)` 的 `skinDir`：
+相对图片路径从创建文档时传入的文件系统中读取：
 
 ```html
 <img src="icon.png" width="64" height="64">
@@ -395,7 +454,7 @@ app.AddFont("system", true, false, fontFS, "bold.ttf")
 或者在创建应用时使用：
 
 ```go
-app := fbiw.NewApp(ctx, assets,
+app := fbiw.NewApp(
     fbiw.WithSystemFont(fontFS, "regular.ttf"),
     fbiw.WithFont("brand", false, false, fontFS, "brand.ttf"),
 )
@@ -429,11 +488,12 @@ Linux 后端直接读取 evdev 按键码。当前设备选择和按键映射针�
 
 ## 运行示例
 
-仓库包含两个示例：
+仓库包含多个示例，其中安全区域示例可这样运行：
 
 ```bash
 GOEXPERIMENT=simd go run ./demo
 GOEXPERIMENT=simd go run ./demo/scroll
+GOEXPERIMENT=simd go run ./demo/safe
 ```
 
 示例期望存在 `demo/regular.ttf`。该字体文件当前未包含在仓库中，运行前需要自行放置一个可用的 OpenType/TrueType 字体，并命名为 `regular.ttf`。
