@@ -2,12 +2,12 @@ package fbiw
 
 import (
 	"bufio"
-	"bytes"
 	"errors"
 	"fmt"
 	"image/color"
 	"io"
 	"iter"
+	"math"
 	"reflect"
 	"slices"
 	"strconv"
@@ -82,7 +82,7 @@ const (
 	FillScaleDown
 )
 
-var DefaultStyles = Must1(ParseStyle([]byte(`
+var DefaultStyles = Must1(ParseStyle(`
 document {
 	color: black;
 	font-family: system;
@@ -94,10 +94,10 @@ b {
 i {
 	italic: true;
 }
-h1 { font-size: 200%; }
-h2 { font-size: 150%; }
-h3 { font-size: 120%; }
-`)))
+.h1 { font-size: 1.50rem; }
+.h2 { font-size: 1.35rem; }
+.h3 { font-size: 1.20rem; }
+`))
 
 // 直接传入的是结构体字段，原始名字，没有小写、没有中划线。
 func shouldInherit(name string) bool {
@@ -131,13 +131,13 @@ func (s *Styles) Set(name string, raw string) (affectInherit, affectLayout, affe
 }
 
 var namedFontSizeScale = map[string]int{
-	`xx-small`: 60,
-	`x-small`:  76,
-	`small`:    89,
+	`xx-small`: 45,
+	`x-small`:  60,
+	`small`:    85,
 	`medium`:   100,
-	`large`:    120,
-	`x-large`:  150,
-	`xx-large`: 200,
+	`large`:    115, // h3
+	`x-large`:  130, // h2
+	`xx-large`: 145, // h1
 }
 
 // 后面计算样式覆盖的时候会有优先级的覆盖考虑，所以不能直接覆盖。
@@ -147,10 +147,6 @@ func (s *Styles) parseProperty(name string, raw string) (
 	outErr error,
 ) {
 	setNumberOrPercentage := func(v *Value, raw string) error {
-		if n, ok := namedFontSizeScale[raw]; ok {
-			*v = PercentageValue(n)
-			return nil
-		}
 		if before, ok := strings.CutSuffix(raw, `%`); ok {
 			n, err := strconv.Atoi(before)
 			*v = PercentageValue(n)
@@ -160,6 +156,24 @@ func (s *Styles) parseProperty(name string, raw string) (
 			*v = NumberValue(n)
 			return err
 		}
+	}
+	setFontSize := func(v *Value, raw string) error {
+		if before, ok := strings.CutSuffix(raw, `rem`); ok {
+			n, err := strconv.ParseFloat(before, 64)
+			if err != nil {
+				return err
+			}
+			if n < 0 {
+				return fmt.Errorf(`字号不能为负数：%s`, raw)
+			}
+			*v = RemValue(n)
+			return nil
+		}
+		if n, ok := namedFontSizeScale[raw]; ok {
+			*v = PercentageValue(n)
+			return nil
+		}
+		return setNumberOrPercentage(v, raw)
 	}
 	setNumber := func(v *Value, raw string) error {
 		n, err := strconv.Atoi(raw)
@@ -261,7 +275,7 @@ func (s *Styles) parseProperty(name string, raw string) (
 		affectInherit = true
 		affectLayout = true
 		current = &s.FontSize
-		outErr = setNumberOrPercentage(&update, raw)
+		outErr = setFontSize(&update, raw)
 		return
 	case `bold`, `font-bold`:
 		affectInherit = true
@@ -321,6 +335,7 @@ const (
 	VTNumber
 	VTPercentage
 	VTBool
+	VTRem
 )
 
 // 表示各种样式值。
@@ -347,6 +362,9 @@ func (v Value) IsNumber() bool {
 }
 func (v Value) IsPercentage() bool {
 	return v.Type == VTPercentage
+}
+func (v Value) IsRem() bool {
+	return v.Type == VTRem
 }
 func (v Value) IsBool() bool {
 	return v.Type == VTBool
@@ -386,6 +404,16 @@ func PercentageValue(v int) Value {
 	return Value{
 		Type:   VTPercentage,
 		Number: v,
+	}
+}
+
+const remScale = 1000
+
+// RemValue 使用千分之一 rem 保存小数，避免样式计算引入浮点误差。
+func RemValue(v float64) Value {
+	return Value{
+		Type:   VTRem,
+		Number: int(math.Round(v * remScale)),
 	}
 }
 func BoolValue(v bool) Value {
@@ -686,9 +714,9 @@ type Sheet struct {
 	Rules []Rule
 }
 
-func ParseStyle(data []byte) (_ *Sheet, outErr error) {
+func ParseStyle(data string) (_ *Sheet, outErr error) {
 	buf := &BufioReader{
-		Reader: bufio.NewReader(bytes.NewReader(data)),
+		Reader: bufio.NewReader(strings.NewReader(data)),
 	}
 
 	defer func() {
@@ -1061,6 +1089,14 @@ func (s _Styler) computeStyles(node Box, rules [][]RuleMatch) error {
 		}
 		if base.IsNumber() {
 			styles.FontSize = NumberValue(base.Number * styles.FontSize.Number / 100)
+		}
+	}
+
+	// rem 始终相对于 <document> 的计算字号，不受中间祖先字号影响。
+	if styles.FontSize.IsRem() && s.documentStyles != nil {
+		base := s.documentStyles.FontSize
+		if base.IsNumber() {
+			styles.FontSize = NumberValue(base.Number * styles.FontSize.Number / remScale)
 		}
 	}
 

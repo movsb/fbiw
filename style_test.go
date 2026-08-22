@@ -19,13 +19,13 @@ func TestStylerStyle(t *testing.T) {
 		box.inlineStyles.Padding = NumberValue(40)
 
 		styler := _Styler{
-			defaultStyles: Must1(ParseStyle([]byte(`block { width: 10; height: 20; }`))),
+			defaultStyles: Must1(ParseStyle(`block { width: 10; height: 20; }`)),
 		}
-		sheet := Must1(ParseStyle([]byte(`
+		sheet := Must1(ParseStyle(`
 			block { width: 20; }
 			.featured { width: 30; }
 			#target { width: 40; padding: 30; }
-		`)))
+		`))
 
 		if err := styler.Style(box, true, sheet); err != nil {
 			t.Fatalf(`Style() 返回错误：%v`, err)
@@ -46,9 +46,9 @@ func TestStylerStyle(t *testing.T) {
 	t.Run(`页面样式覆盖 specificity 更高的默认样式`, func(t *testing.T) {
 		box := &BaseBox{Tag: `block`, ID: `target`}
 		styler := _Styler{
-			defaultStyles: Must1(ParseStyle([]byte(`#target { color: red; }`))),
+			defaultStyles: Must1(ParseStyle(`#target { color: red; }`)),
 		}
-		sheet := Must1(ParseStyle([]byte(`block { color: blue; }`)))
+		sheet := Must1(ParseStyle(`block { color: blue; }`))
 
 		if err := styler.Style(box, true, sheet); err != nil {
 			t.Fatalf(`Style() 返回错误：%v`, err)
@@ -67,7 +67,7 @@ func TestStylerStyle(t *testing.T) {
 			Width:    NumberValue(999),
 		}
 		styler := _Styler{documentStyles: &documentStyles}
-		sheet := Must1(ParseStyle([]byte(`block { color: blue; }`)))
+		sheet := Must1(ParseStyle(`block { color: blue; }`))
 
 		if err := styler.Style(parent, true, sheet); err != nil {
 			t.Fatalf(`Style() 返回错误：%v`, err)
@@ -102,13 +102,13 @@ func TestStylerStyle(t *testing.T) {
 		child.children = []Box{percentageGrandchild, absoluteGrandchild}
 		absoluteGrandchild.children = []Box{greatGrandchild}
 
-		sheet := Must1(ParseStyle([]byte(`
+		sheet := Must1(ParseStyle(`
 			block { font-size: 20; }
 			#child { font-size: 150%; }
 			#percentage-grandchild { font-size: 50%; }
 			#absolute-grandchild { font-size: 12; }
 			#great-grandchild { font-size: 200%; }
-		`)))
+		`))
 
 		if err := (_Styler{}).Style(root, true, sheet); err != nil {
 			t.Fatalf(`Style() 返回错误：%v`, err)
@@ -133,9 +133,54 @@ func TestStylerStyle(t *testing.T) {
 		}
 	})
 
+	// <document>：20
+	// └─ 根节点：1.5rem → 30
+	//    ├─ 子节点：10
+	//    │  └─ 孙节点：2rem → 40（不受父节点 10 影响）
+	//    └─ 子节点：0.75rem → 15
+	t.Run(`rem font-size 始终根据 document 字号计算`, func(t *testing.T) {
+		root := &BaseBox{Tag: `block`}
+		absoluteChild := &BaseBox{Tag: `inline`, ID: `absolute-child`, parent: root}
+		grandchild := &BaseBox{Tag: `inline`, ID: `rem-grandchild`, parent: absoluteChild}
+		fractionalChild := &BaseBox{Tag: `inline`, ID: `fractional-child`, parent: root}
+		root.children = []Box{absoluteChild, fractionalChild}
+		absoluteChild.children = []Box{grandchild}
+
+		documentStyles := Styles{FontSize: NumberValue(20)}
+		styler := _Styler{documentStyles: &documentStyles}
+		sheet := Must1(ParseStyle(`
+			block { font-size: 1.5rem; }
+			#absolute-child { font-size: 10; }
+			#rem-grandchild { font-size: 2rem; }
+			#fractional-child { font-size: 0.75rem; }
+		`))
+
+		if err := styler.Style(root, true, sheet); err != nil {
+			t.Fatalf(`Style() 返回错误：%v`, err)
+		}
+
+		tests := []struct {
+			name string
+			box  Box
+			want Value
+		}{
+			{name: `根节点的 1.5rem`, box: root, want: NumberValue(30)},
+			{name: `子节点使用绝对字号`, box: absoluteChild, want: NumberValue(10)},
+			{name: `孙节点的 2rem 忽略父节点绝对字号`, box: grandchild, want: NumberValue(40)},
+			{name: `小数 0.75rem`, box: fractionalChild, want: NumberValue(15)},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				if got := tt.box.GetComputedStyles().FontSize; got != tt.want {
+					t.Errorf(`FontSize = %+v，期望 %+v`, got, tt.want)
+				}
+			})
+		}
+	})
+
 	t.Run(`descendents 为 false 时只处理当前节点`, func(t *testing.T) {
 		parent, child := newTree()
-		sheet := Must1(ParseStyle([]byte(`* { width: 12; }`)))
+		sheet := Must1(ParseStyle(`* { width: 12; }`))
 
 		if err := (_Styler{}).Style(parent, false, sheet); err != nil {
 			t.Fatalf(`Style() 返回错误：%v`, err)
@@ -154,11 +199,11 @@ func TestStylerStyle(t *testing.T) {
 		bad := &BaseBox{Tag: `bad`, parent: parent}
 		unvisited := &BaseBox{Tag: `inline`, parent: parent}
 		parent.children = []Box{bad, unvisited}
-		sheet := Must1(ParseStyle([]byte(`
+		sheet := Must1(ParseStyle(`
 			block { width: 10; }
 			bad { unknown-property: value; }
 			inline { width: 20; }
-		`)))
+		`))
 
 		err := (_Styler{}).Style(parent, true, sheet)
 		if err == nil || !strings.Contains(err.Error(), `未知样式属性`) {

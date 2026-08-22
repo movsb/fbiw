@@ -100,7 +100,7 @@ type StyleParseTest struct {
 func TestParseStyle(t *testing.T) {
 	cases := LoadTestCases[StyleParseTest](`testdata/style.yaml`)
 	for i, tc := range cases {
-		sheet, err := ParseStyle([]byte(tc.Style))
+		sheet, err := ParseStyle(tc.Style)
 		if err != nil {
 			t.Errorf("#%d, %v", i+1, err)
 			continue

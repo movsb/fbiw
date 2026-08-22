@@ -230,7 +230,7 @@ func parseDocument(owner *Document, content io.Reader) (*_ParsedDocumentData, er
 			return nil, fmt.Errorf(`不是文本节点`)
 		} else {
 			textData := styleNode.FirstChild.Data
-			sheet2, err := ParseStyle([]byte(textData))
+			sheet2, err := ParseStyle(textData)
 			if err != nil {
 				return nil, fmt.Errorf(`样式解析失败：%w`, err)
 			}
