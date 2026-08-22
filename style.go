@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"image/color"
 	"io"
+	"iter"
+	"reflect"
 	"slices"
 	"strconv"
 	"strings"
@@ -95,7 +97,7 @@ i {
 `)))
 
 // 直接传入的是结构体字段，原始名字，没有小写、没有中划线。
-func ShouldInherit(name string) bool {
+func shouldInherit(name string) bool {
 	switch name {
 	case `Color`:
 		return true
@@ -868,4 +870,198 @@ func parseIdent(buf *BufioReader) string {
 		panic(`缺少标识符`)
 	}
 	return string(tmp)
+}
+
+/// ---------------------------------------------------------------------------
+
+type _Styler struct {
+	// 目前的doc不像是html一样是body的parent节点，
+	// doc的body(即doc.root)和doc是没有parent关系的，
+	// 所以需要单独拿出来应用。但是允许为空，方便调试。
+	documentStyles *Styles
+}
+
+func (s _Styler) Style(box Box, descendents bool, sheet *Sheet) (outErr error) {
+	walkBox(box, func(box Box) bool {
+		var rules []RuleMatch
+		if DefaultStyles != nil {
+			rules = append(rules, s.findRulesFor(box, DefaultStyles)...)
+		}
+		if sheet != nil {
+			rules = append(rules, s.findRulesFor(box, sheet)...)
+		}
+		if err := s.computeStyles(box, rules); err != nil {
+			outErr = fmt.Errorf(`样式应用失败：%w`, err)
+			return false
+		}
+		return descendents
+	})
+	return
+}
+
+// 从样式规则里面找出匹配节点的规则集。
+// 找到的规则没有排序。
+func (s _Styler) findRulesFor(node Box, sheet *Sheet) []RuleMatch {
+	matches := []RuleMatch{}
+	for _, rule := range sheet.Rules {
+		if s.match(node, rule.Selector) {
+			spec := uint32(0)
+			for _, sel := range rule.Selector {
+				spec += sel.Specificity
+			}
+			matches = append(matches, RuleMatch{
+				Specificity:  spec,
+				Declarations: rule.Declarations,
+			})
+		}
+	}
+	return matches
+}
+
+// 为节点计算样式。
+// 计算后直接保存到节点。
+//
+// TODO 这个计算现在的计算顺序有问题：
+//
+//   - 应该优先使用自己的，自己没有才往上找。
+//   - 而不是：先使用父亲的，如果自己有再覆盖。
+func (s _Styler) computeStyles(node Box, rules []RuleMatch) error {
+	declarations := func(rules []RuleMatch) iter.Seq[Declaration] {
+		// 按相关性递增排序（后来居上）。
+		slices.SortFunc(rules, func(a, b RuleMatch) int {
+			return int(a.Specificity) - int(b.Specificity)
+		})
+		return func(yield func(Declaration) bool) {
+			for _, rule := range rules {
+				for _, d := range rule.Declarations {
+					if !yield(d) {
+						return
+					}
+				}
+			}
+		}
+	}
+
+	// 从空开始。
+	styles := Styles{}
+
+	inlines := &node.Base().inlineStyles
+	inlineValue := reflect.ValueOf(inlines)
+	stylesValue := reflect.ValueOf(&styles)
+	optDocumentStylesValue := reflect.ValueOf(s.documentStyles)
+
+	// 从父母继承
+	// TODO 优化：如果样式表或内联表有值，则无需再从父母继承。
+	for field, value := range stylesValue.Elem().Fields() {
+		if !shouldInherit(field.Name) {
+			continue
+		}
+		if field.Type == reflect.TypeFor[Value]() {
+			setFromParent := false
+			for parent := range node.Base().Ancestors() {
+				parentValue := reflect.ValueOf(parent.GetComputedStyles())
+				parentField := parentValue.Elem().FieldByIndex(field.Index)
+				value3 := parentField.Interface().(Value)
+				if !value3.Empty() {
+					value.Set(parentField)
+					setFromParent = true
+					// 从最近的祖先那里获取一次即可。
+					break
+				}
+			}
+			// <document> 才是最终的根节点。
+			if !setFromParent && !optDocumentStylesValue.IsNil() {
+				docField := optDocumentStylesValue.Elem().FieldByIndex(field.Index)
+				docValue := docField.Interface().(Value)
+				if !docValue.Empty() {
+					value.Set(docField)
+				}
+			}
+		}
+	}
+
+	// 从样式表更新
+	for d := range declarations(rules) {
+		// 处理样式计算过程中，结果可以直接丢。
+		if _, _, _, err := styles.Set(d.Name, d.Value); err != nil {
+			return fmt.Errorf(`样式应用错误：%w`, err)
+		}
+	}
+
+	// 从内联覆盖
+	// 如果性能孬就换成独立的复制过程。
+	for field, value := range inlineValue.Elem().Fields() {
+		if field.Type == reflect.TypeFor[Value]() {
+			value2 := value.Interface().(Value)
+			if !value2.Empty() {
+				dstValue := stylesValue.Elem().FieldByIndex(field.Index)
+				dstValue.Set(value)
+			}
+		}
+	}
+
+	// 直接保存起来。
+	node.Base().computedStyles = styles
+
+	return nil
+}
+
+// 判断节点是否和选择器完整匹配。
+func (s _Styler) match(node Box, selector Selector) bool {
+	// 先是自身匹配
+	if !s._matchSelf(node, selector[len(selector)-1]) {
+		return false
+	}
+
+	if len(selector) <= 1 {
+		return true
+	}
+
+	// 如果自身匹配，继续往上寻找可能的祖先匹配。
+	// 每一个后代选择器都需要对每个祖先进行尝试。
+	ancestorSelectors := selector[:len(selector)-1]
+
+	return s._matchAncestors(node, ancestorSelectors)
+}
+
+// 判断单个简单选择器是否匹配当前节点。
+func (s _Styler) _matchSelf(node Box, selector NodeSelector) bool {
+	if selector.Asterisk {
+		return true
+	}
+	return (selector.Tag == `` || selector.Tag == node.Base().Tag) &&
+		(len(selector.Class) == 0 || node.Base().class.ContainsAll(selector.Class...)) &&
+		(selector.ID == `` || selector.ID == node.Base().ID)
+}
+
+func (s _Styler) _matchAncestors(node Box, ancestorSelectors Selector) bool {
+	return s._matchAncestorsRecursive(node, ancestorSelectors, len(ancestorSelectors)-1)
+}
+
+// 找单个选择器能匹配的至少一个祖先。
+// 基本约等于 document.querySelector 的功能。
+// 递归好烧脑。
+func (s _Styler) _matchAncestorsRecursive(node Box, ancestorSelectors Selector, backIndex int) bool {
+	// 前面的所有选择器均匹配上了，并且已经没有选择器了，
+	// 所以到这里就表示所有选择器匹配成功了。
+	if backIndex < 0 {
+		return true
+	}
+
+	// 如果前一个选择器有combinator，可以快速在此判断。
+	if ancestorSelectors[backIndex].Combinator == childCombinator {
+		parent := node.Parent()
+		if parent != nil && !s._matchSelf(parent, ancestorSelectors[backIndex]) {
+			return false
+		}
+	}
+
+	for ancestor := range node.Base().Ancestors() {
+		if s._matchSelf(ancestor, ancestorSelectors[backIndex]) {
+			if s._matchAncestorsRecursive(ancestor, ancestorSelectors, backIndex-1) {
+				return true
+			}
+		}
+	}
+	return false
 }
