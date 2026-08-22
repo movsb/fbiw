@@ -5,6 +5,7 @@ import (
 	"image"
 	"image/color"
 	"image/draw"
+	_ "image/gif"
 	_ "image/jpeg"
 	"image/png"
 	"io/fs"
@@ -16,8 +17,10 @@ import (
 
 	"github.com/anthonynsimon/bild/transform"
 	"github.com/phuslu/lru"
+	_ "golang.org/x/image/bmp"
 	"golang.org/x/image/font"
 	"golang.org/x/image/math/fixed"
+	_ "golang.org/x/image/webp"
 )
 
 // 绘图层。
@@ -590,6 +593,7 @@ func (m *ImageManager) decodeImageConfig(fsys fs.FS, path string) (int, int, err
 	defer fp.Close()
 	img, _, err := image.DecodeConfig(fp)
 	if err != nil {
+		log.Println(err)
 		return 0, 0, err
 	}
 	return img.Width, img.Height, nil
