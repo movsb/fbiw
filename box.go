@@ -1301,9 +1301,13 @@ type Image struct {
 	src string
 
 	status _ImageLoadingStatus
+
 	// 异步加载成功后写在这里。
 	// 如果是仅解析成功，只包含尺寸信息。
 	decodedImage DecodedImage
+
+	// 如果失败？
+	err error
 }
 
 func NewImage(doc *Document) *Image {
@@ -1319,6 +1323,7 @@ func (b *Image) SetProp(key string, val string) error {
 		}
 		b.src = val
 		b.status = imageLoadStatusNone
+		b.err = nil
 		if b.document != nil {
 			b.document.RequestLayout()
 		}
@@ -1362,6 +1367,7 @@ func (b *Image) Calc(availWidth, availHeight int, constraints Constraints) {
 		b.document.loadImageConfigAsync(b.src,
 			func(img DecodedImage, err error) {
 				if err != nil {
+					b.err = err
 					b.status = imageLoadStatusFailed
 					return
 				}
@@ -1424,6 +1430,7 @@ func (b *Image) Calc(availWidth, availHeight int, constraints Constraints) {
 		b.document.loadImageAsync(b.src, fittingWidth, fittingHeight, func(di DecodedImage, err error) {
 			if err != nil {
 				b.status = imageLoadStatusFailed
+				b.err = err
 				return
 			}
 			b.decodedImage = di
@@ -1448,7 +1455,8 @@ func (b *Image) Calc(availWidth, availHeight int, constraints Constraints) {
 func (b *Image) Draw(canvas *Canvas) {
 	b.Base().draw(canvas, false)
 
-	if b.status == imageLoadStatusDecoded {
+	switch b.status {
+	case imageLoadStatusDecoded:
 		// TODO 没处理border和padding
 		// 图片的宽度和高度不一定等于容器的，所以居中。
 		width := b.decodedImage.Width
@@ -1456,6 +1464,11 @@ func (b *Image) Draw(canvas *Canvas) {
 		offsetX := (b.layoutBox.Width - width) / 2
 		offsetY := (b.layoutBox.Height - height) / 2
 		canvas.Offset(offsetX, offsetY).DrawImage(b.decodedImage, width, height)
+	case imageLoadStatusFailed:
+		if b.err != nil {
+			// 暂时！没有换行，没有border、padding……
+			canvas.DrawString(b.err.Error(), b.document.LoadFaces(b), ColorFromRGBA(0xFF, 0, 0, 0xFF), b.layoutBox.Width, b.layoutBox.Height)
+		}
 	}
 }
 
