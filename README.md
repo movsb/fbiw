@@ -21,7 +21,7 @@
 
 ## 环境要求
 
-- Go `1.26.5`，以 [`go.mod`](go.mod) 的声明为准；
+- Go `1.27`，以 [`go.mod`](go.mod) 的声明为准；当前使用实验性的 `simd/archsimd`，构建和测试时需要设置 `GOEXPERIMENT=simd`；
 - macOS 开发环境需要安装 SDL2 及其开发文件；
 - Linux 目标设备需要提供 framebuffer 和 evdev 输入设备，并允许程序访问：
   - `/dev/fb0`
@@ -195,8 +195,28 @@ func main() {
 - `italic` / `font-italic`
 - `spacer`
 - `display`
+- `fill`
 
 `width` 和 `height` 可以解析整数或百分比。百分比布局目前仍有已知限制，参见 [`todo.md`](todo.md)。
+
+`padding` 接受一至四个 `0...65535` 范围内的整数，展开顺序与 CSS shorthand 相同：
+
+```css
+padding: 10;          /* 10 10 10 10 */
+padding: 10 20;       /* 10 20 10 20 */
+padding: 10 20 30;    /* 10 20 30 20 */
+padding: 10 20 30 40; /* top right bottom left */
+```
+
+`font-size` 接受整数、百分比、非负 `rem` 和命名字号 `xx-small`、`x-small`、`small`、`medium`、`large`、`x-large`、`xx-large`。百分比相对于父元素的计算字号，`rem` 相对于 `<document>` 的计算字号：
+
+```css
+document { font-size: 32; }
+.title { font-size: 1.5rem; } /* 48 */
+.hint { font-size: 75%; }    /* 父元素计算字号的 75% */
+```
+
+`fill` 当前可用值为 `stretch`、`contain` 和 `scale-down`；`cover` 与 `none` 尚未支持。
 
 颜色支持预置颜色名，以及 `#RGB`、`#RGBA`、`#RRGGBB`、`#RRGGBBAA` 十六进制形式。默认文本样式为：
 
@@ -223,11 +243,13 @@ block > inline {}        /* 直接子元素 */
 block, inline {}         /* 分组 */
 ```
 
-样式覆盖顺序大致为：
+样式来源的覆盖顺序为：
 
 ```text
 默认样式 < 文档样式表 < 元素内联属性
 ```
+
+同一来源内先比较选择器 specificity；specificity 相同时，源码中靠后的声明优先。
 
 颜色和字体相关属性会从父元素继承。
 
@@ -410,8 +432,8 @@ Linux 后端直接读取 evdev 按键码。当前设备选择和按键映射针�
 仓库包含两个示例：
 
 ```bash
-go run ./demo
-go run ./demo/scroll
+GOEXPERIMENT=simd go run ./demo
+GOEXPERIMENT=simd go run ./demo/scroll
 ```
 
 示例期望存在 `demo/regular.ttf`。该字体文件当前未包含在仓库中，运行前需要自行放置一个可用的 OpenType/TrueType 字体，并命名为 `regular.ttf`。
@@ -421,10 +443,10 @@ go run ./demo/scroll
 运行全部测试：
 
 ```bash
-go test ./...
+GOEXPERIMENT=simd go test ./...
 ```
 
-测试目前覆盖样式解析、选择器查询、布局计算以及结构体绑定。平台后端、完整事件循环和异步图片加载尚缺少集成测试。
+测试目前覆盖样式解析、样式覆盖与继承、相对字号、选择器查询、布局计算以及结构体绑定。平台后端、完整事件循环和异步图片加载尚缺少集成测试。
 
 ## 项目结构
 

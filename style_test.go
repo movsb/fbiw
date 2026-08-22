@@ -5,6 +5,38 @@ import (
 	"testing"
 )
 
+func TestStylesPaddingShorthand(t *testing.T) {
+	tests := []struct {
+		raw  string
+		want Value
+	}{
+		{raw: `10`, want: PaddingValue(10, 10, 10, 10)},
+		{raw: `10 20`, want: PaddingValue(10, 20, 10, 20)},
+		{raw: `10 20 30`, want: PaddingValue(10, 20, 30, 20)},
+		{raw: `10 20 30 40`, want: PaddingValue(10, 20, 30, 40)},
+	}
+	for _, tt := range tests {
+		t.Run(tt.raw, func(t *testing.T) {
+			styles := Styles{}
+			if _, _, _, err := styles.Set(`padding`, tt.raw); err != nil {
+				t.Fatalf(`Set("padding", %q) 返回错误：%v`, tt.raw, err)
+			}
+			if styles.Padding != tt.want {
+				t.Errorf(`Padding = %+v，期望 %+v`, styles.Padding, tt.want)
+			}
+		})
+	}
+
+	for _, raw := range []string{``, `1 2 3 4 5`, `1 -2`, `65536`} {
+		t.Run(`invalid_`+raw, func(t *testing.T) {
+			styles := Styles{}
+			if _, _, _, err := styles.Set(`padding`, raw); err == nil {
+				t.Errorf(`Set("padding", %q) 未返回错误`, raw)
+			}
+		})
+	}
+}
+
 func TestStylerStyle(t *testing.T) {
 	newTree := func() (*BaseBox, *BaseBox) {
 		parent := &BaseBox{Tag: `block`}
@@ -16,7 +48,7 @@ func TestStylerStyle(t *testing.T) {
 	t.Run(`应用默认样式、文档样式和内联样式`, func(t *testing.T) {
 		box := &BaseBox{Tag: `block`, ID: `target`}
 		box.class.Set(`featured`)
-		box.inlineStyles.Padding = NumberValue(40)
+		box.inlineStyles.Padding = PaddingValue(40, 40, 40, 40)
 
 		styler := _Styler{
 			defaultStyles: Must1(ParseStyle(`block { width: 10; height: 20; }`)),
@@ -38,8 +70,8 @@ func TestStylerStyle(t *testing.T) {
 		if got.Height != NumberValue(20) {
 			t.Errorf(`Height = %+v，期望默认样式的值 %+v`, got.Height, NumberValue(20))
 		}
-		if got.Padding != NumberValue(40) {
-			t.Errorf(`Padding = %+v，期望内联样式的值 %+v`, got.Padding, NumberValue(40))
+		if got.Padding != PaddingValue(40, 40, 40, 40) {
+			t.Errorf(`Padding = %+v，期望内联样式的值 %+v`, got.Padding, PaddingValue(40, 40, 40, 40))
 		}
 	})
 
@@ -191,6 +223,34 @@ func TestStylerStyle(t *testing.T) {
 		}
 		if got := child.GetComputedStyles().Width; !got.Empty() {
 			t.Errorf(`子节点不应被处理，Width 实际为 %+v`, got)
+		}
+	})
+
+	t.Run(`四边 padding 参与布局`, func(t *testing.T) {
+		root := &BaseBox{Tag: `block`, ID: `root`}
+		child := &BaseBox{Tag: `block`, ID: `child`, parent: root}
+		root.children = []Box{child}
+		sheet := Must1(ParseStyle(`
+			#root { width: 200; height: 100; padding: 10 20 30 40; }
+			#child { width: 50; height: 20; }
+		`))
+
+		if err := (_Styler{}).Style(root, true, sheet); err != nil {
+			t.Fatalf(`Style() 返回错误：%v`, err)
+		}
+		root.Calc(200, 100, Constraints{})
+
+		if got, want := child.layoutBox.X, 40; got != want {
+			t.Errorf(`子节点 X = %d，期望左 padding %d`, got, want)
+		}
+		if got, want := child.layoutBox.Y, 10; got != want {
+			t.Errorf(`子节点 Y = %d，期望上 padding %d`, got, want)
+		}
+		if got, want := root.HorizontalInsets(), 60; got != want {
+			t.Errorf(`水平不可用空间 = %d，期望左右 padding 之和 %d`, got, want)
+		}
+		if got, want := root.VerticalInsets(), 40; got != want {
+			t.Errorf(`垂直不可用空间 = %d，期望上下 padding 之和 %d`, got, want)
 		}
 	})
 

@@ -180,6 +180,35 @@ func (s *Styles) parseProperty(name string, raw string) (
 		*v = NumberValue(n)
 		return err
 	}
+	setPadding := func(v *Value, raw string) error {
+		const maxPadding = int(^uint16(0))
+		parts := strings.Fields(raw)
+		if len(parts) < 1 || len(parts) > 4 {
+			return fmt.Errorf(`padding 需要 1 到 4 个值：%s`, raw)
+		}
+		values := make([]uint16, len(parts))
+		for i, part := range parts {
+			n, err := strconv.Atoi(part)
+			if err != nil {
+				return err
+			}
+			if n < 0 || n > maxPadding {
+				return fmt.Errorf(`padding 必须在 0 到 %d 之间：%s`, maxPadding, raw)
+			}
+			values[i] = uint16(n)
+		}
+		switch len(values) {
+		case 1:
+			*v = PaddingValue(values[0], values[0], values[0], values[0])
+		case 2:
+			*v = PaddingValue(values[0], values[1], values[0], values[1])
+		case 3:
+			*v = PaddingValue(values[0], values[1], values[2], values[1])
+		case 4:
+			*v = PaddingValue(values[0], values[1], values[2], values[3])
+		}
+		return nil
+	}
 	setColor := func(v *Value, raw string) error {
 		vv, err := ParseColor(raw)
 		*v = vv
@@ -257,7 +286,7 @@ func (s *Styles) parseProperty(name string, raw string) (
 	case `padding`:
 		affectLayout = true
 		current = &s.Padding
-		outErr = setNumber(&update, raw)
+		outErr = setPadding(&update, raw)
 		return
 	case `width`:
 		affectLayout = true
@@ -344,7 +373,7 @@ type Value struct {
 
 	String string
 	Color  Color
-	Number int
+	Number int64
 	Bool   bool
 }
 
@@ -394,16 +423,16 @@ func ColorValueFromString(cr string) Value {
 	return Must1(ParseColor(cr))
 }
 
-func NumberValue(v int) Value {
+func NumberValue[T ~int | ~int64](v T) Value {
 	return Value{
 		Type:   VTNumber,
-		Number: v,
+		Number: int64(v),
 	}
 }
-func PercentageValue(v int) Value {
+func PercentageValue[T ~int | ~int64](v T) Value {
 	return Value{
 		Type:   VTPercentage,
-		Number: v,
+		Number: int64(v),
 	}
 }
 
@@ -413,8 +442,37 @@ const remScale = 1000
 func RemValue(v float64) Value {
 	return Value{
 		Type:   VTRem,
-		Number: int(math.Round(v * remScale)),
+		Number: int64(math.Round(v * remScale)),
 	}
+}
+
+func PaddingValue(top, right, bottom, left uint16) Value {
+	packed := uint64(top)<<48 |
+		uint64(right)<<32 |
+		uint64(bottom)<<16 |
+		uint64(left)
+	return Value{
+		Type:   VTNumber,
+		Number: int64(packed),
+	}
+}
+
+const paddingMask = uint64(0xffff)
+
+func (v Value) PaddingTop() int {
+	return int(uint64(v.Number) >> 48 & paddingMask)
+}
+
+func (v Value) PaddingRight() int {
+	return int(uint64(v.Number) >> 32 & paddingMask)
+}
+
+func (v Value) PaddingBottom() int {
+	return int(uint64(v.Number) >> 16 & paddingMask)
+}
+
+func (v Value) PaddingLeft() int {
+	return int(uint64(v.Number) & paddingMask)
 }
 func BoolValue(v bool) Value {
 	return Value{

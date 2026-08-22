@@ -834,9 +834,9 @@ func (doc *Document) LoadFaces(box Box) []*FontFace {
 	)
 
 	for _, name := range ParseFontFamily(family) {
-		face, err := doc.fontManager.GetFace(name, size, bold, italic)
+		face, err := doc.fontManager.GetFace(name, int(size), bold, italic)
 		if err != nil {
-			face, err = doc.fontManager.GetFace(name, size, false, false)
+			face, err = doc.fontManager.GetFace(name, int(size), false, false)
 		}
 		if err != nil {
 			log.Panicf(`找不到指定的字体: %s: %v`, name, err)
@@ -844,7 +844,7 @@ func (doc *Document) LoadFaces(box Box) []*FontFace {
 		faces = append(faces, face)
 	}
 
-	faces = append(faces, doc.fontManager.GetSystemFace(size, bold, italic))
+	faces = append(faces, doc.fontManager.GetSystemFace(int(size), bold, italic))
 
 	return faces
 }
