@@ -2,7 +2,6 @@ package fbiw
 
 import (
 	"context"
-	"fmt"
 	"image"
 	"image/color"
 	"image/draw"
@@ -640,20 +639,34 @@ func (m *ImageManager) decodeImage(fsys fs.FS, path string, wantWidth, wantHeigh
 	case *image.NRGBA:
 		pixels = m.Pix
 		stride = m.Stride
-	default:
-		log.Printf(`暂不支持的图片解码格式：%T`, img)
-		return DecodedImage{}, fmt.Errorf(`不支持的图片格式`)
 	}
 
-	for y := range decoded.Height {
-		p := pixels[y*stride:]
-		for x := range decoded.Width {
-			offset := (y*decoded.Width + x) * 4
+	// fast-path
+	if len(pixels) > 0 {
+		for y := range decoded.Height {
+			s := pixels[y*stride:]
+			for x := range decoded.Width {
+				offset := (y*decoded.Width + x) * 4
+				d := decoded.Pixels[offset : offset+4]
+				d[0] = s[2+x*4]
+				d[1] = s[1+x*4]
+				d[2] = s[0+x*4]
+				d[3] = s[3+x*4]
+			}
+		}
+		return decoded, nil
+	}
+
+	// better-slow than never 🥵
+	for y0, y1 := img.Bounds().Min.Y, img.Bounds().Max.Y; y0 < y1; y0++ {
+		for x0, x1 := img.Bounds().Min.X, img.Bounds().Max.X; x0 < x1; x0++ {
+			converted := color.NRGBAModel.Convert(img.At(x0, y0)).(color.NRGBA)
+			offset := (y0*decoded.Width + x0) * 4
 			d := decoded.Pixels[offset : offset+4]
-			d[0] = p[2+x*4]
-			d[1] = p[1+x*4]
-			d[2] = p[0+x*4]
-			d[3] = p[3+x*4]
+			d[0] = converted.B
+			d[1] = converted.G
+			d[2] = converted.R
+			d[3] = converted.A
 		}
 	}
 
@@ -687,7 +700,7 @@ func (m *ImageManager) getImageCached(fsys fs.FS, path string, width, height int
 	img, err, _ := m.contentCache.GetOrLoad(context.Background(), key,
 		func(ctx context.Context, _ _ImageCacheKey) (DecodedImage, time.Duration, error) {
 			decoded, err := m.decodeImage(fsys, path, width, height)
-			return decoded, time.Minute * 30, err
+			return decoded, time.Minute * 10, err
 		},
 	)
 	return img, err
