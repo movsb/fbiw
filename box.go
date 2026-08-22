@@ -1084,6 +1084,11 @@ func (t *Text) SegmentInline(availWidth, availHeight int) bool {
 
 	t.layoutBox.Width = width + t.ncWidth()*2
 
+	// 如果是空内容，行高也不应该为零。
+	// 假定为当前字体的行高。
+	if line.MaxHeight == 0 {
+		line.MaxHeight = t.document.LoadFaces(t)[0].TextHeight()
+	}
 	// 此处的高度是单行的文本高度+非可用区的高度。
 	// 如果是多行文本，此高度需要去重计算。
 	t.layoutBox.Height = line.MaxHeight + t.ncWidth()*2
