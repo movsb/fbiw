@@ -696,12 +696,19 @@ func (n _NodeTransformer) transformNode(box Box, node *html.Node, voidElement bo
 }
 
 func (doc *Document) match(box Box, selector Selector) bool {
-	return _Styler{documentStyles: &doc.defaultStyles}.match(box, selector)
+	styler := _Styler{
+		defaultStyles:  DefaultStyles,
+		documentStyles: &doc.defaultStyles,
+	}
+	return styler.match(box, selector)
 }
 
 // 为节点计算样式。
 func (doc *Document) style(box Box, descendents bool) error {
-	styler := _Styler{documentStyles: &doc.defaultStyles}
+	styler := _Styler{
+		defaultStyles:  DefaultStyles,
+		documentStyles: &doc.defaultStyles,
+	}
 	return styler.Style(box, descendents, doc.styleSheet)
 }
 

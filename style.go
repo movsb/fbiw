@@ -875,20 +875,32 @@ func parseIdent(buf *BufioReader) string {
 /// ---------------------------------------------------------------------------
 
 type _Styler struct {
+	// 系统全局样式表。
+	defaultStyles *Sheet
+
 	// 目前的doc不像是html一样是body的parent节点，
 	// doc的body(即doc.root)和doc是没有parent关系的，
 	// 所以需要单独拿出来应用。但是允许为空，方便调试。
 	documentStyles *Styles
 }
 
+// 计算样式。
+//
+// 样式的几个来源：
+//
+//  1. 从系统级样式表（User-Agent Styles）；
+//  2. 从 <document>，因为目前 doc 不是 root box 的父节点；
+//  3. 从 document html 文件内的 <style> 节点，即参数 `sheet`。
 func (s _Styler) Style(box Box, descendents bool, sheet *Sheet) (outErr error) {
 	walkBox(box, func(box Box) bool {
-		var rules []RuleMatch
-		if DefaultStyles != nil {
-			rules = append(rules, s.findRulesFor(box, DefaultStyles)...)
+		// 因为默认样式的优先级 < 页面提供的样式（即便前者 spec 更高），
+		// 所以这里不能放在一起并被后面排序。
+		var rules [][]RuleMatch
+		if s.defaultStyles != nil {
+			rules = append(rules, s.findRulesFor(box, s.defaultStyles))
 		}
 		if sheet != nil {
-			rules = append(rules, s.findRulesFor(box, sheet)...)
+			rules = append(rules, s.findRulesFor(box, sheet))
 		}
 		if err := s.computeStyles(box, rules); err != nil {
 			outErr = fmt.Errorf(`样式应用失败：%w`, err)
@@ -918,20 +930,15 @@ func (s _Styler) findRulesFor(node Box, sheet *Sheet) []RuleMatch {
 	return matches
 }
 
-// 为节点计算样式。
-// 计算后直接保存到节点。
-//
-// TODO 这个计算现在的计算顺序有问题：
-//
-//   - 应该优先使用自己的，自己没有才往上找。
-//   - 而不是：先使用父亲的，如果自己有再覆盖。
-func (s _Styler) computeStyles(node Box, rules []RuleMatch) error {
-	declarations := func(rules []RuleMatch) iter.Seq[Declaration] {
-		// 按相关性递增排序（后来居上）。
-		slices.SortFunc(rules, func(a, b RuleMatch) int {
+// 按相关性递增排序（后来居上）。
+func (s _Styler) sortedDeclarations(rulesSet [][]RuleMatch) iter.Seq[Declaration] {
+	for _, rules := range rulesSet {
+		slices.SortStableFunc(rules, func(a, b RuleMatch) int {
 			return int(a.Specificity) - int(b.Specificity)
 		})
-		return func(yield func(Declaration) bool) {
+	}
+	return func(yield func(Declaration) bool) {
+		for _, rules := range rulesSet {
 			for _, rule := range rules {
 				for _, d := range rule.Declarations {
 					if !yield(d) {
@@ -941,14 +948,22 @@ func (s _Styler) computeStyles(node Box, rules []RuleMatch) error {
 			}
 		}
 	}
+}
 
+// 为节点计算样式。
+// 计算后直接保存到节点。
+//
+// TODO 这个计算现在的计算顺序有问题：
+//
+//   - 应该优先使用自己的，自己没有才往上找。
+//   - 而不是：先使用父亲的，如果自己有再覆盖。
+func (s _Styler) computeStyles(node Box, rules [][]RuleMatch) error {
 	// 从空开始。
 	styles := Styles{}
 
-	inlines := &node.Base().inlineStyles
-	inlineValue := reflect.ValueOf(inlines)
 	stylesValue := reflect.ValueOf(&styles)
-	optDocumentStylesValue := reflect.ValueOf(s.documentStyles)
+	optDocValue := reflect.ValueOf(s.documentStyles)
+	inlineValue := reflect.ValueOf(&node.Base().inlineStyles)
 
 	// 从父母继承
 	// TODO 优化：如果样式表或内联表有值，则无需再从父母继承。
@@ -970,8 +985,8 @@ func (s _Styler) computeStyles(node Box, rules []RuleMatch) error {
 				}
 			}
 			// <document> 才是最终的根节点。
-			if !setFromParent && !optDocumentStylesValue.IsNil() {
-				docField := optDocumentStylesValue.Elem().FieldByIndex(field.Index)
+			if !setFromParent && !optDocValue.IsNil() {
+				docField := optDocValue.Elem().FieldByIndex(field.Index)
 				docValue := docField.Interface().(Value)
 				if !docValue.Empty() {
 					value.Set(docField)
@@ -981,7 +996,7 @@ func (s _Styler) computeStyles(node Box, rules []RuleMatch) error {
 	}
 
 	// 从样式表更新
-	for d := range declarations(rules) {
+	for d := range s.sortedDeclarations(rules) {
 		// 处理样式计算过程中，结果可以直接丢。
 		if _, _, _, err := styles.Set(d.Name, d.Value); err != nil {
 			return fmt.Errorf(`样式应用错误：%w`, err)
