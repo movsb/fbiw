@@ -44,6 +44,11 @@ type Box interface {
 	// 返回的是指针，不要尝试修改。
 	GetComputedStyles() *Styles
 
+	// 返回当前的布局大小。
+	//
+	// 只应参考 Width 和 Height。X、Y 目前是相对于父元素的，不太有参考意义。
+	GetLayoutBox() Rect
+
 	// 返回所属文档。
 	Document() *Document
 	// 返回父亲盒子。
@@ -130,9 +135,6 @@ func (b *BaseBox) Base() *BaseBox {
 	return b
 }
 
-// 返回当前的布局大小。
-//
-// 只应参考 Width 和 Height。X、Y 目前是相对于父元素的，不太有参考意义。
 func (b *BaseBox) GetLayoutBox() Rect {
 	return b.layoutBox
 }
@@ -447,7 +449,13 @@ func (b *BaseBox) draw(canvas *Canvas, drawChildren bool) {
 
 func displaying(b Box) bool {
 	d := b.Base().computedStyles.Display
-	return d.Empty() || (d.IsBool() && d.Bool)
+	if d.Empty() {
+		return true
+	}
+	if d.IsBool() {
+		return d.Bool
+	}
+	return true
 }
 
 // 纵向排版容器。

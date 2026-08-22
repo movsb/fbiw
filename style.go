@@ -41,11 +41,12 @@ type Styles struct {
 	// 是否当作Spacer可变大小布局。
 	Spacer Value
 
-	// 显示属性。布尔类型。
+	// 显示属性。布尔类型或字符串(block/inline)。
 	// 如果为true，参与排版；如果为false，完全隐藏。
 	// 此属性虽非继承属性，但是子盒子即便为true但父盒子为false时，
 	// 此子盒子仍然不会被显示。所以不能通过判断子盒子的display是否
 	// 为true来判断子盒子是否正处于显示状态。
+	// TODO 改成 none/block/inline
 	Display Value
 
 	// 填充方式。
@@ -186,7 +187,7 @@ func (s *Styles) parseProperty(name string, raw string) (
 		if len(parts) < 1 || len(parts) > 4 {
 			return fmt.Errorf(`padding 需要 1 到 4 个值：%s`, raw)
 		}
-		values := make([]uint16, len(parts))
+		values := make([]int, len(parts))
 		for i, part := range parts {
 			n, err := strconv.Atoi(part)
 			if err != nil {
@@ -195,7 +196,7 @@ func (s *Styles) parseProperty(name string, raw string) (
 			if n < 0 || n > maxPadding {
 				return fmt.Errorf(`padding 必须在 0 到 %d 之间：%s`, maxPadding, raw)
 			}
-			values[i] = uint16(n)
+			values[i] = n
 		}
 		switch len(values) {
 		case 1:
@@ -446,7 +447,7 @@ func RemValue(v float64) Value {
 	}
 }
 
-func PaddingValue(top, right, bottom, left uint16) Value {
+func PaddingValue(top, right, bottom, left int) Value {
 	packed := uint64(top)<<48 |
 		uint64(right)<<32 |
 		uint64(bottom)<<16 |

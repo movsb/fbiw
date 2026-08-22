@@ -185,12 +185,7 @@ func parseDocument(owner *Document, content io.Reader) (*_ParsedDocumentData, er
 					return nil, fmt.Errorf(`重复的样式节点`)
 				}
 				styleNode = child
-			} else if child.Data == `block` {
-				if bodyNode != nil {
-					return nil, fmt.Errorf(`根元素下重复节点`)
-				}
-				bodyNode = child
-			} else if child.Data == `inline` {
+			} else if child.Data == `block` || child.Data == `inline` || child.Data == `stack` {
 				if bodyNode != nil {
 					return nil, fmt.Errorf(`根元素下重复节点`)
 				}
@@ -411,7 +406,11 @@ func (doc *Document) dirty() bool {
 	return doc.layoutDirty || doc.paintDirty
 }
 
-func (doc *Document) sync(canvas *Canvas, forcePaint bool) {
+func (doc *Document) sync(canvas *Canvas, forceLayout, forcePaint bool) {
+	if forceLayout {
+		doc.layoutDirty = true
+	}
+
 	// 如果文档之上（多窗口混合的时候）还有其它文档，则
 	// 即便本文档是干净的，也会被上面的玷污，所以强制更新。
 	if forcePaint {
@@ -527,6 +526,7 @@ func (doc *Document) Bind(to any) {
 }
 
 // 获取指定ID的元素。
+// 找不到返回空。
 func (doc *Document) GetBoxByID[T Box](id string) T {
 	var out T
 	var ok bool
