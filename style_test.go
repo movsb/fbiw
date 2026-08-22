@@ -87,6 +87,52 @@ func TestStylerStyle(t *testing.T) {
 		}
 	})
 
+	// 根节点：20
+	// └─ 子节点：150% → 30
+	//    ├─ 孙节点：50% → 15
+	//    └─ 孙节点：12
+	//       └─ 曾孙节点：200% → 24
+	t.Run(`多层百分比 font-size 根据父节点字号计算`, func(t *testing.T) {
+		root := &BaseBox{Tag: `block`}
+		child := &BaseBox{Tag: `inline`, ID: `child`, parent: root}
+		percentageGrandchild := &BaseBox{Tag: `inline`, ID: `percentage-grandchild`, parent: child}
+		absoluteGrandchild := &BaseBox{Tag: `inline`, ID: `absolute-grandchild`, parent: child}
+		greatGrandchild := &BaseBox{Tag: `inline`, ID: `great-grandchild`, parent: absoluteGrandchild}
+		root.children = []Box{child}
+		child.children = []Box{percentageGrandchild, absoluteGrandchild}
+		absoluteGrandchild.children = []Box{greatGrandchild}
+
+		sheet := Must1(ParseStyle([]byte(`
+			block { font-size: 20; }
+			#child { font-size: 150%; }
+			#percentage-grandchild { font-size: 50%; }
+			#absolute-grandchild { font-size: 12; }
+			#great-grandchild { font-size: 200%; }
+		`)))
+
+		if err := (_Styler{}).Style(root, true, sheet); err != nil {
+			t.Fatalf(`Style() 返回错误：%v`, err)
+		}
+
+		tests := []struct {
+			name string
+			box  Box
+			want Value
+		}{
+			{name: `子节点的 150% 基于根节点的 20`, box: child, want: NumberValue(30)},
+			{name: `孙节点的 50% 基于子节点计算后的 30`, box: percentageGrandchild, want: NumberValue(15)},
+			{name: `孙节点使用绝对字号`, box: absoluteGrandchild, want: NumberValue(12)},
+			{name: `曾孙节点的 200% 基于绝对字号 12`, box: greatGrandchild, want: NumberValue(24)},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				if got := tt.box.GetComputedStyles().FontSize; got != tt.want {
+					t.Errorf(`FontSize = %+v，期望 %+v`, got, tt.want)
+				}
+			})
+		}
+	})
+
 	t.Run(`descendents 为 false 时只处理当前节点`, func(t *testing.T) {
 		parent, child := newTree()
 		sheet := Must1(ParseStyle([]byte(`* { width: 12; }`)))

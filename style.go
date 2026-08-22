@@ -86,7 +86,7 @@ var DefaultStyles = Must1(ParseStyle([]byte(`
 document {
 	color: black;
 	font-family: system;
-	font-size: 25;
+	font-size: 32;
 }
 b {
 	bold: true;
@@ -94,6 +94,9 @@ b {
 i {
 	italic: true;
 }
+h1 { font-size: 200%; }
+h2 { font-size: 150%; }
+h3 { font-size: 120%; }
 `)))
 
 // 直接传入的是结构体字段，原始名字，没有小写、没有中划线。
@@ -116,7 +119,38 @@ var ErrUnknownStyleProperty = errors.New(`未知样式属性`)
 //   - 影响布局会导致整个文档重新布局（并重绘）。
 //   - 影响绘制导致整个文档重绘（但不一定重新布局）。
 func (s *Styles) Set(name string, raw string) (affectInherit, affectLayout, affectPaint bool, outErr error) {
+	var current *Value
+	var update Value
+
+	affectInherit, affectLayout, affectPaint, current, update, outErr = s.parseProperty(name, raw)
+	if outErr == nil {
+		*current = update
+	}
+
+	return
+}
+
+var namedFontSizeScale = map[string]int{
+	`xx-small`: 60,
+	`x-small`:  76,
+	`small`:    89,
+	`medium`:   100,
+	`large`:    120,
+	`x-large`:  150,
+	`xx-large`: 200,
+}
+
+// 后面计算样式覆盖的时候会有优先级的覆盖考虑，所以不能直接覆盖。
+func (s *Styles) parseProperty(name string, raw string) (
+	affectInherit, affectLayout, affectPaint bool,
+	current *Value, update Value,
+	outErr error,
+) {
 	setNumberOrPercentage := func(v *Value, raw string) error {
+		if n, ok := namedFontSizeScale[raw]; ok {
+			*v = PercentageValue(n)
+			return nil
+		}
 		if before, ok := strings.CutSuffix(raw, `%`); ok {
 			n, err := strconv.Atoi(before)
 			*v = PercentageValue(n)
@@ -152,14 +186,14 @@ func (s *Styles) Set(name string, raw string) (affectInherit, affectLayout, affe
 			return fmt.Errorf(`未知布尔值：%v`, raw)
 		}
 	}
-
 	switch name {
 	default:
 		outErr = ErrUnknownStyleProperty
 		return
 	case `align`:
 		if raw == `` || raw == `center` || raw == `middle` || raw == `both` {
-			s.Align = StringValue(raw)
+			current = &s.Align
+			update = StringValue(raw)
 			affectLayout = true
 			return
 		}
@@ -167,96 +201,113 @@ func (s *Styles) Set(name string, raw string) (affectInherit, affectLayout, affe
 		return
 	case `background-color`:
 		affectPaint = true
-		outErr = setColor(&s.BackgroundColor, raw)
+		current = &s.BackgroundColor
+		outErr = setColor(&update, raw)
 		return
 	case `background-image`:
-		s.BackgroundImage = StringValue(raw)
+		current = &s.BackgroundImage
+		update = StringValue(raw)
 		affectPaint = true
 		return
 	case `border-color`:
 		affectPaint = true
-		outErr = setColor(&s.BorderColor, raw)
+		current = &s.BorderColor
+		outErr = setColor(&update, raw)
 		return
 	case `border-width`:
 		affectLayout = true
-		outErr = setNumber(&s.BorderWidth, raw)
+		current = &s.BorderWidth
+		outErr = setNumber(&update, raw)
 		return
 	case `outline-color`:
 		affectPaint = true
-		outErr = setColor(&s.OutlineColor, raw)
+		current = &s.OutlineColor
+		outErr = setColor(&update, raw)
 		return
 	case `outline-width`:
 		affectLayout = true
-		outErr = setNumber(&s.OutlineWidth, raw)
+		current = &s.OutlineWidth
+		outErr = setNumber(&update, raw)
 		return
 	case `color`:
 		affectInherit = true
 		affectPaint = true
-		outErr = setColor(&s.Color, raw)
+		current = &s.Color
+		outErr = setColor(&update, raw)
 		return
 	case `height`:
 		affectLayout = true
-		outErr = setNumberOrPercentage(&s.Height, raw)
+		current = &s.Height
+		outErr = setNumberOrPercentage(&update, raw)
 		return
 	case `padding`:
 		affectLayout = true
-		outErr = setNumber(&s.Padding, raw)
+		current = &s.Padding
+		outErr = setNumber(&update, raw)
 		return
 	case `width`:
 		affectLayout = true
-		outErr = setNumberOrPercentage(&s.Width, raw)
+		current = &s.Width
+		outErr = setNumberOrPercentage(&update, raw)
 		return
 	case `font-family`:
 		// 不同字体大小不一样，所以也会影响布局
 		affectInherit = true
 		affectLayout = true
-		s.FontFamily = StringValue(raw)
+		current = &s.FontFamily
+		update = StringValue(raw)
 		return
 	case `font-size`:
 		affectInherit = true
 		affectLayout = true
-		outErr = setNumber(&s.FontSize, raw)
+		current = &s.FontSize
+		outErr = setNumberOrPercentage(&update, raw)
 		return
 	case `bold`, `font-bold`:
 		affectInherit = true
 		affectLayout = true
-		outErr = setBoolean(&s.FontBold, raw, true)
+		current = &s.FontBold
+		outErr = setBoolean(&update, raw, true)
 		return
 	case `italic`, `font-italic`:
 		affectInherit = true
 		affectLayout = true
-		outErr = setBoolean(&s.FontItalic, raw, true)
+		current = &s.FontItalic
+		outErr = setBoolean(&update, raw, true)
 		return
 	case `spacer`:
 		affectLayout = true
-		outErr = setBoolean(&s.Spacer, raw, true)
+		current = &s.Spacer
+		outErr = setBoolean(&update, raw, true)
 		return
 	case `display`:
 		affectLayout = true
-		outErr = setBoolean(&s.Display, raw, true)
+		current = &s.Display
+		outErr = setBoolean(&update, raw, true)
 		return
 	case `fill`:
 		affectLayout = true
 		switch raw {
 		case ``, `stretch`:
-			s.Fill = NumberValue(0)
+			update = NumberValue(0)
 		case `none`:
 			// 太大的图片绘制会超出canvas范围，还没修bug
 			// 大多数时候使用 scale-down 其实足够。
 			panic(`目前不支持none填充模式`)
-			s.Fill = NumberValue(int(FillNone))
+			// update = NumberValue(int(FillNone))
 		case `contain`:
-			s.Fill = NumberValue(int(FillContain))
+			update = NumberValue(int(FillContain))
 		case `cover`:
 			panic(`目前不支持cover填充模式`)
-			s.Fill = NumberValue(int(FillCover))
+			// update = NumberValue(int(FillCover))
 		case `scale-down`:
-			s.Fill = NumberValue(int(FillScaleDown))
+			update = NumberValue(int(FillScaleDown))
 		default:
 			outErr = fmt.Errorf(`不认识的填充方式: %s`, raw)
 			return
 		}
 		affectLayout = true
+		current = &s.Fill
 		return
 	}
 }
@@ -930,17 +981,18 @@ func (s _Styler) findRulesFor(node Box, sheet *Sheet) []RuleMatch {
 	return matches
 }
 
-// 按相关性递增排序（后来居上）。
-func (s _Styler) sortedDeclarations(rulesSet [][]RuleMatch) iter.Seq[Declaration] {
+// 按优先级递减返回声明。样式来源越靠后优先级越高；同一来源内，
+// specificity 越高优先级越高；其余情况下，源码中靠后的声明优先。
+func (s _Styler) declarationsByPriority(rulesSet [][]RuleMatch) iter.Seq[Declaration] {
 	for _, rules := range rulesSet {
 		slices.SortStableFunc(rules, func(a, b RuleMatch) int {
 			return int(a.Specificity) - int(b.Specificity)
 		})
 	}
 	return func(yield func(Declaration) bool) {
-		for _, rules := range rulesSet {
-			for _, rule := range rules {
-				for _, d := range rule.Declarations {
+		for _, rules := range slices.Backward(rulesSet) {
+			for _, rule := range slices.Backward(rules) {
+				for _, d := range slices.Backward(rule.Declarations) {
 					if !yield(d) {
 						return
 					}
@@ -950,28 +1002,31 @@ func (s _Styler) sortedDeclarations(rulesSet [][]RuleMatch) iter.Seq[Declaration
 	}
 }
 
-// 为节点计算样式。
-// 计算后直接保存到节点。
-//
-// TODO 这个计算现在的计算顺序有问题：
-//
-//   - 应该优先使用自己的，自己没有才往上找。
-//   - 而不是：先使用父亲的，如果自己有再覆盖。
+// 为节点计算样式。依次完成 cascade、defaulting 和相对值计算，
+// 最后直接将结果保存到节点。
 func (s _Styler) computeStyles(node Box, rules [][]RuleMatch) error {
-	// 从空开始。
-	styles := Styles{}
+	// Cascade：内联样式优先，然后从高到低查找样式表声明。每个属性
+	// 一旦取得值，低优先级声明就不能再覆盖它。
+	styles := node.Base().inlineStyles
+	stylesValue := reflect.ValueOf(&styles).Elem()
+	for d := range s.declarationsByPriority(rules) {
+		_, _, _, current, update, err := styles.parseProperty(d.Name, d.Value)
+		if err != nil {
+			return fmt.Errorf(`样式应用错误：%w`, err)
+		}
+		if current.Empty() {
+			*current = update
+		}
+	}
 
-	stylesValue := reflect.ValueOf(&styles)
+	// Defaulting：当前节点没有指定可继承属性时，才从最近的祖先，
+	// 最后从 <document> 获取计算值。
 	optDocValue := reflect.ValueOf(s.documentStyles)
-	inlineValue := reflect.ValueOf(&node.Base().inlineStyles)
-
-	// 从父母继承
-	// TODO 优化：如果样式表或内联表有值，则无需再从父母继承。
-	for field, value := range stylesValue.Elem().Fields() {
+	for field, value := range stylesValue.Fields() {
 		if !shouldInherit(field.Name) {
 			continue
 		}
-		if field.Type == reflect.TypeFor[Value]() {
+		if field.Type == reflect.TypeFor[Value]() && value.Interface().(Value).Empty() {
 			setFromParent := false
 			for parent := range node.Base().Ancestors() {
 				parentValue := reflect.ValueOf(parent.GetComputedStyles())
@@ -995,23 +1050,17 @@ func (s _Styler) computeStyles(node Box, rules [][]RuleMatch) error {
 		}
 	}
 
-	// 从样式表更新
-	for d := range s.sortedDeclarations(rules) {
-		// 处理样式计算过程中，结果可以直接丢。
-		if _, _, _, err := styles.Set(d.Name, d.Value); err != nil {
-			return fmt.Errorf(`样式应用错误：%w`, err)
+	// Compute：百分比字号相对于父节点的计算字号。根节点没有父节点时，
+	// <document> 充当它的继承来源。
+	if styles.FontSize.IsPercentage() {
+		base := Value{}
+		if parent := node.Parent(); parent != nil {
+			base = parent.GetComputedStyles().FontSize
+		} else if s.documentStyles != nil {
+			base = s.documentStyles.FontSize
 		}
-	}
-
-	// 从内联覆盖
-	// 如果性能孬就换成独立的复制过程。
-	for field, value := range inlineValue.Elem().Fields() {
-		if field.Type == reflect.TypeFor[Value]() {
-			value2 := value.Interface().(Value)
-			if !value2.Empty() {
-				dstValue := stylesValue.Elem().FieldByIndex(field.Index)
-				dstValue.Set(value)
-			}
+		if base.IsNumber() {
+			styles.FontSize = NumberValue(base.Number * styles.FontSize.Number / 100)
 		}
 	}
 
