@@ -1745,6 +1745,7 @@ func (b *Scroll) SetItems[T any](count int, create func() (root Box, user T), bi
 			bind(user.(T), index)
 		},
 	)
+	b.Dispatch(ScrollSelectionChange, nil)
 }
 
 func (b *Scroll) _setItems(count int, create func() (root Box, user any), bind func(user any, index int)) {
@@ -1988,6 +1989,8 @@ func (b *Scroll) SetState(state any) {
 	if childIndex >= 0 && childIndex <= len(b.children)-1 {
 		b.children[childIndex].ClassAdd(`selected`)
 	}
+
+	b.Dispatch(ScrollSelectionChange, nil)
 
 	b.document.RequestPaint()
 }
