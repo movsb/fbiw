@@ -947,6 +947,9 @@ func NewText(doc *Document) *Text {
 func (t *Text) SetText(text string) {
 	t.textParts.children = nil
 	t.children = nil
+	// 替换整段内容时从头开始显示。普通的重新排版不应该重置这个
+	// 偏移，否则无关的布局刷新也会把长文本滚回顶部。
+	t.textDrawLineOffset = 0
 	t.AppendChild(text)
 	t.expandTextNodes()
 }
@@ -1021,6 +1024,10 @@ func (t *Text) SegmentBlock(availWidth, availHeight int) {
 	} else {
 		t.layoutBox.Height = min(t.blockHeight()+t.VerticalInsets(), availHeight)
 	}
+
+	// 宽度或样式变化可能改变总行数。尽量保留原来的滚动位置，
+	// 但不能让偏移落到新的文本末尾之外。
+	t.clampDrawLineOffset()
 }
 
 // 文本排版很特殊：
@@ -1142,13 +1149,18 @@ func (t *Text) SegmentInline(availWidth, availHeight int) bool {
 		t.textRunIndex == len(t.textRuns)-1 && t.textRunDataIndex < len(t.textRuns[t.textRunIndex].Data)
 }
 
-// 清空分行的内部状态。用于样式更新、内容更新后调用。
+// 清空分行的内部状态。滚动偏移是绘制状态，不属于排版中间状态，
+// 因此重新排版时应当保留。
 func (t *Text) clearStates() {
 	t.textRunIndex = 0
 	t.textRunDataIndex = 0
 	t.textLines = nil
 	t.textLineMaxWidth = 0
-	t.textDrawLineOffset = 0
+}
+
+func (t *Text) clampDrawLineOffset() {
+	maxOffset := max(0, len(t.textLines)-1)
+	t.textDrawLineOffset = min(max(0, t.textDrawLineOffset), maxOffset)
 }
 
 func (t *Text) blockHeight() int {
