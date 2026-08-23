@@ -954,6 +954,10 @@ func (t *Text) SetText(text string) {
 	t.expandTextNodes()
 }
 
+func (t *Text) SetTextFormat(format string, args ...any) {
+	t.SetText(fmt.Sprintf(format, args...))
+}
+
 // 获取普通文件。
 func (t *Text) GetText() string {
 	sb := strings.Builder{}
