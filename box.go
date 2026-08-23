@@ -60,7 +60,8 @@ type Box interface {
 	Activate()
 
 	// 事件监听与分发。
-	Listen(ty EventType, handler func(*Event), options EventOptions) func()
+	Listen(ty EventType, handler func(*Event)) func()
+	ListenOptions(ty EventType, handler func(*Event), options EventOptions) func()
 	Dispatch(event *Event)
 
 	// 类名操作相关函数。
@@ -1562,7 +1563,7 @@ func NewScroll(doc *Document) *Scroll {
 
 	scroll.Listen(StickDownEvent, func(e *Event) {
 		scroll.navigate(e)
-	}, EventOptions{})
+	})
 
 	return scroll
 }

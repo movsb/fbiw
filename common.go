@@ -186,10 +186,16 @@ type EventOptions struct {
 //
 // 返回值用于删除此事件处理器。
 //
-// addEventListener
+// 默认不带任何选项，事件阶段为 Bubbling，而非 Capturing。
 //
+// 基本等同于 Web 的 addEventListener。
 // Attach 方法被 app 用了，暂时用这个方法表示监听。
-func (e *_EventTarget) Listen(ty EventType, handler func(*Event), options EventOptions) func() {
+func (e *_EventTarget) Listen(ty EventType, handler func(*Event)) func() {
+	return e.ListenOptions(ty, handler, EventOptions{})
+}
+
+// 同 [_EventTarget.Listen] 方法，但是可以带选项。
+func (e *_EventTarget) ListenOptions(ty EventType, handler func(*Event), options EventOptions) func() {
 	if e.handlers == nil {
 		e.handlers = map[EventType][]_EventHandler{}
 	}

@@ -31,7 +31,7 @@ func main() {
 		case fbiw.Down:
 			text.ScrollLineDown()
 		}
-	}, fbiw.EventOptions{})
+	})
 
 	app.Run()
 }

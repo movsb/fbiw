@@ -17,7 +17,7 @@ func main() {
 	defer app.Close()
 	doc := app.New(embedded, `main.html`)
 	text := doc.QuerySelector[*fbiw.Text](`text`)
-	doc.Listen(fbiw.StickDownEvent, handle(text), fbiw.EventOptions{})
+	doc.Listen(fbiw.StickDownEvent, handle(text))
 	app.Show(doc)
 	app.Run()
 }

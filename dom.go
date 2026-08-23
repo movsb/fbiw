@@ -453,8 +453,12 @@ func (doc *Document) handleEvent(event *Event) {
 }
 
 // 文档本身暂时不是事件对象，Listen到root上。
-func (doc *Document) Listen(ty EventType, handler func(*Event), options EventOptions) func() {
-	return doc.root.Base().Listen(ty, handler, options)
+func (doc *Document) Listen(ty EventType, handler func(*Event)) func() {
+	return doc.root.Listen(ty, handler)
+}
+
+func (doc *Document) ListenOptions(ty EventType, handler func(*Event), options EventOptions) func() {
+	return doc.root.ListenOptions(ty, handler, options)
 }
 
 // 尝试查找下一个可聚焦的元素？
