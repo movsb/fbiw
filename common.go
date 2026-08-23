@@ -108,7 +108,18 @@ const (
 	// 不用Key*，因为以后要扩展给键盘用。
 	StickDownEvent
 	StickUpEvent
+
+	_maxSystemEventType EventType = 0xFFFF
 )
+
+// 用户自定义事件编号池。
+var _nextEventType = uint(0xFFFF)
+
+// 注册自定义事件类型，每次注册都返回完全不会冲突的事件类型。
+func RegisterEventType() EventType {
+	_nextEventType++
+	return EventType(_nextEventType)
+}
 
 type KeyEventArgs struct {
 	Name KeyName
@@ -141,6 +152,14 @@ type Event struct {
 	// 以下属于事件数据，随事件类型选择其一。
 	Stick     KeyEventArgs
 	DocChange DocChangeArgs
+
+	// 自定义数据。
+	// 使用的时候用 GetData 泛型方法转换类型。
+	data any
+}
+
+func (e *Event) Data[T any]() T {
+	return e.data.(T)
 }
 
 func (e *Event) Capturing() bool {
@@ -227,7 +246,22 @@ func (e *_EventTarget) detach(ty EventType, id uint32) {
 //
 // The dispatchEvent() method of the EventTarget sends an Event to the object,
 // (synchronously) invoking the affected event listeners in the appropriate order.
-func (e *_EventTarget) Dispatch(event *Event) {
+func (e *_EventTarget) Dispatch(ty EventType, data any) {
+	event := &Event{
+		Type: ty,
+	}
+	switch typed := data.(type) {
+	case KeyEventArgs:
+		event.Stick = typed
+	case DocChangeArgs:
+		event.DocChange = typed
+	default:
+		event.data = data
+	}
+	e.dispatch(event)
+}
+
+func (e *_EventTarget) dispatch(event *Event) {
 	event.Target = e.box
 
 	// Capturing Phase

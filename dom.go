@@ -449,7 +449,7 @@ func (doc *Document) handleEvent(event *Event) {
 		return
 	}
 	eventTarget := &doc.activeBox.Base()._EventTarget
-	eventTarget.Dispatch(event)
+	eventTarget.dispatch(event)
 }
 
 // 文档本身暂时不是事件对象，Listen到root上。

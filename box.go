@@ -62,7 +62,7 @@ type Box interface {
 	// 事件监听与分发。
 	Listen(ty EventType, handler func(*Event)) func()
 	ListenOptions(ty EventType, handler func(*Event), options EventOptions) func()
-	Dispatch(event *Event)
+	Dispatch(ty EventType, data any)
 
 	// 类名操作相关函数。
 	ClassSet(class string)
@@ -1544,6 +1544,11 @@ type Scroll struct {
 	_ScrollState
 }
 
+var (
+	// 列表选中项发生了改变。
+	ScrollSelectionChange = RegisterEventType()
+)
+
 type _ScrollState struct {
 	// 列表的数据总量。
 	count int
@@ -1791,6 +1796,9 @@ func (b *Scroll) navigate(event *Event) {
 	}
 
 	event.StopPropagation()
+
+	// 发送状态变化事件。
+	b.Dispatch(ScrollSelectionChange, nil)
 }
 
 // navigate 计算一次导航后的选中状态。

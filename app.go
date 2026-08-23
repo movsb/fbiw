@@ -179,10 +179,7 @@ func (app *App) _CloseDocument(doc *Document) {
 
 	app.Dirty()
 
-	app.Dispatch(&Event{
-		Type:      DocChange,
-		DocChange: DocChangeArgs{Doc: app.topDoc()},
-	})
+	app.Dispatch(DocChange, DocChangeArgs{Doc: app.topDoc()})
 }
 
 // 同步标记为脏，异步等待下次刷新。
@@ -217,12 +214,7 @@ func (app *App) Show(doc *Document, show ...bool) {
 		doc.display = true
 	}
 	if doc.display && app.topDoc() == doc {
-		app.Dispatch(&Event{
-			Type: DocChange,
-			DocChange: DocChangeArgs{
-				Doc: doc,
-			},
-		})
+		app.Dispatch(DocChange, DocChangeArgs{Doc: doc})
 	}
 	doc.RequestPaint()
 }
