@@ -358,14 +358,14 @@ func Bind(to any, box Box) {
 func (doc *Document) RequestLayout() {
 	doc.layoutDirty = true
 	if doc.app != nil {
-		doc.app.Dirty()
+		doc.app.docDirty(doc)
 	}
 }
 
 func (doc *Document) RequestPaint() {
 	doc.paintDirty = true
 	if doc.app != nil {
-		doc.app.Dirty()
+		doc.app.docDirty(doc)
 	}
 }
 

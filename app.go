@@ -191,17 +191,17 @@ func (app *App) _New(fsys fs.FS, name string, desktop _AppNewDocDesktop, docRef 
 		cur.add(doc)
 		if app.isActiveDesktop(cur) {
 			app.Dispatch(DocChange, DocChangeArgs{Doc: doc})
+			app.Dirty()
 		}
 	case _AppNewDocDesktopNew:
 		top := &Desktop{app: app}
 		top.add(doc)
 		app.desktops.PushFront(top)
 		app.Dispatch(DocChange, DocChangeArgs{Doc: doc})
+		app.Dirty()
 	case _AppNewDocDesktopOverlay:
 		// 不添加到任何桌面。
 	}
-
-	app.Dirty()
 
 	return doc
 }
@@ -248,27 +248,48 @@ func (app *App) _CloseDocument(doc *Document) {
 	}
 
 	// 只有前台桌面的顶层文档被移除时，当前文档才会变化。
-	if wasActive && isTop {
-		var top *Document
-		if front := app.desktops.Front(); front != nil {
-			top = front.Value.(*Desktop).top()
+	if wasActive {
+		if isTop {
+			var top *Document
+			if front := app.desktops.Front(); front != nil {
+				top = front.Value.(*Desktop).top()
+			}
+			app.Dispatch(DocChange, DocChangeArgs{Doc: top})
 		}
-		app.Dispatch(DocChange, DocChangeArgs{Doc: top})
+		app.Dirty()
 	}
 
 	if app.desktops.Len() <= 0 {
 		app.Quit()
-	} else {
-		app.Dirty()
 	}
 }
 
 // 同步标记为脏，异步等待下次刷新。
 //
 // 只起标记作用，文档是否需要重绘还要看文档本身。
+//
+// 文档dirty不要调用这个，因为文档不一定属于前台桌面，不一定需要更新。
 func (app *App) Dirty() {
 	app.dirty = true
 	app.wakeUp()
+}
+
+func (app *App) docDirty(doc *Document) {
+	if doc.app != app {
+		panic(`非此App的文档。`)
+	}
+	// overlay?
+	if doc.desktop == nil {
+		app.Dirty()
+		return
+	}
+	if app.desktops.Len() > 0 {
+		front := app.desktops.Front().Value.(*Desktop)
+		if doc.desktop == front {
+			app.Dirty()
+			return
+		}
+	}
 }
 
 // 把文档设置为显示状态。
@@ -477,7 +498,7 @@ func (app *App) sync() {
 		for doc := range desktop.All() {
 			now := time.Now()
 			doc.sync(app.canvas, forceLayout, true)
-			log.Println(`帧绘制时长：`, time.Since(now).Round(time.Microsecond*100))
+			log.Println(`帧绘制时长：`, doc.name, time.Since(now).Round(time.Microsecond*100))
 		}
 	}
 
