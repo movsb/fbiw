@@ -1629,13 +1629,29 @@ func (b *Scroll) Calc(availWidth, availHeight int, constraints Constraints) {
 		avgHeight = b.rowHeight
 	}
 
-	if b.count > 0 {
-		for i, child := range b.children {
-			// 任何时候，超过数据总量的节点可以直接忽略。
-			if i >= b.count {
-				break
-			}
-			child.(*_ScrollChild).forceCalc(offsetX, offsetY, avgWidth, avgHeight)
+	activeCount := min(b.count, len(b.children))
+	for i := range activeCount {
+		b.children[i].(*_ScrollChild).bindData()
+	}
+
+	// 指定宽度或父布局要求占满时，槽位平均分配全部可用宽度。
+	// 否则先测量 item 的自然宽度，再以最宽 item 作为等宽槽位宽度。
+	fillWidth := computed.Width.IsNumber() || constraints.PrefersMaxWidth
+	if !fillWidth {
+		avgWidth = 0
+		maxSlotWidth := average(contentAvailWidth, b.cols)
+		for i := range activeCount {
+			child := b.children[i].(*_ScrollChild)
+			child.forceCalc(0, 0, maxSlotWidth, avgHeight, false)
+			childWidth := child.HorizontalInsets() + child.children[0].Base().layoutBox.Width
+			avgWidth = max(avgWidth, childWidth)
+		}
+	}
+
+	if activeCount > 0 {
+		for i := range activeCount {
+			child := b.children[i].(*_ScrollChild)
+			child.forceCalc(offsetX, offsetY, avgWidth, avgHeight, fillWidth)
 			// 需要换行了
 			if (i+1)%b.cols == 0 {
 				offsetX = b.InsetLeft()
@@ -1648,7 +1664,12 @@ func (b *Scroll) Calc(availWidth, availHeight int, constraints Constraints) {
 		}
 	}
 
-	b.layoutBox.Width = resolveSize(b.computedStyles.Width, availWidth, constraints.PrefersMaxWidth, offsetX+b.InsetRight())
+	visibleCols := min(b.cols, activeCount)
+	actualWidth := b.HorizontalInsets()
+	if visibleCols > 0 {
+		actualWidth += visibleCols*avgWidth + (visibleCols-1)*b.gap
+	}
+	b.layoutBox.Width = resolveSize(computed.Width, availWidth, constraints.PrefersMaxWidth, min(availWidth, actualWidth))
 	if b.shrinkRows {
 		visibleRows := min(b.rows, divideRoundUp(b.count, b.cols))
 		visibleGaps := max(visibleRows-1, 0)
@@ -1706,7 +1727,22 @@ func (b *_ScrollChild) dataIndex() int {
 	return b.rowIndex*b.scroll.cols + b.colIndex + b.scroll.itemOffset
 }
 
-func (b *_ScrollChild) forceCalc(x, y int, contentAvailWidth, avgHeight int) {
+func (b *_ScrollChild) bindData() {
+	// 没有数据的项实际是被隐藏的，被隐藏的项不会参与计算。
+	// 所以如果代码运行到了这里，那一定是出现了内部逻辑错误。
+	if b.dataIndex() < b.scroll.count {
+		// 提前绑定上去才能提供数据、提供计算支撑。
+		// TODO 现在是处理 calc 中，如果限定了尺寸的话，
+		// 其实是不需要此刻 bind 的，Draw 的时候 bind 才比较好。
+		// 因为其它控件需要calc的时候此控件不一定需要。
+		//
+		// 而且，如果项目过多，可能导致bind触发过多的RequestPaint阻塞队列？
+		// 队列满了的话，会不会死在这里？
+		b.scroll.bind(b.user, b.dataIndex())
+	}
+}
+
+func (b *_ScrollChild) forceCalc(x, y int, contentAvailWidth, avgHeight int, prefersMaxWidth bool) {
 	base := b.Base()
 	base.layoutBox.X = x
 	base.layoutBox.Y = y
@@ -1721,21 +1757,8 @@ func (b *_ScrollChild) forceCalc(x, y int, contentAvailWidth, avgHeight int) {
 	base.layoutBox.Width = childContentAvailWidth
 	base.layoutBox.Height = childContentAvailHeight
 
-	// 没有数据的项实际是被隐藏的，被隐藏的项不会参与计算。
-	// 所以如果代码运行到了这里，那一定是出现了内部逻辑错误。
-	if b.dataIndex() < b.scroll.count {
-		// 提前绑定上去才能提供数据、提供计算支撑。
-		// TODO 现在是处理 calc 中，如果限定了尺寸的话，
-		// 其实是不需要此刻 bind 的，Draw 的时候 bind 才比较好。
-		// 因为其它控件需要calc的时候此控件不一定需要。
-		//
-		// 而且，如果项目过多，可能导致bind触发过多的RequestPaint阻塞队列？
-		// 队列满了的话，会不会死在这里？
-		b.scroll.bind(b.user, b.dataIndex())
-	}
-
 	child.Calc(childContentAvailWidth, childContentAvailHeight, Constraints{
-		PrefersMaxWidth:  true,
+		PrefersMaxWidth:  prefersMaxWidth,
 		PrefersMaxHeight: true,
 	})
 	child.Base().layoutBox.X = b.InsetLeft()

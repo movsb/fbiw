@@ -59,6 +59,44 @@ func TestScrollMaxRowsHeight(t *testing.T) {
 	}
 }
 
+func TestScrollWidthConstraintControlsItemSizing(t *testing.T) {
+	newScroll := func() (*Scroll, *Block) {
+		doc := _NewDocument(100, 40, nil, nil, nil)
+		scroll := NewScroll(doc)
+		scroll._EventTarget.box = scroll
+		scroll.cols = 1
+		scroll.rows = 1
+
+		var item *Block
+		scroll._setItems(1, func() (Box, any) {
+			item = NewBlock(doc)
+			item._EventTarget.box = item
+			item.inlineStyles.Width = NumberValue(30)
+			return item, nil
+		}, func(any, int) {})
+		return scroll, item
+	}
+
+	t.Run(`shrink to item width`, func(t *testing.T) {
+		scroll, item := newScroll()
+		scroll.Calc(100, 40, Constraints{})
+		if got, want := scroll.layoutBox.Width, 30; got != want {
+			t.Fatalf(`scroll width = %d, want %d`, got, want)
+		}
+		if got, want := item.layoutBox.Width, 30; got != want {
+			t.Fatalf(`item width = %d, want %d`, got, want)
+		}
+	})
+
+	t.Run(`fill available width`, func(t *testing.T) {
+		scroll, _ := newScroll()
+		scroll.Calc(100, 40, Constraints{PrefersMaxWidth: true})
+		if got, want := scroll.layoutBox.Width, 100; got != want {
+			t.Fatalf(`scroll width = %d, want %d`, got, want)
+		}
+	})
+}
+
 func TestScrollRowsKeepsFixedHeight(t *testing.T) {
 	scroll := NewScroll(nil)
 	scroll.rows = 3

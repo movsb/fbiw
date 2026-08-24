@@ -1,15 +1,19 @@
 <document>
 <style>
+document {
+	color: white;
+}
 scroll .selected {
 	outline-width: 3;
-	outline-color: yellow;
+	outline-color: deeppink;
+	background-color: #882b5d;
 }
 </style>
-<block background-color="white" align="both">
-	<inline background-color="#000000E8" border-width="3" border-color="deeppink">
+<inline align="both">
+	<block background-color="#000000E8" border-width="3" border-color="deeppink">
 		<block id="header"></block>
 		<scroll max-rows="5" row-height="50" padding="10"></scroll>
 		<block id="footer"></block>
-	</inline>
-</block>
+	</block>
+</inline>
 </document>
