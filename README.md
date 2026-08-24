@@ -433,6 +433,84 @@ scroll .selected {
 
 `Scroll` 支持读取和恢复选择状态，但当前所有槽位尺寸相同，不支持可变高度列表。
 
+### Scroll 的行数与行高
+
+`rows` 和 `max-rows` 都表示可视槽位的行数，但语义不同：
+
+- `rows`：固定显示区域的行数。即使数据不足，`Scroll` 也不因数据量而收缩。
+- `max-rows`：最多显示的行数。数据不足时按实际行数收缩，超过上限后滚动。
+- `row-height`：每行槽位的固定高度，不包含 `gap`。
+
+`rows` 与 `max-rows` 互斥，一个 `Scroll` 只能指定其中一个。两者分别与可选的
+`row-height` 组合，共有以下四种布局方式：
+
+| 配置 | 槽位高度 | Scroll 高度 | 数据不足时 | 数据超出时 |
+| --- | --- | --- | --- | --- |
+| `rows` | 从可用高度均分 | 保持外部提供的高度 | 保持固定高度，留下空槽位 | 在固定槽位中滚动 |
+| `rows` + `row-height` | 使用 `row-height` | 仍由外部高度决定 | 保持固定高度，留下空槽位 | 在固定槽位中滚动 |
+| `max-rows` | 按满额时的可用高度均分 | 按实际数据行数收缩，满额时等于外部提供的最大高度 | 收缩 | 保持最大高度并滚动 |
+| `max-rows` + `row-height` | 使用 `row-height` | 根据实际可见行数计算，最多为 `max-rows` 行 | 收缩 | 保持最大高度并滚动 |
+
+其中，数据实际占用的行数为：
+
+```text
+dataRows = ceil(count / cols)
+```
+
+#### 1. `rows`：固定行数，自动均分行高
+
+```html
+<scroll rows="5" height="196" gap="4"></scroll>
+```
+
+去掉 padding、border 和四个 `gap` 后，剩余高度平均分给五行。数据只有一项时，
+容器仍然保持五行区域的高度；数据超过五行时开始滚动。
+
+#### 2. `rows` + `row-height`：固定行数和固定槽位高度
+
+```html
+<scroll rows="5" row-height="36" height="196" gap="4"></scroll>
+```
+
+每个槽位固定为 36 像素，`Scroll` 本身仍然使用外部提供的高度。调用者应保证容器
+内容区的高度与所有槽位和间距匹配：
+
+```text
+contentHeight = rows * rowHeight + (rows - 1) * gap
+```
+
+如果外部高度更大，会留下额外空间；如果更小，槽位可能超出容器。这个组合适用于
+弹窗尺寸由外层统一控制、但列表项必须保持固定高度的场景。
+
+#### 3. `max-rows`：限定最大行数，自动均分行高
+
+```html
+<scroll max-rows="5" height="196" gap="4"></scroll>
+```
+
+外部提供的高度表示五行满额时的最大高度。槽位高度按五行均分得到；只有两行数据时，
+`Scroll` 收缩为两行槽位加一个 `gap` 的高度。达到或超过五行后保持最大高度并滚动。
+
+#### 4. `max-rows` + `row-height`：限定最大行数和固定槽位高度
+
+弹出菜单等项目数量不固定的场景，推荐使用这个组合：
+
+```html
+<scroll max-rows="5" row-height="36" gap="4"></scroll>
+```
+
+实际高度按可见数据行数计算：
+
+```text
+visibleRows = min(dataRows, maxRows)
+contentHeight = visibleRows * rowHeight + max(visibleRows - 1, 0) * gap
+scrollHeight = border + padding + contentHeight
+```
+
+例如 `max-rows="5" row-height="36" gap="4"`：一行数据的内容高度是 36，三行是
+116，五行及更多数据是 196；第六行开始通过滚动访问。空列表不产生槽位和 `gap`，
+高度只包含 border 和 padding。
+
 ## 图片和字体
 
 相对图片路径从创建文档时传入的文件系统中读取：

@@ -20,6 +20,16 @@ func init() {
 //go:embed *.html
 var embedded embed.FS
 
+type MenuItem struct {
+	Name  string
+	Click func()
+}
+
+type _ItemView struct {
+	root fbiw.Box
+	name *fbiw.Text `css:"text"`
+}
+
 func main() {
 	app := fbiw.NewApp()
 	defer app.Close()
@@ -29,6 +39,30 @@ func main() {
 	doc := app.New(embedded, `main.html`)
 
 	app.Show(doc)
+
+	items := []MenuItem{
+		{Name: `24`},
+		{Name: `24`},
+	}
+
+	scroll := doc.QuerySelector[*fbiw.Scroll](`scroll`)
+	scroll.SetItems(len(items),
+		func() (fbiw.Box, *_ItemView) {
+			item := fbiw.Unmarshal[_ItemView](doc, `
+	<block padding="0 10" align=middle>
+		<text></text>
+	</block>
+	`)
+			return item.root, item
+		},
+		func(item *_ItemView, index int) {
+			item.name.SetText(items[index].Name)
+		},
+	)
+
+	app.Show(doc)
+
+	scroll.Activate()
 
 	app.Run()
 }

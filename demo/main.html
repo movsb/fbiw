@@ -1,15 +1,11 @@
 <document>
 <style>
-	button {
-		background-color: red;
-		width: 50;
-		height: 50;
-		align: both;
-	}
+scroll .selected {
+	outline-width: 3;
+	outline-color: yellow;
+}
 </style>
-<block background-color="white">
-	<block width="200" height="200" padding="50" background-color="red" align="both">
-		<block width="50" height="50" background-color="yellow"></block>
-	</block>
+<block background-color="white" align="both">
+	<scroll background-color="deeppink" padding="10" max-rows="5" row-height="50"></scroll>
 </block>
 </document>

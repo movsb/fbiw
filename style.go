@@ -269,7 +269,8 @@ func (s *Styles) parseProperty(name string, raw string) (
 		outErr = setColor(&update, raw)
 		return
 	case `outline-width`:
-		affectLayout = true
+		// outline不会影响布局。
+		// affectLayout = true
 		current = &s.OutlineWidth
 		outErr = setNumber(&update, raw)
 		return

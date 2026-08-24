@@ -496,12 +496,6 @@ func blockCalc(b *BaseBox, availWidth, availHeight int, constraints Constraints)
 			continue
 		}
 
-		// 所有元素，如果没有特别指定宽度，则总是占满。
-		// if child.Base().computedStyles.Width.Empty() {
-		// child.Base().layoutBox.Width = contentAvailWidth
-		// child.Base().computedStyles.Width = NumberValue(contentAvailWidth)
-		// }
-
 		if spacer, ok := child.(*Spacer); ok && spacer.computedStyles.Height.Empty() {
 			zeroSpacers = append(zeroSpacers, spacer)
 			contentHeight += spacer.VerticalInsets()
@@ -1541,7 +1535,16 @@ func (b *Image) Draw(canvas *Canvas) {
 type Scroll struct {
 	BaseBox
 
+	// 行与行、列与列之间的间隙。
 	gap int
+
+	// 如果指定了，则列表项的高度由此决定。
+	// 如果没指定，则会平均分。
+	rowHeight int
+
+	// 指定了 max-rows 的时候此为 true，决定是否要收缩容器高度。
+	// max-rows 使用和 rows 相同的槽位容量，但在数据不足时收缩高度。
+	shrinkRows bool
 
 	bind func(user any, index int)
 
@@ -1572,14 +1575,12 @@ type _ScrollState struct {
 
 func NewScroll(doc *Document) *Scroll {
 	scroll := &Scroll{
-		BaseBox: NewBaseBox(doc, `scroll`),
-		_ScrollState: _ScrollState{
-			rows:       1,
-			cols:       1,
-			rowIndex:   -1,
-			colIndex:   -1,
-			itemOffset: 0,
-		},
+		BaseBox:    NewBaseBox(doc, `scroll`),
+		rows:       1,
+		cols:       1,
+		rowIndex:   -1,
+		colIndex:   -1,
+		itemOffset: 0,
 	}
 
 	scroll.Listen(StickDownEvent, func(e *Event) {
@@ -1591,56 +1592,68 @@ func NewScroll(doc *Document) *Scroll {
 
 // TODO 取消重复计算，大小不变的情况下只需要计算一次。
 func (b *Scroll) Calc(availWidth, availHeight int, constraints Constraints) {
-	// computed := &b.computedStyles
-
-	// if len(b.Children) <= 0 {
-	// 	return
-	// }
-
-	// 只有确定了大小才能决定子元素的大小和布局。
-	// if !(computed.Width.IsNumber() && computed.Height.IsNumber()) {
-	// return
-	// }
-
 	var (
-		contentAvailWidth  = availWidth - (b.HorizontalInsets() + (b.cols-1)*b.gap)
-		contentAvailHeight = availHeight - (b.VerticalInsets() + (b.rows-1)*b.gap)
+		computed     = &b.computedStyles
+		boxMaxWidth  = Iif(computed.Width.IsNumber(), int(computed.Width.Number), availWidth)
+		boxMaxHeight = Iif(computed.Height.IsNumber(), int(computed.Height.Number), availHeight)
+
+		contentAvailWidth  = boxMaxWidth - (b.HorizontalInsets() + (b.cols-1)*b.gap)
+		contentAvailHeight = boxMaxHeight - (b.VerticalInsets() + (b.rows-1)*b.gap)
 
 		offsetX = b.InsetLeft()
 		offsetY = b.InsetTop()
 
+		// child 的高度应受槽位高度约束，而不应该反过来根据 child 高度计算 gap。否则会有几个问题：
+		//  - rows 不再能保证准确显示指定数量的行；
+		//  - 不同批次虚拟化数据可能导致 gap 和布局跳动；
+		//  - 超高 child 会挤压其他行，滚动和选中位置也会变得不稳定；
+		//  - child 总高度超过视口时，无法通过“算 gap”合理解决。
 		avgHeight = average(contentAvailHeight, b.rows)
 		avgWidth  = average(contentAvailWidth, b.cols)
 	)
+	if b.rowHeight > 0 {
+		avgHeight = b.rowHeight
+	}
 
-	for i, child := range b.children {
-		child.(*_ScrollChild).forceCalc(offsetX, offsetY, avgWidth, avgHeight)
-		// 需要换行了
-		if (i+1)%b.cols == 0 {
-			offsetX = b.InsetLeft()
-			offsetY += b.gap
-			offsetY += avgHeight
-		} else {
-			offsetX += b.gap
-			offsetX += avgWidth
+	if b.count > 0 {
+		for i, child := range b.children {
+			// 任何时候，超过数据总量的节点可以直接忽略。
+			if i >= b.count {
+				break
+			}
+			child.(*_ScrollChild).forceCalc(offsetX, offsetY, avgWidth, avgHeight)
+			// 需要换行了
+			if (i+1)%b.cols == 0 {
+				offsetX = b.InsetLeft()
+				offsetY += b.gap
+				offsetY += avgHeight
+			} else {
+				offsetX += b.gap
+				offsetX += avgWidth
+			}
 		}
 	}
 
-	b.layoutBox.Width = Iif(
-		b.computedStyles.Width.IsNumber(),
-		int(b.computedStyles.Width.Number),
-		Iif(constraints.PrefersMaxWidth, availWidth, 0),
-	)
-	b.layoutBox.Height = Iif(
-		b.computedStyles.Height.IsNumber(),
-		int(b.computedStyles.Height.Number),
-		Iif(constraints.PrefersMaxHeight, availHeight, 0),
-	)
+	b.layoutBox.Width = resolveSize(b.computedStyles.Width, availWidth, constraints.PrefersMaxWidth, offsetX+b.InsetRight())
+	if b.shrinkRows {
+		visibleRows := min(b.rows, divideRoundUp(b.count, b.cols))
+		visibleGaps := max(visibleRows-1, 0)
+		b.layoutBox.Height = b.VerticalInsets() + visibleRows*avgHeight + visibleGaps*b.gap
+	} else {
+		b.layoutBox.Height = resolveSize(b.computedStyles.Height, availHeight, constraints.PrefersMaxHeight, offsetY+b.InsetBottom())
+	}
 
 	// 可能还未初始化。
 	if len(b.children) > 0 {
 		b.adjust()
 	}
+}
+
+func divideRoundUp(value, divisor int) int {
+	if value <= 0 {
+		return 0
+	}
+	return (value + divisor - 1) / divisor
 }
 
 // 为什么用浮点？
@@ -1719,6 +1732,14 @@ func (b *Scroll) SetProp(key, value string) error {
 	switch key {
 	case `rows`:
 		b.rows = Must1(strconv.Atoi(value))
+		b.shrinkRows = false
+		return nil
+	case `max-rows`:
+		b.rows = Must1(strconv.Atoi(value))
+		b.shrinkRows = true
+		return nil
+	case `row-height`:
+		b.rowHeight = Must1(strconv.Atoi(value))
 		return nil
 	case `cols`:
 		b.cols = Must1(strconv.Atoi(value))
