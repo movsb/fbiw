@@ -28,6 +28,30 @@ func TestSegmentInlineStopsWhenFirstCharacterDoesNotFit(t *testing.T) {
 	}
 }
 
+func TestShouldDrawTextLine(t *testing.T) {
+	tests := []struct {
+		name             string
+		lineCount        int
+		usedHeight       int
+		lineHeight       int
+		contentMaxHeight int
+		want             bool
+	}{
+		{name: `single line may overflow`, lineCount: 1, lineHeight: 20, contentMaxHeight: 10, want: true},
+		{name: `complete multiline line`, lineCount: 2, usedHeight: 20, lineHeight: 20, contentMaxHeight: 40, want: true},
+		{name: `incomplete multiline line`, lineCount: 2, usedHeight: 20, lineHeight: 20, contentMaxHeight: 39, want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := shouldDrawTextLine(tt.lineCount, tt.usedHeight, tt.lineHeight, tt.contentMaxHeight)
+			if got != tt.want {
+				t.Fatalf(`shouldDrawTextLine() = %t, want %t`, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestScrollMaxRowsHeight(t *testing.T) {
 	tests := []struct {
 		name  string

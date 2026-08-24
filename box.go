@@ -1198,8 +1198,11 @@ func (t *Text) Draw(canvas *Canvas) {
 		if lineNo < t.textDrawLineOffset {
 			continue
 		}
-		// 当前行必须能够完整放进内容区域。
-		if usedHeight := drawOffsetY - t.InsetTop(); usedHeight+line.MaxHeight > contentMaxHeight {
+		// 多行文本只绘制能完整放进内容区域的行，避免底部出现半行。
+		// 单行文本即使因高度或 padding 配置有误而放不下，也仍然绘制；
+		// 相比内容略微溢出，整段文字变成空白更难发现和理解。
+		usedHeight := drawOffsetY - t.InsetTop()
+		if !shouldDrawTextLine(len(t.textLines), usedHeight, line.MaxHeight, contentMaxHeight) {
 			break
 		}
 
@@ -1226,6 +1229,10 @@ func (t *Text) Draw(canvas *Canvas) {
 
 		drawOffsetY += line.MaxHeight
 	}
+}
+
+func shouldDrawTextLine(lineCount, usedHeight, lineHeight, contentMaxHeight int) bool {
+	return lineCount == 1 || usedHeight+lineHeight <= contentMaxHeight
 }
 
 // 向下滚动一行。
