@@ -3,8 +3,19 @@ package fbiw
 import (
 	"testing"
 
+	"golang.org/x/image/font"
 	"golang.org/x/image/font/basicfont"
+	"golang.org/x/image/math/fixed"
 )
+
+type testMetricsFace struct {
+	font.Face
+	metrics font.Metrics
+}
+
+func (f testMetricsFace) Metrics() font.Metrics {
+	return f.metrics
+}
 
 func TestSegmentInlineStopsWhenFirstCharacterDoesNotFit(t *testing.T) {
 	fontManager := NewFontManager()
@@ -25,6 +36,33 @@ func TestSegmentInlineStopsWhenFirstCharacterDoesNotFit(t *testing.T) {
 	}
 	if got := text.textRunDataIndex; got != 0 {
 		t.Fatalf(`textRunDataIndex = %d, want 0`, got)
+	}
+}
+
+func TestSegmentBlockKeepsLineHeightWhenAvailableHeightIsSmaller(t *testing.T) {
+	fontManager := NewFontManager()
+	fontManager.faces[_FontFaceKey{Family: `system`, Size: 32}] = &FontFace{
+		Face: testMetricsFace{
+			Face: basicfont.Face7x13,
+			metrics: font.Metrics{
+				Ascent:  fixed.I(30),
+				Descent: fixed.I(8),
+			},
+		},
+		cache: map[rune]GlyphValue{},
+	}
+	doc := _NewDocument(100, 30, nil, fontManager, nil)
+	text := NewText(doc)
+	text.computedStyles = Styles{
+		FontFamily: StringValue(`system`),
+		FontSize:   NumberValue(32),
+	}
+	text.SetText(`A`)
+
+	text.SegmentBlock(100, 30)
+
+	if got, want := text.layoutBox.Height, 38; got != want {
+		t.Fatalf(`text height = %d, want line height %d`, got, want)
 	}
 }
 

@@ -138,6 +138,7 @@ func (fm *FontManager) GetFace(family string, size int, bold bool, italic bool) 
 
 	fontFace := &FontFace{
 		Face:  theFace,
+		name:  family,
 		cache: map[rune]GlyphValue{},
 	}
 
@@ -148,6 +149,8 @@ func (fm *FontManager) GetFace(family string, size int, bold bool, italic bool) 
 
 type FontFace struct {
 	font.Face
+
+	name string
 
 	cache map[rune]GlyphValue
 }

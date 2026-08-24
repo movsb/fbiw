@@ -1030,7 +1030,11 @@ func (t *Text) SegmentBlock(availWidth, availHeight int) {
 	if h := t.computedStyles.Height; h.IsNumber() {
 		t.layoutBox.Height = int(h.Number)
 	} else {
-		t.layoutBox.Height = min(t.blockHeight()+t.VerticalInsets(), availHeight)
+		// 文本高度随字体变化太麻烦，这里不应该简单取min值。取了min值后如果box高度不够，
+		// 居中还是按小的居中，结果就是没有效果。如果按大的来，虽然会占用一点padding，但是至少是真的在中间。
+		// t.layoutBox.Height = min(t.blockHeight()+t.VerticalInsets(), availHeight)
+		// [TestSegmentBlockKeepsLineHeightWhenAvailableHeightIsSmaller]
+		t.layoutBox.Height = t.blockHeight() + t.VerticalInsets()
 	}
 
 	// 宽度或样式变化可能改变总行数。尽量保留原来的滚动位置，
