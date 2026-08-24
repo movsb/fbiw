@@ -15,10 +15,9 @@ var embedded embed.FS
 func main() {
 	app := fbiw.NewApp(fbiw.WithSystemFont(os.DirFS(`..`), `regular.ttf`))
 	defer app.Close()
-	doc := app.New(embedded, `main.html`)
+	doc := app.NewDesktop(embedded, `main.html`)
 	text := doc.QuerySelector[*fbiw.Text](`text`)
 	doc.Listen(fbiw.StickDownEvent, handle(text))
-	app.Show(doc)
 	app.Run()
 }
 

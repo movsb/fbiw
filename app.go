@@ -1,8 +1,10 @@
 package fbiw
 
 import (
+	"container/list"
 	"context"
 	"io/fs"
+	"iter"
 	"log"
 	"slices"
 	"sync"
@@ -54,9 +56,10 @@ type App struct {
 	images  *ImageManager
 	fonts   *FontManager
 
-	// 层叠的窗口列表。
-	// 上面的在后面。
-	documents []*Document
+	// 桌面列表。
+	// 桌面由文档构成。
+	// 前台桌面是 Front() 元素。
+	desktops list.List
 
 	// 系统覆盖层，始终覆盖在所有文档之上。
 	// 可以为空。
@@ -129,19 +132,34 @@ func (app *App) Context() context.Context {
 	return app.ctx
 }
 
-// 创建新的文档，并绑定到此App上作为前台窗口。
-//
-// 创建的文档默认不显示，需要 Show()。
-func (app *App) New(fsys fs.FS, name string) *Document {
-	return app._New(fsys, name, true)
+// 创建新的文档、新的桌面。
+// 创建后立即切换到此桌面。
+func (app *App) NewDesktop(fsys fs.FS, name string) *Document {
+	return app._New(fsys, name, _AppNewDocDesktopNew, nil)
 }
 
-// 创建新的文档，但是不添加到当前显示桌面。
+// 创建新的文档、添加到docRef的桌面。
+func (app *App) NewPopup(fsys fs.FS, name string, opener *Document) *Document {
+	if opener == nil || opener.app != app || opener.desktop == nil {
+		panic(`无效文档桌面。`)
+	}
+	return app._New(fsys, name, _AppNewDocDesktopRef, opener)
+}
+
+// 创建新的系统覆盖层。
 func (app *App) NewOverlay(fsys fs.FS, name string) *Document {
-	return app._New(fsys, name, false)
+	return app._New(fsys, name, _AppNewDocDesktopOverlay, nil)
 }
 
-func (app *App) _New(fsys fs.FS, name string, addToDesktop bool) *Document {
+type _AppNewDocDesktop uint8
+
+const (
+	_AppNewDocDesktopRef _AppNewDocDesktop = iota
+	_AppNewDocDesktopNew
+	_AppNewDocDesktopOverlay
+)
+
+func (app *App) _New(fsys fs.FS, name string, desktop _AppNewDocDesktop, docRef *Document) *Document {
 	doc := _NewDocument(
 		app.canvas.width, app.canvas.height,
 		fsys, app.fonts, app.images,
@@ -154,32 +172,86 @@ func (app *App) _New(fsys fs.FS, name string, addToDesktop bool) *Document {
 		panic(err)
 	}
 
-	doc.display = false
 	// 默认把焦点设置给根元素。
 	doc.root.Activate()
 
-	if addToDesktop {
-		// 追加到后面（最上层窗口）
-		// 但是由于没有显示，不需要放触发事件。
-		// 默认不显示还有意义吗？
-		app.documents = append(app.documents, doc)
-	}
-
-	return doc
-}
-
-func (app *App) _CloseDocument(doc *Document) {
-	app.documents = slices.DeleteFunc(app.documents, func(d *Document) bool {
-		return d == doc
-	})
-
-	if app.overlay == doc {
-		app.SetOverlay(nil)
+	switch desktop {
+	case _AppNewDocDesktopRef:
+		// 第一文档创建时还没有桌面。
+		var cur *Desktop
+		if app.desktops.Len() == 0 {
+			cur = &Desktop{app: app}
+			app.desktops.PushFront(cur)
+		} else {
+			cur = docRef.desktop
+		}
+		cur.add(doc)
+		if app.isActiveDesktop(cur) {
+			app.Dispatch(DocChange, DocChangeArgs{Doc: doc})
+		}
+	case _AppNewDocDesktopNew:
+		top := &Desktop{app: app}
+		top.add(doc)
+		app.desktops.PushFront(top)
+		app.Dispatch(DocChange, DocChangeArgs{Doc: doc})
+	case _AppNewDocDesktopOverlay:
+		// 不添加到任何桌面。
 	}
 
 	app.Dirty()
 
-	app.Dispatch(DocChange, DocChangeArgs{Doc: app.topDoc()})
+	return doc
+}
+
+func (app *App) isActiveDesktop(d *Desktop) bool {
+	if front := app.desktops.Front(); front != nil {
+		return d == front.Value.(*Desktop)
+	}
+	return false
+}
+
+func (app *App) _CloseDocument(doc *Document) {
+	if app.overlay == doc {
+		app.SetOverlay(nil)
+		doc.app = nil
+		return
+	}
+
+	// overlay
+	if doc.desktop == nil {
+		doc.app = nil
+		return
+	}
+
+	desktop := doc.desktop
+	wasActive := app.isActiveDesktop(desktop)
+	isTop := doc == desktop.top()
+	doc.desktop.remove(doc)
+
+	if desktop.count() <= 0 {
+		for e := app.desktops.Front(); e != nil; e = e.Next() {
+			if e.Value.(*Desktop) == desktop {
+				desktop.app = nil
+				app.desktops.Remove(e)
+				break
+			}
+		}
+	}
+
+	// 只有前台桌面的顶层文档被移除时，当前文档才会变化。
+	if wasActive && isTop {
+		var top *Document
+		if front := app.desktops.Front(); front != nil {
+			top = front.Value.(*Desktop).top()
+		}
+		app.Dispatch(DocChange, DocChangeArgs{Doc: top})
+	}
+
+	if app.desktops.Len() <= 0 {
+		app.Quit()
+	} else {
+		app.Dirty()
+	}
 }
 
 // 同步标记为脏，异步等待下次刷新。
@@ -190,34 +262,24 @@ func (app *App) Dirty() {
 	app.wakeUp()
 }
 
-func (app *App) topDoc() *Document {
-	for _, doc := range slices.Backward(app.documents) {
-		if !doc.display {
-			continue
-		}
-		return doc
-	}
-	return nil
-}
-
 // 把文档设置为显示状态。
 //
 // 显示后键盘事件发发送到这里。
-func (app *App) Show(doc *Document, show ...bool) {
-	if doc.app != app {
-		panic(`不属于此App的文档。`)
-	}
+// func (app *App) Show(doc *Document, show ...bool) {
+// 	if doc.app != app {
+// 		panic(`不属于此App的文档。`)
+// 	}
 
-	if len(show) > 0 {
-		doc.display = show[0]
-	} else {
-		doc.display = true
-	}
-	if doc.display && app.topDoc() == doc {
-		app.Dispatch(DocChange, DocChangeArgs{Doc: doc})
-	}
-	doc.RequestPaint()
-}
+// 	if len(show) > 0 {
+// 		doc.display = show[0]
+// 	} else {
+// 		doc.display = true
+// 	}
+// 	if doc.display && app.topDoc() == doc {
+// 		app.Dispatch(DocChange, DocChangeArgs{Doc: doc})
+// 	}
+// 	doc.RequestPaint()
+// }
 
 // 唤醒消息循环以处理挂起的异步调用和脏处理过程。
 // 写不进去说明有积压的事件等待处理，可以安全丢弃事件。
@@ -283,15 +345,16 @@ func (app *App) Run() {
 
 				// 只发送给前台文档。
 				// TODO 除非有系统级事件监听器？
-				for _, doc := range slices.Backward(app.documents) {
-					if !doc.display {
-						continue
+				// TODO 其实这两个地方都不应该判断，理论不可能为空。
+				if e := app.desktops.Front(); e != nil {
+					desktop := e.Value.(*Desktop)
+					if top := desktop.top(); top != nil {
+						top.handleEvent(event)
 					}
-					doc.handleEvent(event)
-					break
 				}
 			}
-		})
+		},
+	)
 }
 
 func (app *App) AddFont(family string, bold, italic bool, fsys fs.FS, path string) error {
@@ -345,10 +408,16 @@ func (app *App) sync() {
 	}
 
 	hasDirtyDocument := false
-	for _, doc := range app.documents {
-		if doc.display && doc.dirty() {
-			hasDirtyDocument = true
-			break
+
+	// 有可能只创建了overlay就开始运行，此时还没有桌面。
+	var desktop *Desktop
+	if app.desktops.Len() > 0 {
+		desktop = app.desktops.Front().Value.(*Desktop)
+		for doc := range desktop.All() {
+			if doc.dirty() {
+				hasDirtyDocument = true
+				break
+			}
 		}
 	}
 
@@ -366,13 +435,12 @@ func (app *App) sync() {
 	app.layoutOverlay()
 
 	// 2. 画普通文档。
-	for _, doc := range app.documents {
-		if !doc.display {
-			continue
+	if desktop != nil {
+		for doc := range desktop.All() {
+			now := time.Now()
+			doc.sync(app.canvas, forceLayout, true)
+			log.Println(`帧绘制时长：`, time.Since(now).Round(time.Microsecond*100))
 		}
-		now := time.Now()
-		doc.sync(app.canvas, forceLayout, true)
-		log.Println(`帧绘制时长：`, time.Since(now).Round(time.Microsecond*100))
 	}
 
 	// 3. 画系统覆盖层。
@@ -383,6 +451,103 @@ func (app *App) sync() {
 	app.display.Sync()
 	app.dirty = false
 	app.overlayChanged = false
+}
+
+// 多桌面空间支持。
+type Desktop struct {
+	app *App
+	// 层叠的窗口列表。
+	// 上面的在后面。
+	documents []*Document
+}
+
+// 取第一个可见、有标题的文档的为名字。
+func (d *Desktop) Name() string {
+	name := ``
+	for _, doc := range slices.Backward(d.documents) {
+		if doc.Title() == `` {
+			continue
+		}
+		name = doc.title
+		break
+	}
+	return name
+}
+func (d *Desktop) add(doc *Document) {
+	d.documents = append(d.documents, doc)
+	doc.desktop = d
+}
+func (d *Desktop) remove(doc *Document) {
+	d.documents = slices.DeleteFunc(d.documents, func(d *Document) bool {
+		return d == doc
+	})
+	doc.app = nil
+	doc.desktop = nil
+}
+func (d *Desktop) top() *Document {
+	if len(d.documents) > 0 {
+		return d.documents[len(d.documents)-1]
+	}
+	return nil
+}
+func (d *Desktop) count() int {
+	return len(d.documents)
+}
+
+// 从下往上遍历。
+func (d *Desktop) All() iter.Seq[*Document] {
+	documents := slices.Clone(d.documents)
+	return func(yield func(*Document) bool) {
+		for _, doc := range documents {
+			if !yield(doc) {
+				break
+			}
+		}
+	}
+}
+
+// 遍历所有的桌面。
+func (app *App) Desktops() iter.Seq[*Desktop] {
+	desktops := make([]*Desktop, 0, app.desktops.Len())
+	for e := app.desktops.Front(); e != nil; e = e.Next() {
+		desktops = append(desktops, e.Value.(*Desktop))
+	}
+	return func(yield func(*Desktop) bool) {
+		for _, desktop := range desktops {
+			if !yield(desktop) {
+				break
+			}
+		}
+	}
+}
+
+// 切换到指定的桌面。
+func (app *App) SwitchTo(desktop *Desktop) {
+	// 从 Desktops() 拿到的列表是快照。
+	// 期间可能由于文档主动关闭后被删除了。
+	// 再切换就会失败。
+	if desktop == nil || desktop.app == nil || desktop.app != app {
+		return
+	}
+
+	// 已经是前台。
+	if desktop == app.desktops.Front().Value.(*Desktop) {
+		return
+	}
+
+	// 移动到前台。
+	for e := app.desktops.Front(); e != nil; e = e.Next() {
+		if d := e.Value.(*Desktop); d == desktop {
+			app.desktops.MoveToFront(e)
+			break
+		}
+	}
+
+	// 通知前台文档变化。
+	top := app.desktops.Front().Value.(*Desktop).top()
+	app.Dispatch(DocChange, DocChangeArgs{Doc: top})
+
+	app.Dirty()
 }
 
 // 设置系统覆盖层（状态栏）。
@@ -406,8 +571,8 @@ func (app *App) sync() {
 //   - SafeArea.SetProp() 仍然用 panic 拒绝 padding，而且 CSS padding 可以绕过检查后被覆盖。
 //   - overlay 只要发生任何布局，即使四边尺寸没变，也会重排所有普通文档。状态栏规模下通常可以接受；需要优化时再比较前后 inset。
 func (app *App) SetOverlay(doc *Document) {
-	if doc != nil && doc.app != app {
-		panic(`不属于此App的文档。`)
+	if doc != nil && (doc.app != app || doc.desktop != nil) {
+		panic(`无效Overlay文档。`)
 	}
 
 	app.overlay = doc
@@ -455,18 +620,6 @@ func (app *App) layoutOverlay() {
 	}
 }
 
-// 返回其它文档的安全可用区域。
-//
-// 注意：此为建议，不一定需要遵守。
-// func (app *App) contentViewport() Rect {
-// 	return Rect{
-// 		X:      app.safeInsets.left,
-// 		Y:      app.safeInsets.top,
-// 		Width:  app.canvas.width - app.safeInsets.left - app.safeInsets.right,
-// 		Height: app.canvas.height - app.safeInsets.top - app.safeInsets.bottom,
-// 	}
-// }
-
 type SafeArea struct {
 	BaseBox
 
@@ -503,7 +656,3 @@ func (b *SafeArea) Calc(availWidth, availHeight int, constraints Constraints) {
 	b.computedStyles.Padding = PaddingValue(insets.top, insets.right, insets.bottom, insets.left)
 	b.Base().Calc(availWidth, availHeight, constraints)
 }
-
-// func (b *SafeArea) Draw(canvas *Canvas) {
-// 	b.Base().Draw(canvas)
-// }

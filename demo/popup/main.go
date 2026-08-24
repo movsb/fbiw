@@ -36,9 +36,7 @@ func main() {
 
 	app.AddFont(`system`, false, false, os.DirFS(`.`), `regular.ttf`)
 
-	doc := app.New(embedded, `main.html`)
-
-	app.Show(doc)
+	doc := app.NewDesktop(embedded, `main.html`)
 
 	items := []MenuItem{
 		{Name: `24`},
@@ -59,8 +57,6 @@ func main() {
 			item.name.SetText(items[index].Name)
 		},
 	)
-
-	app.Show(doc)
 
 	scroll.Activate()
 

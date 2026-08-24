@@ -16,8 +16,7 @@ func main() {
 	app := fbiw.NewApp(fbiw.WithSystemFont(os.DirFS(`..`), `regular.ttf`))
 	defer app.Close()
 
-	doc := app.New(embedded, `main.html`)
-	app.Show(doc)
+	doc := app.NewDesktop(embedded, `main.html`)
 
 	overlay := app.NewOverlay(embedded, `status.html`)
 	app.SetOverlay(overlay)

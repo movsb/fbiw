@@ -17,7 +17,7 @@ func main() {
 	app := fbiw.NewApp(fbiw.WithSystemFont(os.DirFS(`..`), `regular.ttf`))
 	defer app.Close()
 
-	doc := app.New(embedded, `main.html`)
+	doc := app.NewDesktop(embedded, `main.html`)
 
 	scroll := doc.GetBoxByID[*fbiw.Scroll](`scroll`)
 
@@ -37,8 +37,6 @@ func main() {
 	)
 
 	scroll.Activate()
-
-	app.Show(doc)
 
 	app.Run()
 }

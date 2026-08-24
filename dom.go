@@ -26,7 +26,7 @@ type Document struct {
 
 	// 为 app 框架服务的数据。
 	app     *App
-	display bool
+	desktop *Desktop
 
 	// 资源包。
 	// html文件和img资源等放这里。
