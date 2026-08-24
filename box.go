@@ -1014,6 +1014,8 @@ func (t *Text) SegmentBlock(availWidth, availHeight int) {
 	t.clearStates()
 
 	// availHeight 应该内部没有使用，至少会使用一行行高。
+	// availWidth 即使小于一个字符宽度（包括负数），SegmentInline 也会
+	// 返回 false，避免在没有消费字符的情况下死循环。
 	for t.SegmentInline(availWidth, availHeight) {
 	}
 
@@ -1057,6 +1059,7 @@ func (t *Text) SegmentBlock(availWidth, availHeight int) {
 // TODO 没有缓存计算结果，应避免重复计算。
 func (t *Text) SegmentInline(availWidth, availHeight int) bool {
 	line := _TextLine{}
+	cannotFitFirstCharacter := false
 
 	computed := &t.computedStyles
 
@@ -1114,9 +1117,12 @@ func (t *Text) SegmentInline(availWidth, availHeight int) bool {
 			return false
 		}
 
-		// 挤不了了，真的满了
-		if runWidth == 0 {
+		// 当前行放不下更多字符。如果空行连第一个字符也放不下，则停止
+		// 后续分段；不能返回“还有内容”，否则 SegmentBlock 会在没有推进
+		// textRunDataIndex 的情况下反复调用并进入死循环。
+		if end == 0 {
 			// TODO 有可能下一个就是换行符，如果不处理，可能导致下次分行的时候产生一个意外的空行。
+			cannotFitFirstCharacter = len(line.Fragments) == 0
 			break
 		}
 
@@ -1151,8 +1157,8 @@ func (t *Text) SegmentInline(availWidth, availHeight int) bool {
 	// 如果是多行文本，此高度需要去重计算。
 	t.layoutBox.Height = line.MaxHeight + t.VerticalInsets()
 
-	return t.textRunIndex < len(t.textRuns)-1 ||
-		t.textRunIndex == len(t.textRuns)-1 && t.textRunDataIndex < len(t.textRuns[t.textRunIndex].Data)
+	return !cannotFitFirstCharacter && (t.textRunIndex < len(t.textRuns)-1 ||
+		t.textRunIndex == len(t.textRuns)-1 && t.textRunDataIndex < len(t.textRuns[t.textRunIndex].Data))
 }
 
 // 清空分行的内部状态。滚动偏移是绘制状态，不属于排版中间状态，

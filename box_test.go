@@ -1,6 +1,32 @@
 package fbiw
 
-import "testing"
+import (
+	"testing"
+
+	"golang.org/x/image/font/basicfont"
+)
+
+func TestSegmentInlineStopsWhenFirstCharacterDoesNotFit(t *testing.T) {
+	fontManager := NewFontManager()
+	fontManager.faces[_FontFaceKey{Family: `system`, Size: 32}] = &FontFace{
+		Face:  basicfont.Face7x13,
+		cache: map[rune]GlyphValue{},
+	}
+	doc := _NewDocument(100, 100, nil, fontManager, nil)
+	text := NewText(doc)
+	text.computedStyles = Styles{
+		FontFamily: StringValue(`system`),
+		FontSize:   NumberValue(32),
+	}
+	text.SetText(`A`)
+
+	if more := text.SegmentInline(1, 100); more {
+		t.Fatal(`SegmentInline returned more=true without consuming a character`)
+	}
+	if got := text.textRunDataIndex; got != 0 {
+		t.Fatalf(`textRunDataIndex = %d, want 0`, got)
+	}
+}
 
 func TestScrollMaxRowsHeight(t *testing.T) {
 	tests := []struct {
