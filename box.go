@@ -487,6 +487,8 @@ func blockCalc(b *BaseBox, availWidth, availHeight int, constraints Constraints)
 
 	// 当前实际占用高度
 	contentHeight := 0
+	// 子元素实际占用的最大宽度。PrefersMaxWidth=false 时，Block 据此收缩。
+	contentMaxWidth := 0
 
 	// 如果有 Spacer（未设定大小的），则留到后面均匀地铺满。
 	zeroSpacers := []Box{}
@@ -508,7 +510,7 @@ func blockCalc(b *BaseBox, availWidth, availHeight int, constraints Constraints)
 			} else {
 				child.Base().presetSize(contentAvailWidth, contentAvailHeight)
 				child.Calc(contentAvailWidth, contentAvailHeight-contentHeight, Constraints{
-					PrefersMaxWidth:  true,
+					PrefersMaxWidth:  constraints.PrefersMaxWidth,
 					PrefersMaxHeight: false,
 				})
 			}
@@ -535,12 +537,18 @@ func blockCalc(b *BaseBox, availWidth, availHeight int, constraints Constraints)
 		}
 	}
 
+	for _, child := range b.children {
+		if displaying(child) {
+			contentMaxWidth = max(contentMaxWidth, child.Base().layoutBox.Width)
+		}
+	}
+
 	// if hv := b.computedStyles.Height; hv.IsNumber() && hv.Number-b.verticalInsets() > contentHeight {
 	// 	contentHeight = hv.Number - b.verticalInsets()
 	// }
 
 	// 此时已经可以确定容器本身的大小了。
-	b.layoutBox.Width = resolveSize(computed.Width, availWidth, constraints.PrefersMaxWidth, boxMaxWidth)
+	b.layoutBox.Width = resolveSize(computed.Width, availWidth, constraints.PrefersMaxWidth, min(availWidth, b.HorizontalInsets()+contentMaxWidth))
 	b.layoutBox.Height = resolveSize(computed.Height, availHeight, constraints.PrefersMaxHeight, b.VerticalInsets()+contentHeight)
 
 	// 最后再重新对齐子元素

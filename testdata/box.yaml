@@ -299,3 +299,15 @@
     </block>
   calc:
     b1: [75,75,50,50]
+
+#23 Block 作为 Inline 的子元素时，应在 PrefersMaxWidth=false 下按内容宽度收缩。
+- html: |
+    <block>
+      <inline>
+        <block id=b>
+          <img width=100 height=50>
+        </block>
+      </inline>
+    </block>
+  calc:
+    b: [0,0,100,50]
