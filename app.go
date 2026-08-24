@@ -60,6 +60,9 @@ type App struct {
 	// 桌面由文档构成。
 	// 前台桌面是 Front() 元素。
 	desktops list.List
+	// 桌面切换器。
+	switcher         func(app *App) *Document
+	switcherDocument *Document
 
 	// 系统覆盖层，始终覆盖在所有文档之上。
 	// 可以为空。
@@ -216,8 +219,14 @@ func (app *App) _CloseDocument(doc *Document) {
 		doc.app = nil
 		return
 	}
+	if app.switcherDocument == doc {
+		app.switcherDocument = nil
+		doc.app = nil
+		app.Dirty()
+		return
+	}
 
-	// overlay
+	// multiple close ? overlay & switcher?
 	if doc.desktop == nil {
 		doc.app = nil
 		return
@@ -343,6 +352,26 @@ func (app *App) Run() {
 					return
 				}
 
+				// 桌面切换。
+				if event.Type == StickDownEvent && event.Stick.Name == Select && app.switcher != nil {
+					if app.switcherDocument != nil {
+						app.switcherDocument.Close()
+						app.switcherDocument = nil
+						return
+					}
+					app.switcherDocument = app.switcher(app)
+					return
+				}
+				if app.switcherDocument != nil {
+					// 关闭后会清空app，以此来判断切换器已关闭。
+					if app.switcherDocument.app != nil {
+						app.switcherDocument.handleEvent(event)
+						return
+					}
+					app.switcherDocument = nil
+					// fallthrough
+				}
+
 				// 只发送给前台文档。
 				// TODO 除非有系统级事件监听器？
 				// TODO 其实这两个地方都不应该判断，理论不可能为空。
@@ -443,7 +472,12 @@ func (app *App) sync() {
 		}
 	}
 
-	// 3. 画系统覆盖层。
+	// 3. 画桌面切换器
+	if switcher := app.switcherDocument; switcher != nil {
+		switcher.sync(app.canvas, false, true)
+	}
+
+	// 4. 画系统覆盖层。
 	if overlay := app.overlay; overlay != nil {
 		overlay.sync(app.canvas, false, true)
 	}
@@ -548,6 +582,11 @@ func (app *App) SwitchTo(desktop *Desktop) {
 	app.Dispatch(DocChange, DocChangeArgs{Doc: top})
 
 	app.Dirty()
+}
+
+// 设置桌面切换器。
+func (app *App) SetSwitcher(callback func(app *App) *Document) {
+	app.switcher = callback
 }
 
 // 设置系统覆盖层（状态栏）。

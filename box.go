@@ -1884,14 +1884,8 @@ func (b *Scroll) navigate(event *Event) {
 		b.children[childIndex].Base().ClassAdd(`selected`)
 	}
 
-	// 如果物理列表没变（前面类名不会变化）、但是虚拟列表滚动了，
-	// 则需要主动告知文档更新，否则不会重绘。
-	if oldState.itemOffset != b.itemOffset {
-		b.document.RequestPaint()
-	}
-
+	b.document.RequestPaint()
 	event.StopPropagation()
-
 	// 发送状态变化事件。
 	b.Dispatch(ScrollSelectionChange, nil)
 }
