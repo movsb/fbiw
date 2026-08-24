@@ -4,16 +4,19 @@ import (
 	_ "embed"
 	"errors"
 	"fmt"
+	"image"
 	"iter"
 	"log"
 	"math"
 	"net/url"
+	"os"
 	"reflect"
 	"slices"
 	"strconv"
 	"strings"
 
 	_ "image/jpeg"
+	"image/png"
 	_ "image/png"
 )
 
@@ -1409,9 +1412,7 @@ func (b *Image) SetProp(key string, val string) error {
 		b.src = val
 		b.status = imageLoadStatusNone
 		b.err = nil
-		if b.document != nil {
-			b.document.RequestLayout()
-		}
+		b.document.RequestLayout()
 		return nil
 	default:
 		return b.BaseBox.SetProp(key, val)
@@ -1423,6 +1424,26 @@ func (b *Image) SetProp(key string, val string) error {
 func (b *Image) SetPath(path string) {
 	u := (&url.URL{Scheme: `os`, Opaque: url.PathEscape(path)}).String()
 	b.SetProp(`src`, u)
+}
+
+// 显示指定的内存已解码图片。
+func (b *Image) SetImage(img image.Image) {
+	go func() {
+		fp, err := os.CreateTemp(``, `fbiw-img-*`)
+		if err != nil {
+			log.Println(err)
+			return
+		}
+		defer fp.Close()
+		if err := png.Encode(fp, img); err != nil {
+			log.Println(err)
+			return
+		}
+		path := fp.Name()
+		b.document.Async(func() {
+			b.SetPath(path)
+		})
+	}()
 }
 
 func (b *Image) Calc(availWidth, availHeight int, constraints Constraints) {
