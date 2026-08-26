@@ -13,6 +13,7 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"time"
 	"unsafe"
 
 	"golang.org/x/net/html"
@@ -399,6 +400,16 @@ func (doc *Document) Async(callback func()) {
 		log.Panicln(`Document.RequestPaintAsync 未绑定 App`)
 	}
 	doc.app.Async(callback)
+}
+
+// 设置一个ms毫秒后过期的定时器，然后在主线程中调用回调。
+// 返回的函数可以用于取消此定时器。取消已到期的定时器无法阻止
+// 回调函数被调用。
+func (doc *Document) SetTimeout(ms int, callback func()) func() {
+	t := time.AfterFunc(time.Millisecond*time.Duration(ms), func() {
+		doc.Async(callback)
+	})
+	return func() { t.Stop() }
 }
 
 // 需要重新布局或者重新绘制？
