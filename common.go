@@ -123,6 +123,8 @@ func RegisterEventType() EventType {
 
 type KeyEventArgs struct {
 	Name KeyName
+	// 是否为按住按键后产生的重复事件。
+	Repeat bool
 }
 
 type DocChangeArgs struct {

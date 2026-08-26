@@ -74,11 +74,12 @@ func pollEvents(
 	unblock chan struct{}, unblockHandler func(),
 	sync func(), eventHandler func(*Event),
 ) {
-	sendKey := func(name KeyName, pressed bool) {
+	sendKey := func(name KeyName, pressed, repeat bool) {
 		eventHandler(&Event{
 			Type: Iif(pressed, StickDownEvent, StickUpEvent),
 			Stick: KeyEventArgs{
-				Name: name,
+				Name:   name,
+				Repeat: repeat,
 			},
 		})
 	}
@@ -115,7 +116,7 @@ func pollEvents(
 			pressed := event.Type == sdl.KEYDOWN
 			key := event.Keysym.Sym
 			if mapped, ok := keyMaps[key]; ok {
-				sendKey(mapped, pressed)
+				sendKey(mapped, pressed, event.Repeat != 0)
 			}
 		}
 		sync()

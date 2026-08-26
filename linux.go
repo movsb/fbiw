@@ -288,10 +288,10 @@ func newKeyRepeater(ctx context.Context, delay, interval time.Duration, handler 
 	}
 }
 
-func (r *keyRepeater) emit(name KeyName, pressed bool) {
+func (r *keyRepeater) emit(name KeyName, pressed, repeat bool) {
 	r.handler(&Event{
 		Type:  Iif(pressed, StickDownEvent, StickUpEvent),
-		Stick: KeyEventArgs{Name: name},
+		Stick: KeyEventArgs{Name: name, Repeat: repeat},
 	})
 }
 
@@ -302,7 +302,7 @@ func (r *keyRepeater) send(name KeyName, pressed bool) {
 			cancel()
 			delete(r.held, name)
 		}
-		r.emit(name, false)
+		r.emit(name, false, false)
 		r.mu.Unlock()
 		return
 	}
@@ -313,7 +313,7 @@ func (r *keyRepeater) send(name KeyName, pressed bool) {
 	}
 	repeatCtx, cancel := context.WithCancel(r.ctx)
 	r.held[name] = cancel
-	r.emit(name, true)
+	r.emit(name, true, false)
 	r.mu.Unlock()
 
 	go r.repeat(repeatCtx, name)
@@ -336,7 +336,7 @@ func (r *keyRepeater) repeat(ctx context.Context, name KeyName) {
 			r.mu.Unlock()
 			return
 		}
-		r.emit(name, true)
+		r.emit(name, true, true)
 		r.mu.Unlock()
 
 		select {
