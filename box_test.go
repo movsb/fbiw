@@ -90,6 +90,38 @@ func TestShouldDrawTextLine(t *testing.T) {
 	}
 }
 
+func TestTextLineWidthIncludesAllFragments(t *testing.T) {
+	line := _TextLine{
+		Fragments: []_TextRunFragment{
+			{layoutBox: Rect{Width: 20}},
+			{layoutBox: Rect{Width: 30}},
+		},
+	}
+
+	if got, want := line.Width(), 50; got != want {
+		t.Fatalf(`line.Width() = %d, want %d`, got, want)
+	}
+}
+
+func TestTextLineHorizontalOffset(t *testing.T) {
+	line := _TextLine{Fragments: []_TextRunFragment{{layoutBox: Rect{Width: 40}}}}
+
+	tests := []struct {
+		align string
+		want  int
+	}{
+		{align: ``, want: 0},
+		{align: `middle`, want: 0},
+		{align: `center`, want: 30},
+		{align: `both`, want: 30},
+	}
+	for _, tt := range tests {
+		if got := line.horizontalOffset(100, tt.align); got != tt.want {
+			t.Errorf(`horizontalOffset(100, %q) = %d, want %d`, tt.align, got, tt.want)
+		}
+	}
+}
+
 func TestScrollMaxRowsHeight(t *testing.T) {
 	tests := []struct {
 		name  string

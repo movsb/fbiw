@@ -119,6 +119,9 @@ var ErrUnknownStyleProperty = errors.New(`未知样式属性`)
 //   - 影响继承会导致重新计算自己以及所有后代的样式。
 //   - 影响布局会导致整个文档重新布局（并重绘）。
 //   - 影响绘制导致整个文档重绘（但不一定重新布局）。
+//
+// TODO 值未变是否可以affect*=false？
+// 比如 display，这个外面设置得比较多。
 func (s *Styles) Set(name string, raw string) (affectInherit, affectLayout, affectPaint bool, outErr error) {
 	var current *Value
 	var update Value

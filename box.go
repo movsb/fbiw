@@ -890,6 +890,21 @@ type _TextLine struct {
 	MaxHeight int
 }
 
+func (l _TextLine) Width() int {
+	width := 0
+	for _, fragment := range l.Fragments {
+		width += fragment.layoutBox.Width
+	}
+	return width
+}
+
+func (l _TextLine) horizontalOffset(contentWidth int, align string) int {
+	if align != `center` && align != `both` {
+		return 0
+	}
+	return max(0, contentWidth-l.Width()) / 2
+}
+
 type _TextParts struct {
 	// 副本一份子节点，方便把纯文本节点也保存进来，
 	// 这样可以维护原始顺序，而不用把纯文本节点挂
@@ -1199,6 +1214,9 @@ func (t *Text) Draw(canvas *Canvas) {
 
 	contentMaxHeight := t.layoutBox.Height - t.VerticalInsets()
 
+	// 文本盒子总体的宽度。用于计算每行的水平居中位置。
+	contentWidth := t.layoutBox.Width - t.HorizontalInsets()
+
 	drawOffsetY := t.InsetTop()
 
 	for lineNo, line := range t.textLines {
@@ -1213,7 +1231,8 @@ func (t *Text) Draw(canvas *Canvas) {
 			break
 		}
 
-		drawOffsetX := t.InsetLeft()
+		// 如果是水平居中。
+		drawOffsetX := t.InsetLeft() + line.horizontalOffset(contentWidth, t.computedStyles.Align.String)
 
 		for _, fragment := range line.Fragments {
 			rc := fragment.layoutBox
