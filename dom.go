@@ -402,6 +402,12 @@ func (doc *Document) Async(callback func()) {
 	doc.app.Async(callback)
 }
 
+// 返回文档关联的App。
+// 可能为空？
+func (doc *Document) App() *App {
+	return doc.app
+}
+
 // 设置一个ms毫秒后过期的定时器，然后在主线程中调用回调。
 // 返回的函数可以用于取消此定时器。取消已到期的定时器无法阻止
 // 回调函数被调用。
