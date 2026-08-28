@@ -1050,9 +1050,18 @@ func (t *Text) SegmentBlock(availWidth, availHeight int) {
 	} else {
 		// 文本高度随字体变化太麻烦，这里不应该简单取min值。取了min值后如果box高度不够，
 		// 居中还是按小的居中，结果就是没有效果。如果按大的来，虽然会占用一点padding，但是至少是真的在中间。
-		// t.layoutBox.Height = min(t.blockHeight()+t.VerticalInsets(), availHeight)
+		//
+		// 对于单行文本来说，允许其大小超过 availHeight，这样其盒子的高度始终是
+		// 自己的真实高度，竖直居中的时候才能正确计算中心点。
+		//
+		// 而如果是多行文本，虽然也能正确居中，但是……添加滚动也许是更好的做法？
+		//
 		// [TestSegmentBlockKeepsLineHeightWhenAvailableHeightIsSmaller]
-		t.layoutBox.Height = t.blockHeight() + t.VerticalInsets()
+		if len(t.textLines) <= 1 {
+			t.layoutBox.Height = t.blockHeight() + t.VerticalInsets()
+		} else {
+			t.layoutBox.Height = min(t.blockHeight()+t.VerticalInsets(), availHeight)
+		}
 	}
 
 	// 宽度或样式变化可能改变总行数。尽量保留原来的滚动位置，
@@ -1261,7 +1270,7 @@ func shouldDrawTextLine(lineCount, usedHeight, lineHeight, contentMaxHeight int)
 	return lineCount == 1 || usedHeight+lineHeight <= contentMaxHeight
 }
 
-// 向下滚动一行。
+// 向下（内容向上）滚动一行。
 func (t *Text) ScrollLineDown() bool {
 	if t.textDrawLineOffset >= len(t.textLines)-1 {
 		return false
@@ -1272,7 +1281,7 @@ func (t *Text) ScrollLineDown() bool {
 	return true
 }
 
-// 向上滚动一行。
+// 向上（内容向下）滚动一行。
 func (t *Text) ScrollLineUp() bool {
 	if t.textDrawLineOffset <= 0 {
 		return false
