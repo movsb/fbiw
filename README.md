@@ -125,12 +125,24 @@ func main() {
 | `scroll` | 固定行列、固定可视槽位的虚拟列表 |
 | `spacer` | 在布局主轴上分配剩余空间 |
 | `button` | 基于普通 Box 的语义化按钮容器 |
+| `toggle` | 不接受子节点，激活后按 A 键切换 checked 状态的开关 |
 | `text` | 文本内容和文本分段 |
 | `b` | 粗体文本片段 |
 | `i` | 斜体文本片段 |
 | `img` | 图片 |
 
 也可以使用 `fbiw.Define` 注册实现了 `Box` 接口的自定义标签。
+
+`toggle` 的默认尺寸跟随其计算后的 `font-size`，也可以使用 `width` 和
+`height` 显式覆盖。它还支持通过元素属性设置轨道和滑块颜色：
+
+```html
+<toggle
+    track-color="#656b76"
+    checked-track-color="#34c759"
+    knob-color="white">
+</toggle>
+```
 
 ## 布局模型
 

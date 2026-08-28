@@ -2,8 +2,11 @@
 	"cSpell.words": [
 		"archsimd",
 		"basicfont",
+		"BGRA",
 		"fbiw",
+		"goregular",
 		"opentype",
+		"SWAR",
 		"trimui"
 	],
 	"go.toolsEnvVars": {
