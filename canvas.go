@@ -445,24 +445,6 @@ func (c *Canvas) drawStringStd(text string, faces []*FontFace, color Color, widt
 }
 
 // 按设备要求直接写显存。
-//
-/* 版本1 无glyph缓存
- go test -bench=. -benchmem
-goos: darwin
-goarch: arm64
-pkg: gofb
-cpu: Apple M2 Pro
-BenchmarkDrawString/dev-12                 14042             84548 ns/op              22 B/op          2 allocs/op
-BenchmarkDrawString/std-12                  5272            222231 ns/op           29424 B/op       7334 allocs/op
-*/
-/* 版本2 有glyph缓存、手写kerning、bearing、advance计算，可能有bug
-goos: darwin
-goarch: arm64
-pkg: gofb
-cpu: Apple M2 Pro
-BenchmarkDrawString/dev-12                102585             10063 ns/op               0 B/op          0 allocs/op
-BenchmarkDrawString/std-12                  4749            225611 ns/op           29408 B/op       7333 allocs/op
-*/
 func (c *Canvas) drawStringDevice(text string, faces []*FontFace, color Color, width, height int) {
 	prev := rune(-1)
 	dot := fixed.Point26_6{X: 0, Y: faces[0].Metrics().Ascent}

@@ -1,7 +1,6 @@
 package fbiw
 
 import (
-	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -163,38 +162,6 @@ func TestQuery(t *testing.T) {
 			}
 		}
 	}
-}
-
-func BenchmarkDrawString(b *testing.B) {
-	b.SkipNow()
-	fm := NewFontManager()
-	if err := fm.AddFont(os.DirFS(`.`), `fonts/MapleMonoNormalNL-NF-CN-Regular.ttf`, `system`, false, false); err != nil {
-		b.Fatal(err)
-	}
-	face, err := fm.GetFace(`system`, 30, false, false)
-	if err != nil {
-		b.Fatal(err)
-	}
-	b.Run(`dev`, func(b *testing.B) {
-		canvas := Canvas{
-			buffer: make([]byte, 1024*768*4),
-			width:  1024,
-			height: 768,
-		}
-		for b.Loop() {
-			canvas.drawStringDevice(`想测试一下字符串绘制`, []*FontFace{face}, ColorValueFromString(`red`).Color, 1024, 768)
-		}
-	})
-	b.Run(`std`, func(b *testing.B) {
-		canvas := Canvas{
-			buffer: make([]byte, 1024*768*4),
-			width:  1024,
-			height: 768,
-		}
-		for b.Loop() {
-			canvas.drawStringStd(`想测试一下字符串绘制`, []*FontFace{face}, ColorValueFromString(`red`).Color, 1024, 768)
-		}
-	})
 }
 
 func TestBind(t *testing.T) {
