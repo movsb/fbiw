@@ -118,6 +118,18 @@ button.disabled {
 	background-color: #d9dadd;
 	border-color: #c5c6ca;
 }
+select {
+	padding: 10 16;
+	color: #1c2024;
+	background-color: #e8eaed;
+	border-width: 2;
+	border-color: #c5c9d0;
+}
+select.disabled {
+	color: #8b8d98;
+	background-color: #d9dadd;
+	border-color: #c5c6ca;
+}
 .h1 { font-size: 1.50rem; }
 .h2 { font-size: 1.35rem; }
 .h3 { font-size: 1.20rem; }

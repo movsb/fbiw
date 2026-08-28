@@ -1,6 +1,7 @@
 package fbiw
 
 import (
+	"slices"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -229,6 +230,199 @@ func TestToggleDrawsIndicatorAccordingToState(t *testing.T) {
 	knobX := trackX + trackWidth - inset - knobSize
 	if got := canvas.getPixel(knobX, trackY+inset); got != toggle.knobColor.NRGBA() {
 		t.Fatalf(`选中滑块位置不正确：%v`, got)
+	}
+}
+
+func newSelectDocument(t *testing.T, markup string) (*Document, *SelectBox) {
+	t.Helper()
+	doc := _NewDocument(640, 480, fstest.MapFS{
+		`main.html`: &fstest.MapFile{Data: []byte(markup)},
+	}, NewFontManager(), NewImageManager())
+	if err := doc.load(`main.html`); err != nil {
+		t.Fatal(err)
+	}
+	selectBox := doc.QuerySelector[*SelectBox](`select`)
+	if selectBox == nil {
+		t.Fatal(`找不到 select`)
+	}
+	return doc, selectBox
+}
+
+func newSelectPopupDocument(t *testing.T, markup string) (*App, *Document, *SelectBox) {
+	t.Helper()
+	app := newDesktopTestApp()
+	app.canvas = &Canvas{width: 1024, height: 768}
+	app.images = NewImageManager()
+	app.fonts = NewFontManager()
+	app.fonts.faces[_FontFaceKey{Family: `system`, Size: 32}] = &FontFace{
+		Face: basicfont.Face7x13, cache: map[rune]GlyphValue{},
+	}
+	doc := app.NewDesktop(fstest.MapFS{
+		`main.html`: &fstest.MapFile{Data: []byte(markup)},
+	}, `main.html`)
+	selectBox := doc.QuerySelector[*SelectBox](`select`)
+	if selectBox == nil {
+		t.Fatal(`找不到 select`)
+	}
+	return app, doc, selectBox
+}
+
+func sendSelectPopupKey(b *SelectBox, name KeyName, repeat bool) {
+	b.popup.handleEvent(&Event{
+		Type:  StickDownEvent,
+		Stick: KeyEventArgs{Name: name, Repeat: repeat},
+	})
+}
+
+func TestSelectItemsIndexAndChange(t *testing.T) {
+	_, b := newSelectDocument(t, `<document><block><select placeholder="选择语言"></select></block></document>`)
+	if b.Index() != -1 || b.placeholder != `选择语言` {
+		t.Fatal(`select 初始状态不正确`)
+	}
+
+	items := []string{`中文`, `English`, `日本語`}
+	b.SetItems(items)
+	items[0] = `已修改`
+	copyOfItems := b.Items()
+	copyOfItems[1] = `已修改`
+	if got := b.Items(); got[0] != `中文` || got[1] != `English` {
+		t.Fatalf(`SetItems 或 Items 没有复制切片：%v`, got)
+	}
+
+	var changes []int
+	b.OnChange(func(index int) { changes = append(changes, index) })
+	if err := b.SetIndex(1); err != nil {
+		t.Fatal(err)
+	}
+	b.SetIndex(1)
+	selected, ok := b.Selected()
+	if !ok || selected != `English` || b.Index() != 1 {
+		t.Fatal(`设置索引后没有返回已选项`)
+	}
+	if err := b.SetIndex(3); err == nil {
+		t.Fatal(`越界索引没有返回错误`)
+	}
+	if err := b.SetIndex(-1); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := b.Selected(); ok {
+		t.Fatal(`清空后仍返回已选项`)
+	}
+	if got, want := changes, []int{1, -1}; !slices.Equal(got, want) {
+		t.Fatalf(`变化事件 = %v，期望 %v`, got, want)
+	}
+
+	b.SetIndex(2)
+	b.SetItems([]string{`仅一项`})
+	if b.Index() != -1 || changes[len(changes)-1] != -1 {
+		t.Fatal(`SetItems 没有清除越界的当前索引`)
+	}
+}
+
+func TestSelectRejectsChildren(t *testing.T) {
+	doc := _NewDocument(320, 240, fstest.MapFS{
+		`main.html`: &fstest.MapFile{Data: []byte(`<document><block><select><text>错误</text></select></block></document>`)},
+	}, NewFontManager(), NewImageManager())
+	if err := doc.load(`main.html`); err == nil {
+		t.Fatal(`select 接受了子节点`)
+	}
+}
+
+func TestSelectPopupCommitCancelAndRepeat(t *testing.T) {
+	_, doc, b := newSelectPopupDocument(t, `<document><block><select></select></block></document>`)
+	b.SetItems([]string{`一`, `二`, `三`})
+	b.Activate()
+	doc.handleEvent(&Event{Type: StickDownEvent, Stick: KeyEventArgs{Name: A}})
+	if !b.Opened() || b.popupView.list.DataIndex() != -1 {
+		t.Fatal(`打开时不应自动高亮首项`)
+	}
+
+	sendSelectPopupKey(b, Down, false)
+	sendSelectPopupKey(b, Down, true)
+	if got := b.popupView.list.DataIndex(); got != 1 {
+		t.Fatalf(`方向键重复导航后的索引 = %d，期望 1`, got)
+	}
+	sendSelectPopupKey(b, A, true)
+	if !b.Opened() || b.Index() != -1 {
+		t.Fatal(`重复 A 提交了选项`)
+	}
+	closedDuringCallback := false
+	b.OnChange(func(int) { closedDuringCallback = !b.Opened() })
+	sendSelectPopupKey(b, A, false)
+	if b.Opened() || b.Index() != 1 || !closedDuringCallback {
+		t.Fatal(`A 没有先关闭 Popup 再提交`)
+	}
+
+	b.Open()
+	if got := b.popupView.list.DataIndex(); got != 1 {
+		t.Fatalf(`重新打开没有恢复当前高亮：%d`, got)
+	}
+	sendSelectPopupKey(b, Up, false)
+	sendSelectPopupKey(b, B, true)
+	if !b.Opened() {
+		t.Fatal(`重复 B 关闭了 Popup`)
+	}
+	sendSelectPopupKey(b, B, false)
+	if b.Opened() || b.Index() != 1 {
+		t.Fatal(`B 取消时改变了当前值`)
+	}
+}
+
+func TestSelectEmptyDisabledAndIdempotent(t *testing.T) {
+	_, doc, b := newSelectPopupDocument(t, `<document><block><select disabled></select></block></document>`)
+	b.Activate()
+	doc.handleEvent(&Event{Type: StickDownEvent, Stick: KeyEventArgs{Name: A}})
+	if b.Opened() || !b.Disabled() {
+		t.Fatal(`禁用的 select 被打开`)
+	}
+
+	b.SetDisabled(false)
+	b.Open()
+	b.Open()
+	if !b.Opened() || displaying(b.popupView.list) || !displaying(b.popupView.empty) {
+		t.Fatal(`空列表 Popup 状态不正确`)
+	}
+	sendSelectPopupKey(b, A, false)
+	if !b.Opened() {
+		t.Fatal(`空列表响应了 A`)
+	}
+	b.SetDisabled(true)
+	if b.Opened() {
+		t.Fatal(`动态禁用没有关闭 Popup`)
+	}
+	b.Close()
+	b.Close()
+}
+
+func TestSelectRestoresLongListPosition(t *testing.T) {
+	_, _, b := newSelectPopupDocument(t, `<document><block><select></select></block></document>`)
+	b.SetItems([]string{`0`, `1`, `2`, `3`, `4`, `5`, `6`, `7`, `8`})
+	if err := b.SetIndex(8); err != nil {
+		t.Fatal(err)
+	}
+	b.Open()
+	if got := b.popupView.list.DataIndex(); got != 8 {
+		t.Fatalf(`长列表没有恢复当前高亮：got=%d want=8`, got)
+	}
+	if got := b.popupView.list.RowIndex(); got < 0 || got >= 7 {
+		t.Fatalf(`恢复后的高亮不在可视范围：row=%d`, got)
+	}
+}
+
+func TestSelectIntrinsicAndExplicitSize(t *testing.T) {
+	doc, b := newSelectDocument(t, `<document><block font-size="24"><select padding="3 7 5 11"></select></block></document>`)
+	doc.layout()
+	if got, want := b.GetLayoutBox(), (Rect{Width: 24*9 + b.HorizontalInsets(), Height: 24*3/2 + b.VerticalInsets()}); got.Width != want.Width || got.Height != want.Height {
+		t.Fatalf(`select 固有尺寸不正确：got=%+v want=%+v`, got, want)
+	}
+
+	doc, b = newSelectDocument(t, `<document><style>select { width: 410; height: 70; background-color: #123456; }</style><block><select></select></block></document>`)
+	doc.layout()
+	if got := b.GetLayoutBox(); got.Width != 410 || got.Height != 70 {
+		t.Fatalf(`CSS 尺寸覆盖失败：%+v`, got)
+	}
+	if got, want := b.GetComputedStyles().BackgroundColor.Color, ColorValueFromString(`#123456`).Color; got != want {
+		t.Fatalf(`CSS 背景覆盖失败：got=%v want=%v`, got, want)
 	}
 }
 

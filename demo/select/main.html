@@ -1,0 +1,48 @@
+<document>
+<style>
+document {
+	color: white;
+}
+
+#page {
+	background-color: #17191f;
+	align: both;
+}
+
+.row {
+	width: 620;
+	height: 72;
+	align: middle;
+}
+
+.row select {
+	width: 360;
+	height: 60;
+}
+
+select.active {
+	outline-width: 3;
+	outline-color: white;
+}
+
+#hint {
+	color: #aeb4c0;
+	font-size: 24;
+}
+</style>
+
+<block id="page" fill>
+	<block align="center">
+		<text class="h2">Select</text>
+		<spacer height="20"></spacer>
+		<inline class="row"><text>语言</text><spacer></spacer><select placeholder="请选择语言"></select></inline>
+		<inline class="row"><text>输出设备</text><spacer></spacer><select></select></inline>
+		<inline class="row"><text>空列表</text><spacer></spacer><select placeholder="没有可用项目"></select></inline>
+		<inline class="row"><text>禁用状态</text><spacer></spacer><select disabled></select></inline>
+		<spacer height="20"></spacer>
+		<text id="status">等待选择</text>
+		<spacer height="8"></spacer>
+		<text id="hint">上下切换组件，A 打开，列表中 A 确认、B 取消</text>
+	</block>
+</block>
+</document>

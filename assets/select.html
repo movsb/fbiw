@@ -1,0 +1,54 @@
+<document>
+<style>
+document {
+	color: white;
+}
+
+#backdrop {
+	background-color: #000000A8;
+}
+
+#popup {
+	width: 560;
+	padding: 24;
+	background-color: #202124;
+	border-width: 2;
+	border-color: #5f6368;
+}
+
+#list {
+	width: 508;
+}
+
+.item {
+	padding: 10 16;
+	align: middle;
+	color: #dfe1e5;
+	background-color: #2b2d31;
+}
+
+scroll-child.selected > .item {
+	color: white;
+	background-color: #3358d4;
+	outline-width: 2;
+	outline-color: #8da4ff;
+}
+
+#empty {
+	width: 508;
+	height: 72;
+	align: both;
+	color: #aeb4c0;
+}
+</style>
+
+<stack fill>
+	<block id="backdrop"></block>
+	<inline align="both">
+		<block id="popup">
+			<scroll id="list" max-rows="7" row-height="56" gap="4"></scroll>
+			<block id="empty"><text>暂无选项</text></block>
+		</block>
+	</inline>
+</stack>
+</document>

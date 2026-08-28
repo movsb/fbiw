@@ -126,6 +126,7 @@ func main() {
 | `spacer` | 在布局主轴上分配剩余空间 |
 | `button` | 带默认样式、A 键交互和禁用状态的按钮容器 |
 | `toggle` | 不接受子节点，激活后按 A 键切换 checked 状态的开关 |
+| `select` | 不接受子节点，使用模态列表选择预定义选项 |
 | `text` | 文本内容和文本分段 |
 | `b` | 粗体文本片段 |
 | `i` | 斜体文本片段 |
@@ -226,6 +227,32 @@ toggle.Activate()
 `OnChange` 返回解除监听的函数。需要访问事件目标、传播阶段或调用
 `StopPropagation` 时，可以改用底层的 `Listen` 和
 `fbiw.ToggleChangeEvent`。
+
+`select` 用于从预定义项目中选择一项。它会显示当前值或 placeholder，
+激活后按 A 打开居中的列表；方向键移动高亮，A 提交，B 取消：
+
+```html
+<select id="language" placeholder="请选择语言"></select>
+<select id="device" disabled></select>
+```
+
+```go
+language := doc.GetBoxByID[*fbiw.SelectBox]("language")
+language.SetItems([]string{"简体中文", "English", "日本語"})
+language.OnChange(func(index int) {
+    value, _ := language.Selected()
+    log.Println(index, value)
+})
+language.Activate()
+```
+
+`SelectBox` 支持 `SetIndex(-1)` 清空选择，`Items()` 返回项目副本；
+动态调用 `SetDisabled(true)` 会关闭已打开的列表。方向键的重复事件用于
+按住连续导航，而重复的 A、B 事件不会提交或关闭。
+
+它不是完整的 Combobox：不接受字符输入，也不提供文本过滤。需要从固定
+选项中使用手柄选择时使用 `SelectBox`；需要搜索大量选项时，应另行实现
+可输入过滤的 Combobox。
 
 ## 布局模型
 

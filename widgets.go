@@ -3,6 +3,7 @@ package fbiw
 import (
 	"embed"
 	"fmt"
+	"slices"
 	"strconv"
 )
 
@@ -275,6 +276,268 @@ func (b *Toggle) OnChange(handler func(checked bool)) func() {
 	return b.Listen(ToggleChangeEvent, func(event *Event) {
 		args := event.Data[ToggleChangeArgs]()
 		handler(args.Checked)
+	})
+}
+
+//go:embed assets/select.html
+var selectAssets embed.FS
+
+// SelectChangeEvent 在 SelectBox 的已选索引发生变化后派发。
+var SelectChangeEvent = RegisterEventType()
+
+type SelectChangeArgs struct {
+	Index int
+}
+
+// SelectBox 是一个使用模态列表选择预定义选项的叶子组件。
+type SelectBox struct {
+	BaseBox
+
+	items       []string
+	index       int
+	placeholder string
+	disabled    bool
+	popup       *Document
+	popupView   _SelectPopupView
+}
+
+type _SelectPopupView struct {
+	root  Box
+	list  *Scroll `css:"#list"`
+	empty Box     `css:"#empty"`
+}
+
+type _SelectItemView struct {
+	root Box
+	text *Text `css:"text"`
+}
+
+func init() {
+	Define(`select`, true, NewSelectBox)
+}
+
+func NewSelectBox(doc *Document) *SelectBox {
+	b := &SelectBox{
+		BaseBox:     NewBaseBox(doc, `select`),
+		index:       -1,
+		placeholder: `请选择`,
+	}
+	b.Listen(StickDownEvent, func(event *Event) {
+		if event.Stick.Name != A || event.Stick.Repeat {
+			return
+		}
+		event.StopPropagation()
+		if !b.disabled {
+			b.Open()
+		}
+	})
+	return b
+}
+
+// intrinsicSize 根据当前字号计算默认尺寸。
+func (b *SelectBox) intrinsicSize() (width, height int) {
+	fontSize := int(b.computedStyles.FontSize.Number)
+	return max(1, fontSize*9), max(1, fontSize*3/2)
+}
+
+func (b *SelectBox) Calc(availWidth, availHeight int, constraints Constraints) {
+	intrinsicWidth, intrinsicHeight := b.intrinsicSize()
+	b.layoutBox.Width = resolveSize(
+		b.computedStyles.Width,
+		availWidth,
+		false,
+		min(availWidth, intrinsicWidth+b.HorizontalInsets()),
+	)
+	b.layoutBox.Height = resolveSize(
+		b.computedStyles.Height,
+		availHeight,
+		false,
+		min(availHeight, intrinsicHeight+b.VerticalInsets()),
+	)
+}
+
+// Draw 绘制当前值或占位文字，以及右侧的下拉提示。
+func (b *SelectBox) Draw(canvas *Canvas) {
+	b.BaseBox.draw(canvas, false)
+
+	width := b.layoutBox.Width - b.HorizontalInsets()
+	height := b.layoutBox.Height - b.VerticalInsets()
+	if width <= 0 || height <= 0 {
+		return
+	}
+
+	text := b.placeholder
+	color := b.computedStyles.Color.Color
+	if selected, ok := b.Selected(); ok {
+		text = selected
+	}
+
+	faces := b.document.LoadFaces(b)
+	fontSize := max(1, int(b.computedStyles.FontSize.Number))
+	arrowWidth := min(width, fontSize*1)
+	content := canvas.Offset(b.InsetLeft(), b.InsetTop())
+	content.DrawString(text, faces, color, max(0, width-arrowWidth), height)
+	content.Offset(max(0, width-arrowWidth), 0).DrawString(`▼`, faces, color, arrowWidth, height)
+}
+
+func (b *SelectBox) SetItems(items []string) {
+	b.items = slices.Clone(items)
+	if b.popup != nil {
+		b.Close()
+	}
+	if b.index >= len(b.items) {
+		b.setIndex(-1)
+	} else {
+		b.document.RequestPaint()
+	}
+}
+
+func (b *SelectBox) Items() []string {
+	return slices.Clone(b.items)
+}
+
+func (b *SelectBox) Index() int {
+	return b.index
+}
+
+func (b *SelectBox) SetIndex(index int) error {
+	if index < -1 || index >= len(b.items) {
+		return fmt.Errorf(`select 索引超出范围：%d`, index)
+	}
+	b.setIndex(index)
+	return nil
+}
+
+func (b *SelectBox) setIndex(index int) {
+	if b.index == index {
+		return
+	}
+	b.index = index
+	b.document.RequestPaint()
+	b.Dispatch(SelectChangeEvent, SelectChangeArgs{Index: index})
+}
+
+func (b *SelectBox) Selected() (string, bool) {
+	if b.index < 0 || b.index >= len(b.items) {
+		return ``, false
+	}
+	return b.items[b.index], true
+}
+
+func (b *SelectBox) Disabled() bool {
+	return b.disabled
+}
+
+func (b *SelectBox) SetDisabled(disabled bool) {
+	if b.disabled == disabled {
+		return
+	}
+	b.disabled = disabled
+	b.ClassToggle(`disabled`, disabled)
+	if disabled {
+		b.Close()
+	}
+}
+
+func (b *SelectBox) SetProp(key, value string) error {
+	switch key {
+	case `placeholder`:
+		b.placeholder = value
+		b.document.RequestPaint()
+		return nil
+	case `disabled`:
+		disabled, err := parseBooleanAttribute(`disabled`, value)
+		if err != nil {
+			return err
+		}
+		b.SetDisabled(disabled)
+		return nil
+	default:
+		return b.Base().SetProp(key, value)
+	}
+}
+
+func (b *SelectBox) Open() {
+	if b.disabled || b.popup != nil {
+		return
+	}
+	if b.document.App() == nil {
+		panic(`SelectBox.Open 未绑定 App`)
+	}
+
+	doc := b.document.App().NewPopup(selectAssets, `assets/select.html`, b.document)
+	b.popup = doc
+	b.popupView = _SelectPopupView{}
+	doc.Bind(&b.popupView)
+
+	items := slices.Clone(b.items)
+	b.popupView.list.SetItems(len(items), func() (Box, *_SelectItemView) {
+		view := Unmarshal[_SelectItemView](doc, `<block class="item"><text></text></block>`)
+		return view.root, view
+	}, func(view *_SelectItemView, index int) {
+		view.text.SetText(items[index])
+	})
+
+	if len(items) == 0 {
+		mustSetProp(b.popupView.list, `display`, `false`)
+	} else {
+		mustSetProp(b.popupView.empty, `display`, `false`)
+	}
+
+	if b.index >= 0 {
+		row := min(b.index, b.popupView.list.rows-1)
+		b.popupView.list.SetIndex(row, 0, b.index-row)
+	} else {
+		b.popupView.list.Deselect()
+	}
+
+	b.popupView.root.Listen(StickDownEvent, b.handlePopupStickDown)
+	b.popupView.list.Activate()
+}
+
+func (b *SelectBox) handlePopupStickDown(event *Event) {
+	if b.popup == nil {
+		return
+	}
+	switch event.Stick.Name {
+	case A:
+		if event.Stick.Repeat {
+			return
+		}
+		index := b.popupView.list.DataIndex()
+		if index < 0 {
+			return
+		}
+		event.StopPropagation()
+		b.Close()
+		_ = b.SetIndex(index)
+	case B:
+		if event.Stick.Repeat {
+			return
+		}
+		event.StopPropagation()
+		b.Close()
+	}
+}
+
+func (b *SelectBox) Close() {
+	if b == nil || b.popup == nil {
+		return
+	}
+	doc := b.popup
+	b.popup = nil
+	b.popupView = _SelectPopupView{}
+	doc.Close()
+}
+
+func (b *SelectBox) Opened() bool {
+	return b != nil && b.popup != nil
+}
+
+func (b *SelectBox) OnChange(handler func(index int)) func() {
+	return b.Listen(SelectChangeEvent, func(event *Event) {
+		args := event.Data[SelectChangeArgs]()
+		handler(args.Index)
 	})
 }
 
