@@ -433,6 +433,15 @@ func (c *Canvas) DrawString(text string, faces []*FontFace, color Color, width, 
 	c.drawStringDevice(text, faces, color, width, height)
 }
 
+// 精确计算 value / 255。
+//
+// 混色时 value 最大为 255*255，利用 255 == 256-1 可以把耗时较高的
+// 整数除法换成加法和移位。这个公式在 [0, 255²] 范围内与向下取整的
+// value/255 完全相同，并不是 fillAlphaBlend3 使用的近似除以 256。
+func div255(value uint32) uint8 {
+	return uint8((value + 1 + (value >> 8)) >> 8)
+}
+
 // 内部方法：只是简单地调用官方库在当前位置画完字符串。
 func (c *Canvas) drawStringStd(text string, faces []*FontFace, color Color, width, height int) {
 	drawer := font.Drawer{
@@ -445,7 +454,17 @@ func (c *Canvas) drawStringStd(text string, faces []*FontFace, color Color, widt
 }
 
 // 按设备要求直接写显存。
+//
+// 和 fillAlphaBlend 系列一样保留各个版本，方便在实际设备上持续比较。
+// 正常绘制始终调用当前最快的版本。
 func (c *Canvas) drawStringDevice(text string, faces []*FontFace, color Color, width, height int) {
+	c.drawStringDevice2(text, faces, color, width, height)
+}
+
+// 版本 1：逐像素计算屏幕坐标、判断边界并使用整数除法混色。
+//
+// 这是优化前的基线实现。不要随新版同步优化，否则基准会失去参照意义。
+func (c *Canvas) drawStringDevice1(text string, faces []*FontFace, color Color, width, height int) {
 	prev := rune(-1)
 	dot := fixed.Point26_6{X: 0, Y: faces[0].Metrics().Ascent}
 	for _, next := range text {
@@ -489,7 +508,6 @@ func (c *Canvas) drawStringDevice(text string, faces []*FontFace, color Color, w
 
 				dstOffset := sy*c.width*4 + sx*4
 				pixel := c.buffer[dstOffset : dstOffset+4]
-
 				if alpha == 255 {
 					*(*uint32)(unsafe.Pointer(&pixel[0])) = uint32(color)
 					continue
@@ -500,6 +518,105 @@ func (c *Canvas) drawStringDevice(text string, faces []*FontFace, color Color, w
 				pixel[1] = uint8((int(color.G())*alpha + int(pixel[1])*inverted) / 255)
 				pixel[2] = uint8((int(color.R())*alpha + int(pixel[2])*inverted) / 255)
 				pixel[3] = 255
+			}
+		}
+
+		dot.X += glyph.Advance
+		prev = next
+	}
+}
+
+// 版本 2：先裁剪整个字形、缓存行和颜色通道，并使用精确的快速除法混色。
+//
+// 字形缓存中保存的是每个像素的覆盖率（Alpha mask）。这里直接把覆盖率
+// 与目标颜色、显存中原有的 BGRA 像素混合，避免经过 image/draw 的通用
+// Color 接口和颜色模型转换。这个函数处于每帧绘制的热路径，内层循环应当
+// 尽量只保留读取 mask、混色和写回三个步骤。
+func (c *Canvas) drawStringDevice2(text string, faces []*FontFace, color Color, width, height int) {
+	prev := rune(-1)
+	dot := fixed.Point26_6{X: 0, Y: faces[0].Metrics().Ascent}
+
+	// Color 的通道提取包含移位和类型转换。颜色在整段文本中不会改变，
+	// 提前计算一次，避免在每个半透明像素上重复执行。
+	colorB := uint32(color.B())
+	colorG := uint32(color.G())
+	colorR := uint32(color.R())
+	for _, next := range text {
+		// 字偶距始终按主字体计算，以保持与原来的排版行为一致。
+		if prev >= 0 {
+			dot.X += faces[0].Kern(prev, next)
+		}
+
+		// 按字体列表顺序查找第一个包含当前字符的字体。全部不包含时仍用
+		// 主字体取得缺字方框及其 Advance，保证缺字也会正常推进光标。
+		// 先确定字体再读取缓存，可以省掉原实现对主字体的一次多余缓存查询。
+		var face *FontFace
+		for _, fa := range faces {
+			if fa.HasGlyph(next) {
+				face = fa
+				break
+			}
+		}
+		if face == nil {
+			face = faces[0]
+		}
+		glyph := face.GlyphCached(next)
+
+		if glyph.Width == 0 || glyph.Height == 0 {
+			dot.X += glyph.Advance
+			prev = next
+			continue
+		}
+
+		dstX := dot.X.Round() + int(glyph.OffsetX)
+		dstY := dot.Y.Round() + int(glyph.OffsetY)
+
+		// 先在“字形坐标系”中计算字形与屏幕的交集。原实现对每个像素分别
+		// 判断 sx/sy 是否越界；绝大多数字形完全在屏幕内，这些重复判断会
+		// 占据内层循环的可观开销。
+		//
+		// sx0/sy0 是字形左上角在屏幕中的绝对坐标；x0..x1、y0..y1 则是
+		// 真正需要绘制的 mask 范围。字形完全位于屏幕外时区间为空。
+		glyphWidth := int(glyph.Width)
+		glyphHeight := int(glyph.Height)
+		sx0 := c.x + dstX
+		sy0 := c.y + dstY
+		x0, y0 := max(0, -sx0), max(0, -sy0)
+		x1, y1 := min(glyphWidth, c.width-sx0), min(glyphHeight, c.height-sy0)
+
+		if x0 < x1 && y0 < y1 {
+			for y := y0; y < y1; y++ {
+				// 每行只计算一次 mask 和显存切片。这样内层循环使用相对下标，
+				// 不必反复计算 y*width、屏幕偏移以及切出整个 buffer 的尾部。
+				maskRow := glyph.Masks[y*glyphWidth : y*glyphWidth+glyphWidth]
+				dstOffset := ((sy0+y)*c.width + sx0 + x0) * 4
+				dstRow := c.buffer[dstOffset : dstOffset+(x1-x0)*4]
+
+				for x := x0; x < x1; x++ {
+					alpha := uint32(maskRow[x])
+					if alpha == 0 {
+						continue
+					}
+
+					pixel := dstRow[(x-x0)*4 : (x-x0)*4+4]
+					// 完全覆盖时直接写入一个 BGRA 像素，不需要混色。
+					if alpha == 255 {
+						*(*uint32)(unsafe.Pointer(&pixel[0])) = uint32(color)
+						continue
+					}
+
+					inverted := uint32(255) - alpha
+					// mask 的 alpha 表示前景覆盖率：
+					// out = (foreground*alpha + background*(255-alpha)) / 255。
+					// 三个通道分别混合，最后通过 div255 精确完成除法。
+					b := colorB*alpha + uint32(pixel[0])*inverted
+					g := colorG*alpha + uint32(pixel[1])*inverted
+					r := colorR*alpha + uint32(pixel[2])*inverted
+					pixel[0] = div255(b)
+					pixel[1] = div255(g)
+					pixel[2] = div255(r)
+					pixel[3] = 255
+				}
 			}
 		}
 
