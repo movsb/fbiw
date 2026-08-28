@@ -18,6 +18,98 @@ func TestDiv255(t *testing.T) {
 	}
 }
 
+func TestDrawImageVersions(t *testing.T) {
+	// 两个版本从相同的非零背景开始，最终 Canvas 必须逐字节完全一致。
+	// 图片 Alpha 同时包含全透明、半透明和完全不透明像素。
+	const canvasWidth, canvasHeight = 43, 29
+	const imageWidth, imageHeight = 37, 23
+	image := DecodedImage{
+		Pixels: make([]byte, imageWidth*imageHeight*4),
+		Width:  imageWidth,
+		Height: imageHeight,
+	}
+	for i := 0; i < len(image.Pixels); i += 4 {
+		image.Pixels[i+0] = uint8(i*11 + 3)
+		image.Pixels[i+1] = uint8(i*17 + 5)
+		image.Pixels[i+2] = uint8(i*23 + 7)
+		image.Pixels[i+3] = []uint8{0, 1, 63, 127, 128, 191, 254, 255}[(i/4)%8]
+	}
+
+	tests := []struct {
+		x, y          int
+		width, height int
+	}{
+		{0, 0, imageWidth, imageHeight},
+		{5, 3, 17, 11},
+		{canvasWidth - 9, canvasHeight - 7, imageWidth, imageHeight},
+		{0, 0, imageWidth + 10, imageHeight + 10},
+		{0, 0, 0, imageHeight},
+	}
+
+	for _, tc := range tests {
+		buffer1 := make([]byte, canvasWidth*canvasHeight*4)
+		for i := range buffer1 {
+			buffer1[i] = uint8(i*29 + 13)
+		}
+		buffer2 := bytes.Clone(buffer1)
+		buffer3 := bytes.Clone(buffer1)
+		buffer4 := bytes.Clone(buffer1)
+		buffer5 := bytes.Clone(buffer1)
+		canvas1 := Canvas{buffer: buffer1, x: tc.x, y: tc.y, width: canvasWidth, height: canvasHeight}
+		canvas2 := Canvas{buffer: buffer2, x: tc.x, y: tc.y, width: canvasWidth, height: canvasHeight}
+		canvas3 := Canvas{buffer: buffer3, x: tc.x, y: tc.y, width: canvasWidth, height: canvasHeight}
+		canvas4 := Canvas{buffer: buffer4, x: tc.x, y: tc.y, width: canvasWidth, height: canvasHeight}
+		canvas5 := Canvas{buffer: buffer5, x: tc.x, y: tc.y, width: canvasWidth, height: canvasHeight}
+
+		canvas1.drawImage1(image, tc.width, tc.height)
+		canvas2.drawImage2(image, tc.width, tc.height)
+		canvas3.drawImage3(image, tc.width, tc.height)
+		canvas4.drawImage4(image, tc.width, tc.height)
+		canvas5.drawImage5(image, tc.width, tc.height)
+		if !bytes.Equal(buffer1, buffer2) {
+			t.Fatalf("offset=(%d,%d) size=(%d,%d): drawImage1 和 drawImage2 的结果不同", tc.x, tc.y, tc.width, tc.height)
+		}
+		if !bytes.Equal(buffer1, buffer3) {
+			t.Fatalf("offset=(%d,%d) size=(%d,%d): drawImage1 和 drawImage3 的结果不同", tc.x, tc.y, tc.width, tc.height)
+		}
+		if !bytes.Equal(buffer1, buffer4) {
+			t.Fatalf("offset=(%d,%d) size=(%d,%d): drawImage1 和 drawImage4 的结果不同", tc.x, tc.y, tc.width, tc.height)
+		}
+		if !bytes.Equal(buffer1, buffer5) {
+			t.Fatalf("offset=(%d,%d) size=(%d,%d): drawImage1 和 drawImage5 的结果不同", tc.x, tc.y, tc.width, tc.height)
+		}
+	}
+}
+
+func TestDrawImage5Opaque(t *testing.T) {
+	// Opaque=true 时版本 5 会绕过混色直接复制，结果仍须与基线完全一致。
+	const width, height = 19, 13
+	image := DecodedImage{
+		Pixels: make([]byte, width*height*4),
+		Width:  width,
+		Height: height,
+		Opaque: true,
+	}
+	for i := 0; i < len(image.Pixels); i += 4 {
+		image.Pixels[i+0] = uint8(i*7 + 1)
+		image.Pixels[i+1] = uint8(i*11 + 2)
+		image.Pixels[i+2] = uint8(i*13 + 3)
+		image.Pixels[i+3] = 255
+	}
+	buffer1 := make([]byte, width*height*4)
+	for i := range buffer1 {
+		buffer1[i] = uint8(i*17 + 9)
+	}
+	buffer5 := bytes.Clone(buffer1)
+	canvas1 := Canvas{buffer: buffer1, width: width, height: height}
+	canvas5 := Canvas{buffer: buffer5, width: width, height: height}
+	canvas1.drawImage1(image, width, height)
+	canvas5.drawImage5(image, width, height)
+	if !bytes.Equal(buffer1, buffer5) {
+		t.Fatal("不透明图片的 drawImage1 和 drawImage5 结果不同")
+	}
+}
+
 func TestDrawStringDeviceVersions(t *testing.T) {
 	// 两个版本必须产生完全相同的最终 Canvas BGRA 数据。除了正常位置，
 	// 也覆盖字形被屏幕四周裁剪以及整段文字位于屏幕外的情况，重点验证
@@ -83,6 +175,121 @@ func TestDrawStringDeviceVersions(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+/*
+root@TinaLinux:~# /tmp/fbiw.test \
+>   -test.run='^TestDrawImage' \
+>   -test.bench='^BenchmarkDrawImage(|Opaque)$' \
+>   -test.benchmem
+goos: linux
+goarch: arm64
+pkg: github.com/movsb/fbiw
+BenchmarkDrawImage/dev1-4    	      21	  48731653 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDrawImage/dev2-4    	      46	  25339835 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDrawImage/dev3-4    	      60	  19420638 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDrawImage/dev4-4    	      55	  21422946 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDrawImage/dev5-4    	      61	  19186723 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDrawImageOpaque/dev1-4         	     123	   9657613 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDrawImageOpaque/dev2-4         	     211	   5684236 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDrawImageOpaque/dev3-4         	      61	  19225165 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDrawImageOpaque/dev4-4         	     278	   4288107 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDrawImageOpaque/dev5-4         	     373	   3211028 ns/op	       0 B/op	       0 allocs/op
+PASS
+*/
+func BenchmarkDrawImage(b *testing.B) {
+	const width, height = 1024, 768
+	image := DecodedImage{
+		Pixels: make([]byte, width*height*4),
+		Width:  width,
+		Height: height,
+	}
+	for i := 0; i < len(image.Pixels); i += 4 {
+		image.Pixels[i+0] = uint8(i*11 + 3)
+		image.Pixels[i+1] = uint8(i*17 + 5)
+		image.Pixels[i+2] = uint8(i*23 + 7)
+		image.Pixels[i+3] = []uint8{0, 1, 63, 127, 128, 191, 254, 255}[(i/4)%8]
+	}
+
+	b.Run("dev1", func(b *testing.B) {
+		canvas := Canvas{buffer: make([]byte, width*height*4), width: width, height: height}
+		b.ReportAllocs()
+		b.ResetTimer()
+		for b.Loop() {
+			canvas.drawImage1(image, width, height)
+		}
+	})
+	b.Run("dev2", func(b *testing.B) {
+		canvas := Canvas{buffer: make([]byte, width*height*4), width: width, height: height}
+		b.ReportAllocs()
+		b.ResetTimer()
+		for b.Loop() {
+			canvas.drawImage2(image, width, height)
+		}
+	})
+	b.Run("dev3", func(b *testing.B) {
+		canvas := Canvas{buffer: make([]byte, width*height*4), width: width, height: height}
+		b.ReportAllocs()
+		b.ResetTimer()
+		for b.Loop() {
+			canvas.drawImage3(image, width, height)
+		}
+	})
+	b.Run("dev4", func(b *testing.B) {
+		canvas := Canvas{buffer: make([]byte, width*height*4), width: width, height: height}
+		b.ReportAllocs()
+		b.ResetTimer()
+		for b.Loop() {
+			canvas.drawImage4(image, width, height)
+		}
+	})
+	b.Run("dev5", func(b *testing.B) {
+		canvas := Canvas{buffer: make([]byte, width*height*4), width: width, height: height}
+		b.ReportAllocs()
+		b.ResetTimer()
+		for b.Loop() {
+			canvas.drawImage5(image, width, height)
+		}
+	})
+}
+
+func BenchmarkDrawImageOpaque(b *testing.B) {
+	// 完全不透明图片主要衡量直接复制快速路径，防止 SIMD 混色版本在常见的
+	// 无透明通道图片上出现性能倒退。
+	const width, height = 1024, 768
+	image := DecodedImage{
+		Pixels: make([]byte, width*height*4),
+		Width:  width,
+		Height: height,
+		Opaque: true,
+	}
+	for i := 0; i < len(image.Pixels); i += 4 {
+		image.Pixels[i+0] = uint8(i*11 + 3)
+		image.Pixels[i+1] = uint8(i*17 + 5)
+		image.Pixels[i+2] = uint8(i*23 + 7)
+		image.Pixels[i+3] = 255
+	}
+
+	versions := []struct {
+		name string
+		draw func(*Canvas, DecodedImage, int, int)
+	}{
+		{"dev1", (*Canvas).drawImage1},
+		{"dev2", (*Canvas).drawImage2},
+		{"dev3", (*Canvas).drawImage3},
+		{"dev4", (*Canvas).drawImage4},
+		{"dev5", (*Canvas).drawImage5},
+	}
+	for _, version := range versions {
+		b.Run(version.name, func(b *testing.B) {
+			canvas := Canvas{buffer: make([]byte, width*height*4), width: width, height: height}
+			b.ReportAllocs()
+			b.ResetTimer()
+			for b.Loop() {
+				version.draw(&canvas, image, width, height)
+			}
+		})
 	}
 }
 

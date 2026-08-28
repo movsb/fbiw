@@ -78,6 +78,12 @@ func (c *Canvas) Offset(x, y int) *Canvas {
 }
 
 func (c *Canvas) DrawImage(img DecodedImage, width, height int) {
+	c.drawImage5(img, width, height)
+}
+
+// 版本 1：逐像素切出四字节切片，并分别计算 B、G、R 三个通道。
+// 这是优化前的基线实现，保留下来用于性能和最终显存数据对照。
+func (c *Canvas) drawImage1(img DecodedImage, width, height int) {
 	// 右下角限制在屏幕内。
 	if c.x+width > c.width {
 		width = c.width - c.x
@@ -115,6 +121,176 @@ func (c *Canvas) DrawImage(img DecodedImage, width, height int) {
 				d[2] = uint8((int(s[2])*int(a) + int(d[2])*int(i)) / 255)
 				d[3] = 255
 			}
+		}
+	}
+}
+
+// 版本 2：按 uint32 BGRA 像素读写，并用 SWAR 同时混合 B/R 两个通道。
+// 混色仍然精确除以 255，因此最终结果应当与版本 1 逐字节完全相同。
+func (c *Canvas) drawImage2(img DecodedImage, width, height int) {
+	// 右下角限制在屏幕内，也不要读取图片范围之外的数据。
+	width = min(width, c.width-c.x, img.Width)
+	height = min(height, c.height-c.y, img.Height)
+	if width <= 0 || height <= 0 {
+		return
+	}
+
+	const maskBR = uint32(0x00ff00ff)
+	for y := range height {
+		dstOffset := ((c.y+y)*c.width + c.x) * 4
+		srcOffset := y * img.Width * 4
+		dstBytes := c.buffer[dstOffset : dstOffset+width*4]
+		srcBytes := img.Pixels[srcOffset : srcOffset+width*4]
+		dst := unsafe.Slice((*uint32)(unsafe.Pointer(&dstBytes[0])), width)
+		src := unsafe.Slice((*uint32)(unsafe.Pointer(&srcBytes[0])), width)
+
+		for x, source := range src {
+			a := source >> 24
+			switch a {
+			case 255:
+				dst[x] = source
+			case 0:
+				continue
+			default:
+				ia := uint32(255) - a
+				destination := dst[x]
+
+				// B/R 分别位于两个互不干扰的 16-bit lane 中。混色分子
+				// 最大为 255²，不会产生跨 lane 进位。
+				brSum := (source&maskBR)*a + (destination&maskBR)*ia
+				br := brSum + 0x00010001 + ((brSum >> 8) & maskBR)
+				br = (br >> 8) & maskBR
+
+				gSum := ((source>>8)&0xff)*a + ((destination>>8)&0xff)*ia
+				g := uint32(div255(gSum))
+				dst[x] = 0xff000000 | br | g<<8
+			}
+		}
+	}
+}
+
+// 版本 3：在版本 2 的精确 SWAR 混色基础上，使用 SIMD 一次处理四个像素。
+// 每个 uint32 lane 对应一个 BGRA 像素；每个像素可以拥有不同的 Alpha。
+func (c *Canvas) drawImage3(img DecodedImage, width, height int) {
+	c.drawImageSIMD(img, width, height, false)
+}
+
+// 版本 4：在版本 3 之前增加“四个像素全部不透明”的块级快速路径。
+// UI 图片经常整块不透明，此时直接复制比执行完整 SIMD 混色快得多。
+func (c *Canvas) drawImage4(img DecodedImage, width, height int) {
+	c.drawImageSIMD(img, width, height, true)
+}
+
+// 版本 5：利用解码阶段缓存的整图不透明信息选择最快路径。
+// 不透明图片直接逐行复制；含透明像素的图片直接使用版本 3，避免版本 4
+// 在每四个像素上重复判断。外部手工构造的 DecodedImage 默认 Opaque=false，
+// 会安全地走通用混色路径。
+/*
+对 []byte 的 copy，Go 编译器通常会降低为 runtime.memmove。Go 1.27 的 ARM64 memmove 是专门写的汇编：
+- 小块复制使用 MOVD、LDP/STP。
+- 大块复制每轮处理 64 字节。
+- 使用软件流水线。
+- 自动处理 16 字节对齐和内存重叠。
+- 主要使用成对的 64-bit 整数加载/存储，而不是 NEON 向量寄存器。
+因此它虽然不一定是“SIMD 指令”，但已经能充分利用 ARM64 的宽加载、宽存储和内存带宽。我们 drawImage5 每行约复制 4096 字节，会进入高度优化的大块 memmove 路径。
+手写 archsimd.LoadUint32x4/Store 每次只复制 16 字节，通常很难超过 runtime 每轮 64 字节的软件流水线；还会增加 Go 循环、边界和分支开销。所以不透明图片继续使用内置 copy 是合理的，TinaLinux 的结果也证明它明显更快。
+*/
+func (c *Canvas) drawImage5(img DecodedImage, width, height int) {
+	if !img.Opaque {
+		c.drawImage3(img, width, height)
+		return
+	}
+
+	width = min(width, c.width-c.x, img.Width)
+	height = min(height, c.height-c.y, img.Height)
+	if width <= 0 || height <= 0 {
+		return
+	}
+	for y := range height {
+		dstOffset := ((c.y+y)*c.width + c.x) * 4
+		srcOffset := y * img.Width * 4
+		copy(c.buffer[dstOffset:dstOffset+width*4], img.Pixels[srcOffset:srcOffset+width*4])
+	}
+}
+
+func (c *Canvas) drawImageSIMD(img DecodedImage, width, height int, copyOpaque bool) {
+	width = min(width, c.width-c.x, img.Width)
+	height = min(height, c.height-c.y, img.Height)
+	if width <= 0 || height <= 0 {
+		return
+	}
+
+	vMaskBR := archsimd.BroadcastUint32x4(0x00ff00ff)
+	vMaskG := archsimd.BroadcastUint32x4(0x000000ff)
+	vOneBR := archsimd.BroadcastUint32x4(0x00010001)
+	vOneG := archsimd.BroadcastUint32x4(1)
+	v255 := archsimd.BroadcastUint32x4(255)
+	vZero := archsimd.BroadcastUint32x4(0)
+	vOpaque := archsimd.BroadcastUint32x4(0xff000000)
+	vectorWidth := width &^ 3
+
+	for y := range height {
+		dstOffset := ((c.y+y)*c.width + c.x) * 4
+		srcOffset := y * img.Width * 4
+		dstBytes := c.buffer[dstOffset : dstOffset+width*4]
+		srcBytes := img.Pixels[srcOffset : srcOffset+width*4]
+		dst := unsafe.Slice((*uint32)(unsafe.Pointer(&dstBytes[0])), width)
+		src := unsafe.Slice((*uint32)(unsafe.Pointer(&srcBytes[0])), width)
+
+		x := 0
+		for ; x < vectorWidth; x += 4 {
+			// 四个 Alpha 的按位与仍为 0xff，说明四个源像素都完全不透明。
+			// 只在版本 4 启用，使版本 3 保持纯 SIMD 基线便于对比。
+			if copyOpaque &&
+				(src[x]&src[x+1]&src[x+2]&src[x+3]&0xff000000) == 0xff000000 {
+				archsimd.LoadUint32x4(src[x : x+4]).Store(dst[x : x+4])
+				continue
+			}
+			source := archsimd.LoadUint32x4(src[x : x+4])
+			destination := archsimd.LoadUint32x4(dst[x : x+4])
+			a := source.ShiftAllRight(24)
+			ia := v255.Sub(a)
+
+			// B/R 分别放在每个 uint32 的两个 16-bit lane 内并行混色。
+			brSum := source.And(vMaskBR).Mul(a).
+				Add(destination.And(vMaskBR).Mul(ia))
+			br := brSum.Add(vOneBR).
+				Add(brSum.ShiftAllRight(8).And(vMaskBR)).
+				ShiftAllRight(8).And(vMaskBR)
+
+			gSum := source.ShiftAllRight(8).And(vMaskG).Mul(a).
+				Add(destination.ShiftAllRight(8).And(vMaskG).Mul(ia))
+			g := gSum.Add(vOneG).
+				Add(gSum.ShiftAllRight(8).And(vMaskG)).
+				ShiftAllRight(8).And(vMaskG).ShiftAllLeft(8)
+
+			out := vOpaque.Or(br).Or(g)
+			// 保持版本 1 的两个快速路径语义：全透明时目标像素一字节不动；
+			// 全不透明时连同源像素的 Alpha 原样复制。
+			out = source.IfElse(a.Equal(v255), out)
+			out = destination.IfElse(a.Equal(vZero), out)
+			out.Store(dst[x : x+4])
+		}
+
+		// 行尾不足四个像素时沿用版本 2 的精确标量算法。
+		for ; x < width; x++ {
+			source := src[x]
+			a := source >> 24
+			if a == 255 {
+				dst[x] = source
+				continue
+			}
+			if a == 0 {
+				continue
+			}
+
+			ia := uint32(255) - a
+			destination := dst[x]
+			brSum := (source&0x00ff00ff)*a + (destination&0x00ff00ff)*ia
+			br := brSum + 0x00010001 + ((brSum >> 8) & 0x00ff00ff)
+			br = (br >> 8) & 0x00ff00ff
+			gSum := ((source>>8)&0xff)*a + ((destination>>8)&0xff)*ia
+			dst[x] = 0xff000000 | br | uint32(div255(gSum))<<8
 		}
 	}
 }
@@ -642,6 +818,7 @@ type _ImageConfigCacheKey struct {
 type DecodedImage struct {
 	Pixels        []byte // 内存格式：B G R A，长度：width*height*4
 	Width, Height int
+	Opaque        bool // 整张图片的 Alpha 是否全部为 255；用于选择直接复制路径。
 }
 
 type ImageManager struct {
@@ -730,6 +907,7 @@ func (m *ImageManager) decodeImage(fsys fs.FS, path string, wantWidth, wantHeigh
 		Width:  width,
 		Height: height,
 		Pixels: make([]byte, width*height*4),
+		Opaque: true,
 	}
 
 	var pixels []byte
@@ -755,6 +933,9 @@ func (m *ImageManager) decodeImage(fsys fs.FS, path string, wantWidth, wantHeigh
 				d[1] = s[1+x*4]
 				d[2] = s[0+x*4]
 				d[3] = s[3+x*4]
+				if d[3] != 255 {
+					decoded.Opaque = false
+				}
 			}
 		}
 		return decoded, nil
@@ -770,6 +951,9 @@ func (m *ImageManager) decodeImage(fsys fs.FS, path string, wantWidth, wantHeigh
 			d[1] = converted.G
 			d[2] = converted.R
 			d[3] = converted.A
+			if converted.A != 255 {
+				decoded.Opaque = false
+			}
 		}
 	}
 
