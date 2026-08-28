@@ -53,6 +53,7 @@ type App struct {
 
 	display *Display
 	canvas  *Canvas
+	fpsCalc _FPSCounter
 	images  *ImageManager
 	fonts   *FontManager
 
@@ -460,6 +461,26 @@ func (app *App) AttachAsync() {
 	})
 }
 
+type _FPSCounter struct {
+	start  time.Time
+	frames int
+}
+
+func (f *_FPSCounter) Frame() {
+	if f.start.IsZero() {
+		f.start = time.Now()
+	}
+
+	f.frames++
+	elapsed := time.Since(f.start)
+	if elapsed >= time.Second {
+		fps := float64(f.frames) / elapsed.Seconds()
+		f.frames = 0
+		f.start = time.Now()
+		log.Printf("帧率: %.1f", fps)
+	}
+}
+
 // 真正执行检测是否需要重新布局或重绘的地方。
 func (app *App) sync() {
 	if app.detached > 0 {
@@ -515,6 +536,10 @@ func (app *App) sync() {
 	app.display.Sync()
 	app.dirty = false
 	app.overlayChanged = false
+
+	// 统计帧率
+	// 意义不大，macOS WindowServer 会锁帧。
+	// app.fpsCalc.Frame()
 }
 
 // 多桌面空间支持。
