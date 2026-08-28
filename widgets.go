@@ -1,6 +1,7 @@
 package fbiw
 
 import (
+	"embed"
 	"fmt"
 	"strconv"
 )
@@ -275,4 +276,150 @@ func (b *Toggle) OnChange(handler func(checked bool)) func() {
 		args := event.Data[ToggleChangeArgs]()
 		handler(args.Checked)
 	})
+}
+
+//go:embed assets/alert_dialog.html
+var alertDialogAssets embed.FS
+
+type AlertDialogOptions struct {
+	Title       string
+	Description string
+
+	ActionText    string
+	ActionVariant ButtonVariant
+	OnAction      func()
+
+	CancelText string
+	OnCancel   func()
+}
+
+// AlertDialog 是通过 Popup 文档显示的模态警告对话框。
+type AlertDialog struct {
+	document *Document
+	view     _AlertDialogView
+
+	onAction  func()
+	onCancel  func()
+	hasCancel bool
+	closed    bool
+}
+
+type _AlertDialogView struct {
+	root                Box
+	popup               Box     `css:"#popup"`
+	title               *Text   `css:"#title"`
+	description         *Text   `css:"#description"`
+	descriptionViewport Box     `css:"#description-viewport"`
+	descriptionGap      Box     `css:"#description-gap"`
+	cancel              *Button `css:"#cancel"`
+	cancelText          *Text   `css:"#cancel-text"`
+	action              *Button `css:"#action"`
+	actionText          *Text   `css:"#action-text"`
+}
+
+// ShowAlertDialog 创建并立即显示一个 Alert Dialog。
+func (app *App) ShowAlertDialog(opener *Document, options AlertDialogOptions) *AlertDialog {
+	if options.Title == `` {
+		panic(`AlertDialog Title 不能为空`)
+	}
+	if options.CancelText == `` && options.OnCancel != nil {
+		panic(`AlertDialog 设置 OnCancel 时必须同时设置 CancelText`)
+	}
+	if options.ActionText == `` {
+		options.ActionText = `确定`
+	}
+	if options.ActionVariant == `` {
+		options.ActionVariant = ButtonPrimary
+	}
+	switch options.ActionVariant {
+	case ButtonNormal, ButtonPrimary, ButtonDestructive:
+	default:
+		panic(`AlertDialog ActionVariant 无效：` + options.ActionVariant)
+	}
+
+	doc := app.NewPopup(alertDialogAssets, `assets/alert_dialog.html`, opener)
+	dialog := &AlertDialog{
+		document:  doc,
+		onAction:  options.OnAction,
+		onCancel:  options.OnCancel,
+		hasCancel: options.CancelText != ``,
+	}
+	doc.Bind(&dialog.view)
+
+	dialog.view.title.SetText(options.Title)
+	dialog.view.description.SetText(options.Description)
+	dialog.view.actionText.SetText(options.ActionText)
+	if err := dialog.view.action.SetVariant(options.ActionVariant); err != nil {
+		panic(err)
+	}
+
+	if options.Description == `` {
+		mustSetProp(dialog.view.popup, `height`, `220`)
+		mustSetProp(dialog.view.descriptionViewport, `display`, `false`)
+		mustSetProp(dialog.view.descriptionGap, `display`, `false`)
+	}
+	if options.CancelText == `` {
+		mustSetProp(dialog.view.cancel, `display`, `false`)
+	} else {
+		dialog.view.cancelText.SetText(options.CancelText)
+	}
+
+	dialog.view.root.Listen(StickDownEvent, dialog.handleStickDown)
+	dialog.view.root.Activate()
+	return dialog
+}
+
+func mustSetProp(box Box, key, value string) {
+	if err := box.SetProp(key, value); err != nil {
+		panic(err)
+	}
+}
+
+func (d *AlertDialog) handleStickDown(event *Event) {
+	if d.closed {
+		return
+	}
+	switch event.Stick.Name {
+	case Up:
+		d.view.description.ScrollLineUp()
+		event.StopPropagation()
+	case Down:
+		d.view.description.ScrollLineDown()
+		event.StopPropagation()
+	case A:
+		if event.Stick.Repeat {
+			return
+		}
+		event.StopPropagation()
+		d.finish(d.onAction)
+	case B:
+		if event.Stick.Repeat || !d.hasCancel {
+			return
+		}
+		event.StopPropagation()
+		d.finish(d.onCancel)
+	}
+}
+
+func (d *AlertDialog) finish(callback func()) {
+	if d.closed {
+		return
+	}
+	d.Close()
+	if callback != nil {
+		callback()
+	}
+}
+
+// Close 关闭对话框，不触发 Action 或 Cancel 回调。
+func (d *AlertDialog) Close() {
+	if d == nil || d.closed {
+		return
+	}
+	d.closed = true
+	d.document.Close()
+}
+
+func (d *AlertDialog) Closed() bool {
+	return d == nil || d.closed
 }

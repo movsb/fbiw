@@ -1,0 +1,67 @@
+<document>
+<style>
+document {
+	color: white;
+}
+
+#backdrop {
+	background-color: #000000A8;
+}
+
+#popup {
+	width: 680;
+	height: 500;
+	padding: 32;
+	background-color: #202124;
+	border-width: 2;
+	border-color: #5f6368;
+}
+
+#title {
+	font-size: 1.35rem;
+	bold: true;
+}
+
+#description-viewport {
+	height: 260;
+}
+
+#description {
+	color: #c7c9cc;
+	font-size: 0.9rem;
+}
+
+#actions {
+	height: 64;
+	align: middle;
+}
+
+#actions button {
+	height: 60;
+}
+</style>
+
+<stack fill>
+	<block id="backdrop"></block>
+	<inline align="both">
+		<block id="popup">
+			<text id="title"></text>
+			<spacer height="24"></spacer>
+			<block id="description-viewport">
+				<text id="description"></text>
+			</block>
+			<spacer id="description-gap" height="24"></spacer>
+			<inline id="actions">
+				<spacer></spacer>
+				<button id="cancel">
+					<text id="cancel-text"></text>
+				</button>
+				<spacer width="32"></spacer>
+				<button id="action">
+					<text id="action-text"></text>
+				</button>
+			</inline>
+		</block>
+	</inline>
+</stack>
+</document>

@@ -1,0 +1,41 @@
+<document>
+<style>
+document {
+	color: white;
+}
+
+#page {
+	background-color: #17191f;
+	align: both;
+}
+
+button {
+	width: 420;
+	height: 64;
+}
+
+button.selected {
+	outline-width: 3;
+	outline-color: white;
+}
+
+#hint {
+	color: #aeb4c0;
+	font-size: 24;
+}
+</style>
+
+<block id="page" fill>
+	<block align="center">
+		<text class="h2">Alert Dialog</text>
+		<spacer height="24"></spacer>
+		<button variant="primary"><text>单按钮长文本弹窗</text></button>
+		<spacer height="16"></spacer>
+		<button variant="destructive"><text>双按钮删除确认</text></button>
+		<spacer height="24"></spacer>
+		<text id="status">等待操作</text>
+		<spacer height="10"></spacer>
+		<text id="hint">上下选择，按 A 打开</text>
+	</block>
+</block>
+</document>

@@ -159,6 +159,36 @@ button.SetDisabled(false)
 `fbiw.ButtonPrimary` 和 `fbiw.ButtonDestructive`。默认样式由框架样式表提供，
 文档中的 CSS 可以继续覆盖背景、文字、边框、尺寸和间距。
 
+Alert Dialog 使用 Popup 文档显示在当前文档之上，由框架生成背景遮罩、
+标题、可滚动说明和一到两个按钮：
+
+```go
+app.ShowAlertDialog(doc, fbiw.AlertDialogOptions{
+    Title:         "删除存档？",
+    Description:   "此操作无法撤销。",
+    ActionText:    "删除",
+    ActionVariant: fbiw.ButtonDestructive,
+    CancelText:    "取消",
+    OnAction: func() {
+        deleteSave()
+    },
+    OnCancel: func() {
+        log.Println("已取消")
+    },
+})
+```
+
+操作规则如下：
+
+- A 执行确认操作；
+- 有取消按钮时，B 执行取消；单按钮弹窗忽略 B；
+- 上下键逐行滚动较长的 Description；
+- 动作触发时先关闭弹窗，再调用相应回调；
+- `ShowAlertDialog` 返回的对象可以通过 `Close()` 无回调地关闭。
+
+`ActionText` 默认为“确定”，`ActionVariant` 默认为
+`fbiw.ButtonPrimary`。`CancelText` 为空时只显示一个按钮。
+
 `toggle` 只绘制开关本身，文字等内容由外部元素提供：
 
 ```html
