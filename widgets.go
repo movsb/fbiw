@@ -5,6 +5,119 @@ import (
 	"strconv"
 )
 
+// ButtonClickEvent 在 Button 被有效触发时派发。
+var ButtonClickEvent = RegisterEventType()
+
+type ButtonVariant string
+
+const (
+	ButtonNormal      ButtonVariant = `normal`
+	ButtonPrimary     ButtonVariant = `primary`
+	ButtonDestructive ButtonVariant = `destructive`
+)
+
+// Button 是一个带默认外观和按钮语义的容器。激活后按 A 键触发点击；
+// disabled 状态下仍会消费 A 键，但不会派发点击事件。
+type Button struct {
+	BaseBox
+
+	variant  ButtonVariant
+	disabled bool
+}
+
+func init() {
+	Define(`button`, false, NewButton)
+}
+
+func NewButton(doc *Document) *Button {
+	b := &Button{
+		BaseBox: NewBaseBox(doc, `button`),
+		variant: ButtonNormal,
+	}
+	b.Listen(StickDownEvent, func(event *Event) {
+		if event.Stick.Name != A || event.Stick.Repeat {
+			return
+		}
+		event.StopPropagation()
+		if b.disabled {
+			return
+		}
+		b.Dispatch(ButtonClickEvent, nil)
+	})
+	return b
+}
+
+func (b *Button) Variant() ButtonVariant {
+	return b.variant
+}
+
+func (b *Button) SetVariant(variant ButtonVariant) error {
+	switch variant {
+	case ButtonNormal, ButtonPrimary, ButtonDestructive:
+	default:
+		return fmt.Errorf(`不认识的 button variant：%s`, variant)
+	}
+	if b.variant == variant {
+		return nil
+	}
+	b.variant = variant
+	b.class.Remove(`button-primary`)
+	b.class.Remove(`button-destructive`)
+	switch variant {
+	case ButtonPrimary:
+		b.class.Add(`button-primary`)
+	case ButtonDestructive:
+		b.class.Add(`button-destructive`)
+	}
+	b.classChanged()
+	return nil
+}
+
+func (b *Button) Disabled() bool {
+	return b.disabled
+}
+
+func (b *Button) SetDisabled(disabled bool) {
+	if b.disabled == disabled {
+		return
+	}
+	b.disabled = disabled
+	b.ClassToggle(`disabled`, disabled)
+}
+
+func (b *Button) SetProp(key, value string) error {
+	switch key {
+	case `variant`:
+		return b.SetVariant(ButtonVariant(value))
+	case `disabled`:
+		disabled, err := parseBooleanAttribute(`disabled`, value)
+		if err != nil {
+			return err
+		}
+		b.SetDisabled(disabled)
+		return nil
+	default:
+		return b.Base().SetProp(key, value)
+	}
+}
+
+func (b *Button) OnClick(handler func()) func() {
+	return b.Listen(ButtonClickEvent, func(*Event) {
+		handler()
+	})
+}
+
+func parseBooleanAttribute(name, value string) (bool, error) {
+	if value == `` {
+		return true, nil
+	}
+	parsed, err := strconv.ParseBool(value)
+	if err != nil {
+		return false, fmt.Errorf(`%s 属性不是布尔值：%s`, name, value)
+	}
+	return parsed, nil
+}
+
 var (
 	toggleTrackOffColor = ColorFromRGBA(101, 107, 118, 255)
 	toggleTrackOnColor  = ColorFromRGBA(54, 183, 102, 255)
@@ -149,14 +262,9 @@ func (b *Toggle) SetProp(key, value string) error {
 		return b.Base().SetProp(key, value)
 	}
 
-	// 与 HTML 布尔属性相同，空的 checked 属性表示 true。
-	if value == `` {
-		b.setChecked(true, false)
-		return nil
-	}
-	checked, err := strconv.ParseBool(value)
+	checked, err := parseBooleanAttribute(`checked`, value)
 	if err != nil {
-		return fmt.Errorf(`checked 属性不是布尔值：%s`, value)
+		return err
 	}
 	b.setChecked(checked, false)
 	return nil

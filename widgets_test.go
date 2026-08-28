@@ -5,6 +5,85 @@ import (
 	"testing/fstest"
 )
 
+func newButtonDocument(t *testing.T, markup string) (*Document, *Button) {
+	t.Helper()
+	doc := _NewDocument(480, 320, fstest.MapFS{
+		`main.html`: &fstest.MapFile{Data: []byte(markup)},
+	}, NewFontManager(), NewImageManager())
+	if err := doc.load(`main.html`); err != nil {
+		t.Fatal(err)
+	}
+	button := doc.QuerySelector[*Button](`button`)
+	if button == nil {
+		t.Fatal(`找不到 button`)
+	}
+	return doc, button
+}
+
+func TestButtonVariants(t *testing.T) {
+	tests := []struct {
+		variant ButtonVariant
+		class   string
+		color   string
+	}{
+		{ButtonNormal, ``, `#e8eaed`},
+		{ButtonPrimary, `button-primary`, `#3358d4`},
+		{ButtonDestructive, `button-destructive`, `#ce2c31`},
+	}
+	for _, test := range tests {
+		t.Run(string(test.variant), func(t *testing.T) {
+			attribute := ``
+			if test.variant != ButtonNormal {
+				attribute = ` variant="` + string(test.variant) + `"`
+			}
+			_, button := newButtonDocument(t, `<document><block><button`+attribute+`><text>按钮</text></button></block></document>`)
+			if button.Variant() != test.variant {
+				t.Fatalf(`variant 不正确：got=%s want=%s`, button.Variant(), test.variant)
+			}
+			if test.class != `` && !button.ClassContains(test.class) {
+				t.Fatalf(`缺少状态类：%s`, test.class)
+			}
+			if got, want := button.GetComputedStyles().BackgroundColor.Color, ColorValueFromString(test.color).Color; got != want {
+				t.Fatalf(`背景色不正确：got=%v want=%v`, got, want)
+			}
+		})
+	}
+}
+
+func TestButtonOnClick(t *testing.T) {
+	doc, button := newButtonDocument(t, `<document><block><button><text>按钮</text></button></block></document>`)
+	clicks := 0
+	button.OnClick(func() { clicks++ })
+	button.Activate()
+
+	doc.handleEvent(&Event{Type: StickDownEvent, Stick: KeyEventArgs{Name: B}})
+	doc.handleEvent(&Event{Type: StickDownEvent, Stick: KeyEventArgs{Name: A, Repeat: true}})
+	if clicks != 0 {
+		t.Fatalf(`无效按键触发了点击：%d`, clicks)
+	}
+	doc.handleEvent(&Event{Type: StickDownEvent, Stick: KeyEventArgs{Name: A}})
+	if clicks != 1 {
+		t.Fatalf(`A 键没有触发一次点击：%d`, clicks)
+	}
+}
+
+func TestDisabledButtonIgnoresClick(t *testing.T) {
+	doc, button := newButtonDocument(t, `<document><block><button disabled><text>按钮</text></button></block></document>`)
+	clicks := 0
+	button.OnClick(func() { clicks++ })
+	button.Activate()
+	doc.handleEvent(&Event{Type: StickDownEvent, Stick: KeyEventArgs{Name: A}})
+	if clicks != 0 || !button.Disabled() || !button.ClassContains(`disabled`) {
+		t.Fatalf(`禁用按钮状态不正确：disabled=%v clicks=%d`, button.Disabled(), clicks)
+	}
+
+	button.SetDisabled(false)
+	doc.handleEvent(&Event{Type: StickDownEvent, Stick: KeyEventArgs{Name: A}})
+	if clicks != 1 || button.ClassContains(`disabled`) {
+		t.Fatalf(`重新启用按钮失败：disabled=%v clicks=%d`, button.Disabled(), clicks)
+	}
+}
+
 func newToggleDocument(t *testing.T, markup string) (*Document, *Toggle) {
 	t.Helper()
 	doc := _NewDocument(320, 240, fstest.MapFS{

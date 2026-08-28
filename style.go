@@ -95,6 +95,29 @@ b {
 i {
 	italic: true;
 }
+button {
+	padding: 10 18;
+	align: both;
+	color: #1c2024;
+	background-color: #e8eaed;
+	border-width: 2;
+	border-color: #c5c9d0;
+}
+.button-primary {
+	color: white;
+	background-color: #3358d4;
+	border-color: #3e63dd;
+}
+.button-destructive {
+	color: white;
+	background-color: #ce2c31;
+	border-color: #dc3e42;
+}
+button.disabled {
+	color: #8b8d98;
+	background-color: #d9dadd;
+	border-color: #c5c6ca;
+}
 .h1 { font-size: 1.50rem; }
 .h2 { font-size: 1.35rem; }
 .h3 { font-size: 1.20rem; }

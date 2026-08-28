@@ -124,7 +124,7 @@ func main() {
 | `safe-area` | 根据系统覆盖层占用的四边区域，为内容设置安全内边距 |
 | `scroll` | 固定行列、固定可视槽位的虚拟列表 |
 | `spacer` | 在布局主轴上分配剩余空间 |
-| `button` | 基于普通 Box 的语义化按钮容器 |
+| `button` | 带默认样式、A 键交互和禁用状态的按钮容器 |
 | `toggle` | 不接受子节点，激活后按 A 键切换 checked 状态的开关 |
 | `text` | 文本内容和文本分段 |
 | `b` | 粗体文本片段 |
@@ -133,8 +133,45 @@ func main() {
 
 也可以使用 `fbiw.Define` 注册实现了 `Box` 接口的自定义标签。
 
-`toggle` 的默认尺寸跟随其计算后的 `font-size`，也可以使用 `width` 和
-`height` 显式覆盖。它还支持通过元素属性设置轨道和滑块颜色：
+`button` 支持普通、主按钮和危险操作三种样式，以及禁用状态：
+
+```html
+<button><text>普通按钮</text></button>
+<button variant="primary"><text>主按钮</text></button>
+<button variant="destructive"><text>删除</text></button>
+<button disabled><text>不可用</text></button>
+```
+
+激活 Button 后按 A 键会触发点击；按住 A 产生的重复事件会被忽略：
+
+```go
+button := doc.GetBoxByID[*fbiw.Button]("submit")
+remove := button.OnClick(func() {
+    submit()
+})
+defer remove()
+
+button.Activate()
+button.SetDisabled(false)
+```
+
+也可以使用 `SetVariant` 动态切换 `fbiw.ButtonNormal`、
+`fbiw.ButtonPrimary` 和 `fbiw.ButtonDestructive`。默认样式由框架样式表提供，
+文档中的 CSS 可以继续覆盖背景、文字、边框、尺寸和间距。
+
+`toggle` 只绘制开关本身，文字等内容由外部元素提供：
+
+```html
+<inline align="middle">
+    <text>Wi-Fi</text>
+    <spacer></spacer>
+    <toggle id="wifi"></toggle>
+</inline>
+```
+
+默认尺寸跟随其计算后的 `font-size`：宽度为 `2.25em`，高度为
+`1.25em`。也可以使用 `width` 和 `height` 显式覆盖。轨道和滑块颜色
+可以通过元素属性设置：
 
 ```html
 <toggle
@@ -143,6 +180,22 @@ func main() {
     knob-color="white">
 </toggle>
 ```
+
+在 Go 中激活 Toggle，并使用类型安全的 `OnChange` 监听状态变化：
+
+```go
+toggle := doc.GetBoxByID[*fbiw.Toggle]("wifi")
+remove := toggle.OnChange(func(checked bool) {
+    log.Println("Wi-Fi:", checked)
+})
+defer remove()
+
+toggle.Activate()
+```
+
+`OnChange` 返回解除监听的函数。需要访问事件目标、传播阶段或调用
+`StopPropagation` 时，可以改用底层的 `Listen` 和
+`fbiw.ToggleChangeEvent`。
 
 ## 布局模型
 
@@ -403,7 +456,7 @@ remove := box.Listen(fbiw.StickDownEvent, func(event *fbiw.Event) {
         // 处理 A 键按下
         event.StopPropagation()
     }
-}, fbiw.EventOptions{})
+})
 
 defer remove()
 box.Activate()
@@ -412,7 +465,7 @@ box.Activate()
 捕获阶段监听器：
 
 ```go
-doc.Listen(fbiw.StickDownEvent, func(event *fbiw.Event) {
+doc.ListenOptions(fbiw.StickDownEvent, func(event *fbiw.Event) {
     // 从根元素开始捕获事件
 }, fbiw.EventOptions{Capture: true})
 ```

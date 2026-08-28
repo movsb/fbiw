@@ -587,14 +587,6 @@ func blockCalc(b *BaseBox, availWidth, availHeight int, constraints Constraints)
 	}
 }
 
-type Button struct {
-	BaseBox
-}
-
-func NewButton(doc *Document) *Button {
-	return &Button{BaseBox: NewBaseBox(doc, `button`)}
-}
-
 type Inline struct {
 	BaseBox
 }

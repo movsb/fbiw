@@ -1,0 +1,45 @@
+<document>
+<style>
+document {
+	color: white;
+}
+
+#page {
+	background-color: #17191f;
+	align: both;
+}
+
+button {
+	width: 360;
+	height: 64;
+}
+
+button.selected {
+	outline-width: 3;
+	outline-color: white;
+}
+
+#hint {
+	color: #aeb4c0;
+	font-size: 24;
+}
+</style>
+
+<block id="page" fill>
+	<block align="center">
+		<text class="h2">Button</text>
+		<spacer height="24"></spacer>
+		<button variant="primary"><text>主按钮</text></button>
+		<spacer height="12"></spacer>
+		<button><text>普通按钮</text></button>
+		<spacer height="12"></spacer>
+		<button variant="destructive"><text>危险操作</text></button>
+		<spacer height="12"></spacer>
+		<button disabled><text>禁用按钮</text></button>
+		<spacer height="20"></spacer>
+		<text id="status">等待操作</text>
+		<spacer height="8"></spacer>
+		<text id="hint">上下选择，按 A 触发</text>
+	</block>
+</block>
+</document>
