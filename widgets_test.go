@@ -88,6 +88,23 @@ func TestDisabledButtonIgnoresClick(t *testing.T) {
 	}
 }
 
+func TestButtonCentersOversizedContent(t *testing.T) {
+	doc, button := newButtonDocument(t, `<document><style>button { width: 360; height: 64; } button text { font-size: 50; }</style><block><button><text>按钮</text></button></block></document>`)
+	doc.fontManager.faces[_FontFaceKey{Family: `system`, Size: 50}] = &FontFace{
+		Face: basicfont.Face7x13, cache: map[rune]GlyphValue{},
+	}
+	doc.layout()
+
+	text := button.children[0]
+	contentWidth := button.GetLayoutBox().Width - button.HorizontalInsets()
+	contentHeight := button.GetLayoutBox().Height - button.VerticalInsets()
+	wantX := button.InsetLeft() + (contentWidth-text.Base().layoutBox.Width)/2
+	wantY := button.InsetTop() + (contentHeight-text.Base().layoutBox.Height)/2
+	if got := text.Base().layoutBox; got.X != wantX || got.Y != wantY {
+		t.Fatalf(`button 内容没有居中：got=%+v wantX=%d wantY=%d`, got, wantX, wantY)
+	}
+}
+
 func newToggleDocument(t *testing.T, markup string) (*Document, *Toggle) {
 	t.Helper()
 	doc := _NewDocument(320, 240, fstest.MapFS{
