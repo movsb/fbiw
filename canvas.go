@@ -65,7 +65,7 @@ func (c *Canvas) SaveToFile(path string) {
 		width:  c.width,
 		height: c.height,
 	}
-	if err := png.Encode(fp, origin.toDrawable(c.width, c.height)); err != nil {
+	if err := png.Encode(fp, origin.Image()); err != nil {
 		panic(err)
 	}
 }
@@ -585,8 +585,13 @@ func (c *Canvas) Clear() {
 	clear(c.buffer)
 }
 
+// 返回满足 image.Image 和  draw.Image 的接口。
+func (c *Canvas) Image() draw.Image {
+	return c.toDrawable(c.width, c.height)
+}
+
 func (c *Canvas) toDrawable(width, height int) draw.Image {
-	fc := FontCanvas{
+	fc := _CanvasImage{
 		underlying: c,
 		width:      width,
 		height:     height,
@@ -1247,24 +1252,24 @@ func SegmentText(text string, maxWidth int, faces []*FontFace) (int, int, error)
 	}
 }
 
-type FontCanvas struct {
+type _CanvasImage struct {
 	underlying    *Canvas
 	width, height int
 }
 
-func (c FontCanvas) Bounds() image.Rectangle {
+func (c _CanvasImage) Bounds() image.Rectangle {
 	return image.Rect(0, 0, c.width, c.height)
 }
 
-func (c FontCanvas) ColorModel() color.Model {
+func (c _CanvasImage) ColorModel() color.Model {
 	return color.NRGBAModel
 }
 
-func (c FontCanvas) At(x, y int) color.Color {
+func (c _CanvasImage) At(x, y int) color.Color {
 	return c.underlying.getPixel(x, y)
 }
 
-func (c FontCanvas) Set(x, y int, clr color.Color) {
+func (c _CanvasImage) Set(x, y int, clr color.Color) {
 	cc := c.ColorModel().Convert(clr).(color.NRGBA)
 	c.underlying.SetPixel(x, y, cc)
 }
