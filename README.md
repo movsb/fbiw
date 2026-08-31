@@ -126,6 +126,7 @@ func main() {
 | `spacer` | 在布局主轴上分配剩余空间 |
 | `button` | 带默认样式、A 键交互和禁用状态的按钮容器 |
 | `toggle` | 不接受子节点，激活后按 A 键切换 checked 状态的开关 |
+| `progress` | 不接受子节点，绘制 `[0,1]` 范围内的确定进度 |
 | `select` | 不接受子节点，使用模态列表选择预定义选项 |
 | `text` | 文本内容和文本分段 |
 | `b` | 粗体文本片段 |
@@ -227,6 +228,30 @@ toggle.Activate()
 `OnChange` 返回解除监听的函数。需要访问事件目标、传播阶段或调用
 `StopPropagation` 时，可以改用底层的 `Listen` 和
 `fbiw.ToggleChangeEvent`。
+
+`progress` 只绘制轨道和完成部分，进度使用 `[0,1]` 范围内的浮点数：
+
+```html
+<progress
+    id="download"
+    value="0.35"
+    track-color="#656b76"
+    value-color="#3358d4">
+</progress>
+```
+
+```go
+progress := doc.GetBoxByID[*fbiw.ProgressBar]("download")
+err := progress.SetValue(float64(completed) / float64(total))
+```
+
+标题、两端数值和百分比文字由外部元素提供。两端文字可以和 Progress
+一起放在 `block` 中，中间覆盖的百分比可以使用 `stack` 将文字叠在
+Progress 上方。默认尺寸为 `8em × 0.5em`，也可以通过 CSS 覆盖尺寸、
+padding、背景和边框。
+
+首版仅支持确定进度，不支持未知进度的循环动画；该模式将在统一动画系统
+可用后实现。
 
 `select` 用于从预定义项目中选择一项。它会显示当前值或 placeholder，
 激活后按 A 打开居中的列表；方向键移动高亮，A 提交，B 取消：

@@ -3,6 +3,7 @@ package fbiw
 import (
 	"embed"
 	"fmt"
+	"math"
 	"slices"
 	"strconv"
 )
@@ -277,6 +278,117 @@ func (b *Toggle) OnChange(handler func(checked bool)) func() {
 		args := event.Data[ToggleChangeArgs]()
 		handler(args.Checked)
 	})
+}
+
+var (
+	progressTrackColor = ColorFromRGBA(101, 107, 118, 255)
+	progressValueColor = ColorFromRGBA(51, 88, 212, 255)
+)
+
+// ProgressBar 是一个使用 [0,1] 表示完成比例的确定进度条。
+// 它只绘制进度条本身，不接受子节点，也不处理输入事件。
+type ProgressBar struct {
+	BaseBox
+
+	value      float64
+	trackColor Color
+	valueColor Color
+}
+
+func init() {
+	Define(`progress`, true, NewProgressBar)
+}
+
+func NewProgressBar(doc *Document) *ProgressBar {
+	return &ProgressBar{
+		BaseBox:    NewBaseBox(doc, `progress`),
+		trackColor: progressTrackColor,
+		valueColor: progressValueColor,
+	}
+}
+
+// intrinsicSize 根据当前字号计算默认尺寸。
+func (b *ProgressBar) intrinsicSize() (width, height int) {
+	fontSize := int(b.computedStyles.FontSize.Number)
+	return max(1, fontSize*8), max(1, fontSize/2)
+}
+
+// Calc 使用进度条图形作为未指定尺寸时的固有尺寸。
+func (b *ProgressBar) Calc(availWidth, availHeight int, constraints Constraints) {
+	intrinsicWidth, intrinsicHeight := b.intrinsicSize()
+	b.layoutBox.Width = resolveSize(
+		b.computedStyles.Width,
+		availWidth,
+		false,
+		min(availWidth, intrinsicWidth+b.HorizontalInsets()),
+	)
+	b.layoutBox.Height = resolveSize(
+		b.computedStyles.Height,
+		availHeight,
+		false,
+		min(availHeight, intrinsicHeight+b.VerticalInsets()),
+	)
+}
+
+// Draw 先绘制完整轨道，再从左向右绘制已完成部分。
+func (b *ProgressBar) Draw(canvas *Canvas) {
+	b.BaseBox.draw(canvas, false)
+
+	x := b.InsetLeft()
+	y := b.InsetTop()
+	width := b.layoutBox.Width - b.HorizontalInsets()
+	height := b.layoutBox.Height - b.VerticalInsets()
+	if width <= 0 || height <= 0 {
+		return
+	}
+
+	canvas.FillRect(x, y, width, height, b.trackColor)
+	valueWidth := int(math.Round(float64(width) * b.value))
+	valueWidth = min(width, max(0, valueWidth))
+	if valueWidth > 0 {
+		canvas.FillRect(x, y, valueWidth, height, b.valueColor)
+	}
+}
+
+func (b *ProgressBar) Value() float64 {
+	return b.value
+}
+
+func (b *ProgressBar) SetValue(value float64) error {
+	if math.IsNaN(value) || math.IsInf(value, 0) || value < 0 || value > 1 {
+		return fmt.Errorf(`progress value 必须在 [0,1] 内：%v`, value)
+	}
+	if b.value == value {
+		return nil
+	}
+	b.value = value
+	b.document.RequestPaint()
+	return nil
+}
+
+func (b *ProgressBar) SetProp(key, value string) error {
+	switch key {
+	case `value`:
+		parsed, err := strconv.ParseFloat(value, 64)
+		if err != nil {
+			return fmt.Errorf(`progress value 属性不是数值：%s`, value)
+		}
+		return b.SetValue(parsed)
+	case `track-color`, `value-color`:
+		parsed, err := ParseColor(value)
+		if err != nil || !parsed.IsColor() {
+			return fmt.Errorf(`%s 属性不是颜色：%s`, key, value)
+		}
+		if key == `track-color` {
+			b.trackColor = parsed.Color
+		} else {
+			b.valueColor = parsed.Color
+		}
+		b.document.RequestPaint()
+		return nil
+	default:
+		return b.Base().SetProp(key, value)
+	}
 }
 
 //go:embed assets/select.html

@@ -1,6 +1,7 @@
 package fbiw
 
 import (
+	"math"
 	"slices"
 	"strings"
 	"testing"
@@ -247,6 +248,134 @@ func TestToggleDrawsIndicatorAccordingToState(t *testing.T) {
 	knobX := trackX + trackWidth - inset - knobSize
 	if got := canvas.getPixel(knobX, trackY+inset); got != toggle.knobColor.NRGBA() {
 		t.Fatalf(`选中滑块位置不正确：%v`, got)
+	}
+}
+
+func newProgressDocument(t *testing.T, markup string) (*Document, *ProgressBar) {
+	t.Helper()
+	doc := _NewDocument(640, 480, fstest.MapFS{
+		`main.html`: &fstest.MapFile{Data: []byte(markup)},
+	}, NewFontManager(), NewImageManager())
+	if err := doc.load(`main.html`); err != nil {
+		t.Fatal(err)
+	}
+	progress := doc.QuerySelector[*ProgressBar](`progress`)
+	if progress == nil {
+		t.Fatal(`找不到 progress`)
+	}
+	return doc, progress
+}
+
+func TestProgressValue(t *testing.T) {
+	doc, progress := newProgressDocument(t, `<document><block><progress></progress></block></document>`)
+	if progress.Value() != 0 {
+		t.Fatalf(`默认 value = %v，期望 0`, progress.Value())
+	}
+	if err := progress.SetValue(0.35); err != nil || progress.Value() != 0.35 {
+		t.Fatalf(`设置 value 失败：value=%v err=%v`, progress.Value(), err)
+	}
+
+	doc.paintDirty = false
+	if err := progress.SetValue(0.35); err != nil {
+		t.Fatal(err)
+	}
+	if doc.paintDirty {
+		t.Fatal(`相同 value 触发了重复重绘`)
+	}
+
+	_, fromHTML := newProgressDocument(t, `<document><block><progress value="0.75"></progress></block></document>`)
+	if fromHTML.Value() != 0.75 {
+		t.Fatalf(`HTML value = %v，期望 0.75`, fromHTML.Value())
+	}
+}
+
+func TestProgressRejectsInvalidValues(t *testing.T) {
+	_, progress := newProgressDocument(t, `<document><block><progress value="0.4"></progress></block></document>`)
+	for _, value := range []float64{-0.01, 1.01, math.NaN(), math.Inf(1), math.Inf(-1)} {
+		if err := progress.SetValue(value); err == nil {
+			t.Fatalf(`非法 value %v 没有返回错误`, value)
+		}
+		if progress.Value() != 0.4 {
+			t.Fatalf(`非法 value %v 改变了原值：%v`, value, progress.Value())
+		}
+	}
+}
+
+func TestProgressRejectsChildren(t *testing.T) {
+	doc := _NewDocument(320, 240, fstest.MapFS{
+		`main.html`: &fstest.MapFile{Data: []byte(`<document><block><progress><text>50%</text></progress></block></document>`)},
+	}, NewFontManager(), NewImageManager())
+	if err := doc.load(`main.html`); err == nil {
+		t.Fatal(`progress 接受了子节点`)
+	}
+}
+
+func TestProgressCustomColors(t *testing.T) {
+	_, progress := newProgressDocument(t, `<document><block><progress track-color="#112233" value-color="#445566"></progress></block></document>`)
+	if want := ColorFromRGBA(0x11, 0x22, 0x33, 0xff); progress.trackColor != want {
+		t.Fatalf(`轨道颜色不正确：got=%v want=%v`, progress.trackColor, want)
+	}
+	if want := ColorFromRGBA(0x44, 0x55, 0x66, 0xff); progress.valueColor != want {
+		t.Fatalf(`完成颜色不正确：got=%v want=%v`, progress.valueColor, want)
+	}
+}
+
+func TestProgressDrawsValue(t *testing.T) {
+	_, progress := newProgressDocument(t, `<document><block><progress width="10" height="4"></progress></block></document>`)
+	progress.Calc(10, 4, Constraints{})
+	canvas := &Canvas{buffer: make([]byte, 10*4*4), width: 10, height: 4}
+
+	progress.Draw(canvas)
+	if got := canvas.getPixel(0, 0); got != progress.trackColor.NRGBA() {
+		t.Fatalf(`0%% 轨道颜色不正确：%v`, got)
+	}
+
+	if err := progress.SetValue(0.25); err != nil {
+		t.Fatal(err)
+	}
+	progress.Draw(canvas)
+	if got := canvas.getPixel(2, 0); got != progress.valueColor.NRGBA() {
+		t.Fatalf(`25%% 完成区域宽度不足：%v`, got)
+	}
+	if got := canvas.getPixel(3, 0); got != progress.trackColor.NRGBA() {
+		t.Fatalf(`25%% 完成区域宽度过大：%v`, got)
+	}
+
+	if err := progress.SetValue(1); err != nil {
+		t.Fatal(err)
+	}
+	progress.Draw(canvas)
+	if got := canvas.getPixel(9, 3); got != progress.valueColor.NRGBA() {
+		t.Fatalf(`100%% 没有铺满内容区：%v`, got)
+	}
+}
+
+func TestProgressIntrinsicAndExplicitSize(t *testing.T) {
+	doc, progress := newProgressDocument(t, `<document><block font-size="24"><progress padding="3 7 5 11"></progress></block></document>`)
+	doc.layout()
+	want := Rect{Width: 24*8 + progress.HorizontalInsets(), Height: 24/2 + progress.VerticalInsets()}
+	if got := progress.GetLayoutBox(); got.Width != want.Width || got.Height != want.Height {
+		t.Fatalf(`progress 固有尺寸不正确：got=%+v want=%+v`, got, want)
+	}
+
+	doc, progress = newProgressDocument(t, `<document><style>progress { width: 410; height: 18; background-color: #123456; border-width: 2; }</style><block><progress></progress></block></document>`)
+	doc.layout()
+	if got := progress.GetLayoutBox(); got.Width != 410 || got.Height != 18 {
+		t.Fatalf(`CSS 尺寸覆盖失败：%+v`, got)
+	}
+	if got, want := progress.GetComputedStyles().BackgroundColor.Color, ColorValueFromString(`#123456`).Color; got != want {
+		t.Fatalf(`CSS 背景覆盖失败：got=%v want=%v`, got, want)
+	}
+}
+
+func TestProgressDoesNotHandleInput(t *testing.T) {
+	doc, progress := newProgressDocument(t, `<document><block><progress value="0.5"></progress></block></document>`)
+	progress.Activate()
+	for _, name := range []KeyName{A, B, Left, Right, Up, Down} {
+		doc.handleEvent(&Event{Type: StickDownEvent, Stick: KeyEventArgs{Name: name, Repeat: true}})
+	}
+	if progress.Value() != 0.5 {
+		t.Fatalf(`输入事件改变了 progress：%v`, progress.Value())
 	}
 }
 

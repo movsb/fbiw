@@ -1,0 +1,83 @@
+<document>
+<style>
+document {
+	color: white;
+}
+
+#page {
+	background-color: #17191f;
+	align: both;
+}
+
+.sample {
+	width: 560;
+}
+
+.sample progress {
+	width: 560;
+}
+
+#thin {
+	height: 10;
+}
+
+#overlay {
+	width: 560;
+	height: 42;
+}
+
+#overlay progress {
+	width: 560;
+	height: 42;
+}
+
+#overlay text {
+	font-size: 24;
+}
+
+#hint {
+	color: #aeb4c0;
+	font-size: 24;
+}
+</style>
+
+<block id="page" fill>
+	<block align="center">
+		<text class="h2">Progress</text>
+		<spacer height="24"></spacer>
+
+		<block class="sample">
+			<inline><text>定时更新</text><spacer></spacer><text id="download-value">35/100</text></inline>
+			<spacer height="8"></spacer>
+			<progress></progress>
+		</block>
+
+		<spacer height="28"></spacer>
+		<block class="sample">
+			<text>中间覆盖百分比</text>
+			<spacer height="8"></spacer>
+			<stack id="overlay" fill>
+				<progress track-color="#343840" value-color="#3e63dd"></progress>
+				<inline fill align="both"><text>68%</text></inline>
+			</stack>
+		</block>
+
+		<spacer height="28"></spacer>
+		<block class="sample">
+			<text>自定义颜色和高度</text>
+			<spacer height="8"></spacer>
+			<progress id="thin" track-color="#403a2f" value-color="#f5d90a"></progress>
+		</block>
+
+		<spacer height="28"></spacer>
+		<block class="sample">
+			<text>已完成</text>
+			<spacer height="8"></spacer>
+			<progress track-color="#2f3e35" value-color="#30a46c"></progress>
+		</block>
+
+		<spacer height="28"></spacer>
+		<text id="hint">进度使用 0 到 1 表示，说明文字由外部元素提供</text>
+	</block>
+</block>
+</document>
