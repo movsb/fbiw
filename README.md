@@ -476,6 +476,30 @@ block > inline {}        /* 直接子元素 */
 block, inline {}         /* 分组 */
 ```
 
+选择器可以在规则内嵌套。未使用 `&` 时，嵌套选择器默认匹配父选择器的后代；
+`&` 表示父选择器本身，前导 `>` 则表示直接子元素：
+
+```css
+.card {
+    color: white;
+
+    .title {                 /* .card .title */
+        font-size: 32;
+    }
+
+    &.selected {             /* .card.selected */
+        outline-width: 3;
+    }
+
+    > .icon {                /* .card > .icon */
+        width: 24;
+    }
+}
+```
+
+支持多层嵌套和逗号分组；父子都是分组选择器时会展开为所有组合。
+Nesting 仍只能使用上述选择器子集，不支持伪类、属性选择器、兄弟选择器或媒体规则。
+
 样式来源的覆盖顺序为：
 
 ```text

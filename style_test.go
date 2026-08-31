@@ -1,9 +1,118 @@
 package fbiw
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 )
+
+func TestParseStyleNesting(t *testing.T) {
+	nested := Must1(ParseStyle(`
+		.card, #panel {
+			color: red;
+			> .title, &.selected {
+				width: 10;
+				.icon { height: 20; }
+			}
+			background-color: black;
+		}
+	`))
+	flat := Must1(ParseStyle(`
+		.card { color: red; }
+		#panel { color: red; }
+		.card > .title { width: 10; }
+		.card.selected { width: 10; }
+		#panel > .title { width: 10; }
+		#panel.selected { width: 10; }
+		.card > .title .icon { height: 20; }
+		.card.selected .icon { height: 20; }
+		#panel > .title .icon { height: 20; }
+		#panel.selected .icon { height: 20; }
+		.card { background-color: black; }
+		#panel { background-color: black; }
+	`))
+
+	if !reflect.DeepEqual(nested.Rules, flat.Rules) {
+		t.Fatalf("nested CSS 展开结果不一致\nwant: %#v\ngot:  %#v", flat.Rules, nested.Rules)
+	}
+}
+
+func TestParseStyleSelectorLists(t *testing.T) {
+	sheet := Must1(ParseStyle(`block, inline { width: 10; }`))
+	if got, want := len(sheet.Rules), 2; got != want {
+		t.Fatalf(`Rules 数量 = %d，期望 %d`, got, want)
+	}
+	if got, want := sheet.Rules[0].Selector[0].Tag, `block`; got != want {
+		t.Errorf(`第一个选择器 = %q，期望 %q`, got, want)
+	}
+	if got, want := sheet.Rules[1].Selector[0].Tag, `inline`; got != want {
+		t.Errorf(`第二个选择器 = %q，期望 %q`, got, want)
+	}
+}
+
+func TestParseStyleExplicitAmpersand(t *testing.T) {
+	nested := Must1(ParseStyle(`.card { &#main { width: 10; } & > .icon { height: 20; } }`))
+	flat := Must1(ParseStyle(`.card#main { width: 10; } .card > .icon { height: 20; }`))
+	if !reflect.DeepEqual(nested.Rules, flat.Rules) {
+		t.Fatalf("& 选择器展开结果不一致\nwant: %#v\ngot:  %#v", flat.Rules, nested.Rules)
+	}
+}
+
+func TestParseStyleNestingErrors(t *testing.T) {
+	tests := map[string]string{
+		`顶层 &`:    `&.selected { color: red; }`,
+		`缺少右大括号`:  `.parent { .child { color: red; }`,
+		`悬空直接子元素`: `.parent { > { color: red; } }`,
+		`非法嵌套选择器`: `.parent { &:selected { color: red; } }`,
+	}
+	for name, css := range tests {
+		t.Run(name, func(t *testing.T) {
+			if _, err := ParseStyle(css); err == nil {
+				t.Fatalf(`ParseStyle(%q) 未返回错误`, css)
+			}
+		})
+	}
+}
+
+func TestNestedStyleMatchesFlatStyle(t *testing.T) {
+	newTree := func() (*BaseBox, *BaseBox) {
+		parent := &BaseBox{Tag: `block`}
+		parent.class.Set(`card`)
+		parent.class.Set(`selected`)
+		child := &BaseBox{Tag: `text`, parent: parent}
+		child.class.Set(`title`)
+		parent.children = []Box{child}
+		return parent, child
+	}
+
+	nestedRoot, nestedChild := newTree()
+	flatRoot, flatChild := newTree()
+	nested := Must1(ParseStyle(`
+		.card {
+			color: red;
+			&.selected { outline-width: 3; }
+			> .title { font-size: 18; }
+		}
+	`))
+	flat := Must1(ParseStyle(`
+		.card { color: red; }
+		.card.selected { outline-width: 3; }
+		.card > .title { font-size: 18; }
+	`))
+
+	if err := (_Styler{}).Style(nestedRoot, true, nested); err != nil {
+		t.Fatalf(`应用 nested CSS 失败：%v`, err)
+	}
+	if err := (_Styler{}).Style(flatRoot, true, flat); err != nil {
+		t.Fatalf(`应用扁平 CSS 失败：%v`, err)
+	}
+	if got, want := nestedRoot.GetComputedStyles(), flatRoot.GetComputedStyles(); !reflect.DeepEqual(got, want) {
+		t.Errorf("root computed styles 不一致\nwant: %#v\ngot:  %#v", want, got)
+	}
+	if got, want := nestedChild.GetComputedStyles(), flatChild.GetComputedStyles(); !reflect.DeepEqual(got, want) {
+		t.Errorf("child computed styles 不一致\nwant: %#v\ngot:  %#v", want, got)
+	}
+}
 
 func TestStylesPaddingShorthand(t *testing.T) {
 	tests := []struct {

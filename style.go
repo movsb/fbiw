@@ -773,11 +773,6 @@ type Rule struct {
 	Declarations []Declaration
 }
 
-type _Rule struct {
-	Selectors    []Selector
-	Declarations []Declaration
-}
-
 type Selector = []NodeSelector
 
 type _Combinator uint8
@@ -814,7 +809,7 @@ type Sheet struct {
 
 func ParseStyle(data string) (_ *Sheet, outErr error) {
 	buf := &BufioReader{
-		Reader: bufio.NewReader(strings.NewReader(data)),
+		Reader: bufio.NewReaderSize(strings.NewReader(data), max(4096, len(data)+1)),
 	}
 
 	defer func() {
@@ -829,50 +824,63 @@ func ParseStyle(data string) (_ *Sheet, outErr error) {
 		if buf.peekByte() == 0 {
 			break
 		}
-		rule := parseRule(buf)
-		for _, s := range rule.Selectors {
-			ss.Rules = append(ss.Rules, Rule{
-				Selector:     s,
-				Declarations: rule.Declarations,
-			})
-		}
+		ss.Rules = append(ss.Rules, parseRule(buf, nil)...)
 	}
 
 	return &ss, nil
 }
 
-func parseRule(buf *BufioReader) _Rule {
-	r := _Rule{}
-
-	for {
-		selectors := parseSelector(buf)
-		r.Selectors = append(r.Selectors, selectors)
-		buf.skipSpaces()
-		b := buf.peekByte()
-		if b == ',' {
-			continue
-		}
-		break
+func parseRule(buf *BufioReader, parents []Selector) []Rule {
+	header := strings.TrimSpace(buf.readUntil('{'))
+	if header == `` {
+		panic(`没有选择器。`)
 	}
-
-	buf.skipSpaces()
-	if b := buf.peekByte(); b != '{' {
+	if buf.peekByte() != '{' {
 		panic(`缺少 {`)
 	}
 	buf.Discard(1)
 
-	buf.skipSpaces()
-	if b := buf.peekByte(); b != '}' {
-		r.Declarations = parseDeclarations(buf)
+	selectors := expandSelectors(parents, header)
+	rules := []Rule{}
+	declarations := []Declaration{}
+	hadContent := false
+	flushDeclarations := func() {
+		if len(declarations) == 0 {
+			return
+		}
+		for _, selector := range selectors {
+			rules = append(rules, Rule{Selector: selector, Declarations: declarations})
+		}
+		declarations = nil
 	}
 
-	buf.skipSpaces()
-	if b := buf.peekByte(); b != '}' {
-		panic(`缺少 }`)
-	}
-	buf.Discard(1)
+	for {
+		buf.skipSpaces()
+		switch buf.peekByte() {
+		case 0:
+			panic(`缺少 }`)
+		case '}':
+			flushDeclarations()
+			buf.Discard(1)
+			if !hadContent {
+				for _, selector := range selectors {
+					rules = append(rules, Rule{Selector: selector})
+				}
+			}
+			return rules
+		}
 
-	return r
+		hadContent = true
+		switch buf.nextDelimiter() {
+		case ':':
+			declarations = append(declarations, parseDeclaration(buf))
+		case '{':
+			flushDeclarations()
+			rules = append(rules, parseRule(buf, selectors)...)
+		default:
+			panic(`缺少 { 或 :`)
+		}
+	}
 }
 
 type BufioReader struct {
@@ -904,6 +912,99 @@ func (b *BufioReader) peekByte() byte {
 		return 0
 	}
 	return c[0]
+}
+
+func (b *BufioReader) readUntil(stop byte) string {
+	tmp := []byte{}
+	for {
+		c := b.peekByte()
+		if c == stop || c == 0 {
+			return string(tmp)
+		}
+		b.Discard(1)
+		tmp = append(tmp, c)
+	}
+}
+
+// nextDelimiter 用于区分声明和嵌套规则。当前 CSS 子集的声明名后一定是 :，
+// 选择器后一定是 {。ParseStyle 为 Reader 配置了可容纳整份样式表的缓冲区。
+func (b *BufioReader) nextDelimiter() byte {
+	for n := 1; ; n++ {
+		data, err := b.Peek(n)
+		if err != nil {
+			if err == io.EOF {
+				return 0
+			}
+			panic(err)
+		}
+		switch data[n-1] {
+		case ':', '{', '}':
+			return data[n-1]
+		}
+	}
+}
+
+func expandSelectors(parents []Selector, header string) []Selector {
+	parts := strings.Split(header, `,`)
+	if len(parents) == 0 {
+		selectors := make([]Selector, 0, len(parts))
+		for _, part := range parts {
+			part = strings.TrimSpace(part)
+			if strings.Contains(part, `&`) {
+				panic(`& 只能用在嵌套选择器中`)
+			}
+			selectors = append(selectors, parseSelectorString(part))
+		}
+		return selectors
+	}
+
+	selectors := make([]Selector, 0, len(parents)*len(parts))
+	for _, parent := range parents {
+		parentText := selectorString(parent)
+		for _, part := range parts {
+			part = strings.TrimSpace(part)
+			if part == `` {
+				panic(`没有选择器。`)
+			}
+			var expanded string
+			switch {
+			case strings.Contains(part, `&`):
+				expanded = strings.ReplaceAll(part, `&`, parentText)
+			case strings.HasPrefix(part, `>`):
+				expanded = parentText + ` ` + part
+			default:
+				expanded = parentText + ` ` + part
+			}
+			selectors = append(selectors, parseSelectorString(expanded))
+		}
+	}
+	return selectors
+}
+
+func selectorString(selector Selector) string {
+	var out strings.Builder
+	for i, node := range selector {
+		if i > 0 {
+			if selector[i-1].Combinator == childCombinator {
+				out.WriteString(` > `)
+			} else {
+				out.WriteByte(' ')
+			}
+		}
+		out.WriteString(node.Tag)
+		if node.Asterisk {
+			out.WriteByte('*')
+		}
+		if node.ID != `` {
+			out.WriteByte('#')
+			out.WriteString(node.ID)
+		}
+		for _, class := range node.Class {
+			out.WriteByte('.')
+			out.WriteString(class)
+		}
+	}
+	return out.String()
 }
 
 func parseSelectorString(selector string) Selector {
@@ -980,52 +1081,44 @@ func parseSelector(buf *BufioReader) []NodeSelector {
 	return selectors
 }
 
-func parseDeclarations(buf *BufioReader) []Declaration {
-	d := []Declaration{}
-
+func parseDeclaration(buf *BufioReader) Declaration {
 	current := Declaration{}
-
+	buf.skipSpaces()
+	current.Name = parseIdent(buf)
+	if current.Name == `` {
+		panic(`没有声明名`)
+	}
+	buf.skipSpaces()
+	if b := buf.peekByte(); b != ':' {
+		panic(`缺少 :`)
+	}
+	buf.Discard(1)
+	tmp := []byte{}
 	for {
-		buf.skipSpaces()
-		current.Name = parseIdent(buf)
-		buf.skipSpaces()
-		if b := buf.peekByte(); b != ':' {
-			panic(`缺少 :`)
-		}
-		buf.Discard(1)
-		tmp := []byte{}
-		for {
-			b := buf.peekByte()
-			if b == ';' || b == 0 {
-				break
-			}
-			buf.Discard(1)
-			tmp = append(tmp, b)
-		}
-		if len(tmp) <= 0 {
-			panic(`没有值`)
-		}
-
-		value := strings.TrimSpace(string(tmp))
-		if c := value[0]; c == '"' || c == '\'' {
-			value = value[1:]
-		}
-		if c := value[len(value)-1]; c == '"' || c == '\'' {
-			value = value[:len(value)-1]
-		}
-		current.Value = value
-		d = append(d, current)
-		if b := buf.peekByte(); b != ';' {
-			panic(`缺少 ;`)
-		}
-		buf.Discard(1)
-		buf.skipSpaces()
-		if b := buf.peekByte(); b == 0 || b == '}' {
+		b := buf.peekByte()
+		if b == ';' || b == 0 {
 			break
 		}
+		buf.Discard(1)
+		tmp = append(tmp, b)
+	}
+	if len(tmp) <= 0 {
+		panic(`没有值`)
 	}
 
-	return d
+	value := strings.TrimSpace(string(tmp))
+	if c := value[0]; c == '"' || c == '\'' {
+		value = value[1:]
+	}
+	if c := value[len(value)-1]; c == '"' || c == '\'' {
+		value = value[:len(value)-1]
+	}
+	current.Value = value
+	if b := buf.peekByte(); b != ';' {
+		panic(`缺少 ;`)
+	}
+	buf.Discard(1)
+	return current
 }
 
 func isIdentChar(b byte) bool {
