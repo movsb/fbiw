@@ -2,24 +2,30 @@ package fbiw
 
 import (
 	"context"
+	"fmt"
 	"image"
 	"image/color"
 	"image/draw"
-	_ "image/gif"
-	_ "image/jpeg"
 	"image/png"
+	"io"
 	"io/fs"
 	"log"
 	"os"
 	"simd/archsimd"
 	"time"
+	"unicode/utf8"
 	"unsafe"
 
 	"github.com/anthonynsimon/bild/transform"
 	"github.com/phuslu/lru"
 	_ "golang.org/x/image/bmp"
 	"golang.org/x/image/font"
+	"golang.org/x/image/font/opentype"
 	"golang.org/x/image/math/fixed"
+
+	_ "image/gif"
+	_ "image/jpeg"
+
 	_ "golang.org/x/image/webp"
 )
 
@@ -991,6 +997,254 @@ func (m *ImageManager) getImageCached(fsys fs.FS, path string, width, height int
 		},
 	)
 	return img, err
+}
+
+type FontManager struct {
+	fonts map[_FontKey]*_FontValue
+	faces map[_FontFaceKey]*FontFace
+}
+
+func NewFontManager() *FontManager {
+	return &FontManager{
+		fonts: map[_FontKey]*_FontValue{},
+		faces: map[_FontFaceKey]*FontFace{},
+	}
+}
+
+func (fm *FontManager) Close() {
+	for _, f := range fm.fonts {
+		f.File.Close()
+	}
+	clear(fm.fonts)
+}
+
+type _FontKey struct {
+	Family string
+	Bold   bool
+	Italic bool
+}
+type _FontValue struct {
+	Font *opentype.Font
+	File io.ReadCloser
+}
+
+type FontKey = _FontKey
+
+type _FontFaceKey struct {
+	Family string
+	Size   int
+	Bold   bool
+	Italic bool
+}
+
+// 添加字体族。
+//
+// 为了降低内存使用，不会完整读取字体文件，使用过程中按需读取。
+// 所以字体文件在加载后会被一直引用。
+//
+// family 可以重复，只要其它样式不一样就行。
+//
+// fsys.Open的文件必须支持 io.ReaderAt。os.DirFS和embed.FS 均支持。
+func (fm *FontManager) AddFont(fsys fs.FS, path string, family string, bold, italic bool) error {
+	key := _FontKey{
+		Family: family,
+		Bold:   bold,
+		Italic: italic,
+	}
+	if _, ok := fm.fonts[key]; ok {
+		return nil
+	}
+
+	fp, err := fsys.Open(path)
+	if err != nil {
+		return err
+	}
+
+	// 先完整读内存，如果占用高，可以考虑转 ParseReader，
+	// 但是那样可以会每个字符读文件？不知道速度怎样。
+	parsedFont, err := opentype.ParseReaderAt(fp.(io.ReaderAt))
+	if err != nil {
+		return err
+	}
+
+	fm.fonts[key] = &_FontValue{
+		File: fp,
+		Font: parsedFont,
+	}
+
+	return nil
+}
+
+// 返回系统字体。
+//
+// 如果有样式的系统字体找不到，会返回非粗体、非斜体版本。
+// 如果还是找不到，就直接崩溃。
+func (fm *FontManager) GetSystemFace(size int, bold bool, italic bool) *FontFace {
+	system, err := fm.GetFace(`system`, size, bold, italic)
+	if err == nil {
+		return system
+	}
+	// 怎么连对应形状的系统字体也找不到？
+	system, err = fm.GetFace(`system`, size, false, false)
+	if err == nil {
+		return system
+	}
+	panic(`没有任何可用的系统字体，没救了。`)
+}
+
+// 返回指定名字的字体。
+func (fm *FontManager) GetFace(family string, size int, bold bool, italic bool) (*FontFace, error) {
+	faceKey := _FontFaceKey{
+		Family: family,
+		Size:   size,
+		Bold:   bold,
+		Italic: italic,
+	}
+	if face, ok := fm.faces[faceKey]; ok {
+		return face, nil
+	}
+
+	fontKey := _FontKey{
+		Family: family,
+		Bold:   bold,
+		Italic: italic,
+	}
+	fontValue, ok := fm.fonts[fontKey]
+	if !ok {
+		return nil, fmt.Errorf(`字体家族未找到：%v`, fontKey)
+	}
+
+	theFace, err := opentype.NewFace(fontValue.Font, &opentype.FaceOptions{
+		Size:    float64(size),
+		DPI:     72, // 为72时1点=1像素
+		Hinting: font.HintingFull,
+	})
+	if err != nil {
+		return nil, fmt.Errorf(`无法创建字体样式：%w`, err)
+	}
+
+	fontFace := &FontFace{
+		Face:  theFace,
+		name:  family,
+		cache: map[rune]GlyphValue{},
+	}
+
+	fm.faces[faceKey] = fontFace
+
+	return fontFace, nil
+}
+
+type FontFace struct {
+	font.Face
+
+	name string
+
+	// 文字渲染过程的光栅化非常消耗，所以缓存一下。
+	cache map[rune]GlyphValue
+}
+
+// 测试文本 text 使用此字体时所占据的宽度。
+func (ff FontFace) MeasureString(text string) fixed.Int26_6 {
+	return font.MeasureString(ff, text)
+}
+
+func (ff FontFace) TextHeight() int {
+	return (ff.Metrics().Ascent + ff.Metrics().Descent).Ceil()
+}
+
+// golang.org/x/image/font/opentype/opentype.go
+/*
+	nPixels := width * height
+	if cap(f.mask.Pix) < nPixels {
+		f.mask.Pix = make([]uint8, 2*nPixels)
+	}
+	f.mask.Pix = f.mask.Pix[:nPixels]
+	f.mask.Stride = width
+	f.mask.Rect.Min.X = 0
+	f.mask.Rect.Min.Y = 0
+	f.mask.Rect.Max.X = width
+	f.mask.Rect.Max.Y = height
+*/
+type GlyphValue struct {
+	Masks []byte
+
+	Width  uint16
+	Height uint16
+
+	OffsetX int16
+	OffsetY int16
+
+	Advance fixed.Int26_6
+}
+
+func (ff *FontFace) GlyphCached(r rune) GlyphValue {
+	if mask, ok := ff.cache[r]; ok {
+		return mask
+	}
+
+	dot := fixed.Point26_6{X: 0, Y: ff.Metrics().Ascent}
+	rect, mask, _, advance, _ := ff.Glyph(dot, r)
+	alpha := mask.(*image.Alpha)
+
+	value := GlyphValue{
+		Width:   uint16(rect.Dx()),
+		Height:  uint16(rect.Dy()),
+		OffsetX: int16(rect.Min.X - dot.X.Round()),
+		OffsetY: int16(rect.Min.Y - dot.Y.Round()),
+		Advance: advance,
+	}
+
+	value.Masks = make([]byte, int(value.Width)*int(value.Height))
+	for y := 0; y < rect.Dy(); y++ {
+		copy(
+			value.Masks[y*rect.Dx():(y+1)*rect.Dx()],
+			alpha.Pix[y*alpha.Stride:y*alpha.Stride+rect.Dx()],
+		)
+	}
+
+	ff.cache[r] = value
+	return value
+}
+
+func (ff FontFace) HasGlyph(r rune) bool {
+	_, ok := ff.GlyphAdvance(r)
+	return ok
+}
+
+// 把文本 text 按最大宽度切割成子串。
+// 返回子串结束点索引（不含此位置），子串宽度。
+//
+// 注意：这个方法并不在某单一 FontFace 上，原因是字体需要 fallback（回退）。
+// 如果一种字体提供不了某一个glyph，则需要用后续字体继续搜索。
+func SegmentText(text string, maxWidth int, faces []*FontFace) (int, int, error) {
+	var width fixed.Int26_6
+	var index int
+	for {
+		if index == len(text) {
+			return index, width.Ceil(), nil
+		}
+		char, size := utf8.DecodeRuneInString(text[index:])
+		if char == utf8.RuneError {
+			return 0, 0, fmt.Errorf(`无效字符`)
+		}
+		// 找哪个字体库提供了此glyph。
+		face := faces[0]
+		for _, f := range faces {
+			if f.HasGlyph(char) {
+				face = f
+				break
+			}
+		}
+		// NOTE 此处的 MeasureString 方法返回的不是精确整数值（ceil过），
+		// 每次只算一个字符然后再在一起作为总宽度可能会导致误差越来越大。
+		// TODO 换成 GlyphAdvance
+		nextCharWidth := face.MeasureString(text[index : index+size])
+		if width+nextCharWidth > fixed.I(maxWidth) {
+			return index, width.Ceil(), nil
+		}
+		width += nextCharWidth
+		index += size
+	}
 }
 
 type FontCanvas struct {
