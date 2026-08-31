@@ -350,10 +350,13 @@ func (b *ProgressBar) Draw(canvas *Canvas) {
 	}
 }
 
+// Value 返回当前完成比例，取值范围为 [0,1]。
 func (b *ProgressBar) Value() float64 {
 	return b.value
 }
 
+// SetValue 设置完成比例。value 必须位于 [0,1] 内；NaN、无穷值和
+// 越界值会返回错误并保留原值。数值真实变化时会请求重绘。
 func (b *ProgressBar) SetValue(value float64) error {
 	if math.IsNaN(value) || math.IsInf(value, 0) || value < 0 || value > 1 {
 		return fmt.Errorf(`progress value 必须在 [0,1] 内：%v`, value)

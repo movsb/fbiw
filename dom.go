@@ -13,6 +13,8 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 	"unsafe"
 
@@ -63,6 +65,10 @@ type Document struct {
 
 	// 当前的活跃元素（与focusable、事件处理相关）
 	activeBox Box
+
+	// 文档拥有的定时器。关闭文档时统一取消，避免回调访问已经卸载的文档。
+	timersMu sync.Mutex
+	timers   map[*_DocumentTimer]struct{}
 }
 
 func _NewDocument(
@@ -82,6 +88,7 @@ func _NewDocument(
 }
 
 func (doc *Document) Close() {
+	doc.cancelTimers()
 	if doc.app != nil {
 		doc.app._CloseDocument(doc)
 	}
@@ -408,14 +415,136 @@ func (doc *Document) App() *App {
 	return doc.app
 }
 
-// 设置一个ms毫秒后过期的定时器，然后在主线程中调用回调。
-// 返回的函数可以用于取消此定时器。取消已到期的定时器无法阻止
-// 回调函数被调用。
-func (doc *Document) SetTimeout(ms int, callback func()) func() {
-	t := time.AfterFunc(time.Millisecond*time.Duration(ms), func() {
-		doc.Async(callback)
+// 绑定到文档的定时器。
+//
+//   - 普通的 time.After/time.Ticker 之类的需要手动取消，但是文档定时器会自动取消。
+//   - 以及文档定时器溢出时如果文档已经关闭，回调不会操作已关闭的文档导致崩溃。
+//   - 文档关闭时会自动取消所有定时器。
+//   - 如果UI阻塞，周期定时器不会持续溢出（会导致UI响应后触发大量调用）。
+type _DocumentTimer struct {
+	doc *Document
+	app *App
+
+	duration time.Duration
+	callback func()
+	interval bool
+
+	canceled atomic.Bool
+	mu       sync.Mutex
+	timer    *time.Timer
+}
+
+func (doc *Document) newTimer(duration time.Duration, callback func(), interval bool) *_DocumentTimer {
+	if duration <= 0 {
+		panic(`定时器 duration 必须大于 0`)
+	}
+	if callback == nil {
+		panic(`定时器 callback 不能为空`)
+	}
+	if doc.app == nil {
+		panic(`Document 定时器未绑定 App`)
+	}
+
+	t := &_DocumentTimer{
+		doc:      doc,
+		app:      doc.app,
+		duration: duration,
+		callback: callback,
+		interval: interval,
+	}
+	doc.timersMu.Lock()
+	if doc.timers == nil {
+		doc.timers = map[*_DocumentTimer]struct{}{}
+	}
+	doc.timers[t] = struct{}{}
+	doc.timersMu.Unlock()
+	t.schedule()
+	return t
+}
+
+func (t *_DocumentTimer) schedule() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.canceled.Load() {
+		return
+	}
+	t.timer = time.AfterFunc(t.duration, t.fire)
+}
+
+func (t *_DocumentTimer) fire() {
+	if t.canceled.Load() {
+		return
+	}
+	t.app.Async(func() {
+		// 取消可能发生在定时器到期后、UI 线程处理回调之前。
+		if t.canceled.Load() {
+			return
+		}
+		t.callback()
+		if t.interval {
+			// 上一次 UI 回调执行完成后才安排下一次，避免积压和重叠。
+			t.schedule()
+		} else {
+			t.cancel()
+		}
 	})
-	return func() { t.Stop() }
+}
+
+func (t *_DocumentTimer) cancel() {
+	if !t.canceled.CompareAndSwap(false, true) {
+		return
+	}
+	t.mu.Lock()
+	if t.timer != nil {
+		t.timer.Stop()
+	}
+	t.mu.Unlock()
+
+	t.doc.timersMu.Lock()
+	delete(t.doc.timers, t)
+	t.doc.timersMu.Unlock()
+}
+
+func (doc *Document) cancelTimers() {
+	doc.timersMu.Lock()
+	timers := make([]*_DocumentTimer, 0, len(doc.timers))
+	for timer := range doc.timers {
+		timers = append(timers, timer)
+	}
+	doc.timersMu.Unlock()
+
+	for _, timer := range timers {
+		timer.cancel()
+	}
+}
+
+func toDuration[T int | time.Duration](duration T) time.Duration {
+	var d time.Duration
+	switch typed := any(duration).(type) {
+	case int:
+		d = time.Millisecond * time.Duration(typed)
+	case time.Duration:
+		d = typed
+	}
+	return d
+}
+
+// 设置一个定时器，然后在主线程中调用回调。
+// 返回的函数可以用于取消此定时器；即使回调已经进入主线程队列，
+// 只要尚未开始执行，取消仍会阻止它。关闭文档会自动取消定时器。
+//
+// int 类型的参数表示毫秒。duration 必须大于 0。
+func (doc *Document) SetTimeout[T int | time.Duration](duration T, callback func()) func() {
+	return doc.newTimer(toDuration(duration), callback, false).cancel
+}
+
+// 设置一个周期性定时器，然后在主线程中调用回调。每次回调执行完成后
+// 才开始等待下一个周期，因此回调不会重叠或在主线程队列中积压。
+// 返回的函数可以用于取消此定时器，关闭文档也会自动取消。
+//
+// int 类型的参数表示毫秒。duration 必须大于 0。
+func (doc *Document) SetInterval[T int | time.Duration](duration T, callback func()) func() {
+	return doc.newTimer(toDuration(duration), callback, true).cancel
 }
 
 // 需要重新布局或者重新绘制？

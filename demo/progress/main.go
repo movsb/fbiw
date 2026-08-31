@@ -28,21 +28,15 @@ func main() {
 	download := progresses[0]
 	downloadValue := doc.GetBoxByID[*fbiw.Text](`download-value`)
 	step := 35
-	var cancelTimer func()
-	var updateProgress func()
-	updateProgress = func() {
+	cancelTimer := doc.SetInterval(60, func() {
 		step++
 		if step > 100 {
 			step = 0
 		}
-		if err := download.SetValue(float64(step) / 100); err != nil {
-			panic(err)
-		}
+		download.SetValue(float64(step) / 100)
 		downloadValue.SetText(fmt.Sprintf(`%d/100`, step))
-		cancelTimer = doc.SetTimeout(60, updateProgress)
-	}
-	cancelTimer = doc.SetTimeout(60, updateProgress)
-	defer func() { cancelTimer() }()
+	})
+	defer cancelTimer()
 
 	app.Run()
 }
