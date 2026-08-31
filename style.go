@@ -12,6 +12,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+
+	_ "embed"
 )
 
 // 用于保存节点的样式值。
@@ -83,57 +85,10 @@ const (
 	FillScaleDown
 )
 
-var DefaultStyles = Must1((StyleParser{}).ParseStyle(`
-document {
-	color: black;
-	font-family: system;
-	font-size: 32;
-}
-b {
-	bold: true;
-}
-i {
-	italic: true;
-}
-button {
-	padding: 10 18;
-	align: both;
-	color: #1c2024;
-	background-color: #e8eaed;
-	border-width: 2;
-	border-color: #c5c9d0;
-}
-.button-primary {
-	color: white;
-	background-color: #3358d4;
-	border-color: #3e63dd;
-}
-.button-destructive {
-	color: white;
-	background-color: #ce2c31;
-	border-color: #dc3e42;
-}
-button.disabled {
-	color: #8b8d98;
-	background-color: #d9dadd;
-	border-color: #c5c6ca;
-}
-select {
-	padding: 10 16;
-	color: #1c2024;
-	background-color: #e8eaed;
-	border-width: 2;
-	border-color: #c5c9d0;
-}
-select.disabled {
-	color: #8b8d98;
-	background-color: #d9dadd;
-	border-color: #c5c6ca;
-}
-.h1 { font-size: 1.50rem; }
-.h2 { font-size: 1.35rem; }
-.h3 { font-size: 1.20rem; }
-`))
+//go:embed assets/defaults.css
+var _defaultsStyle string
+
+var DefaultStyles = Must1((StyleParser{}).ParseStyle(_defaultsStyle))
 
 // 直接传入的是结构体字段，原始名字，没有小写、没有中划线。
 func shouldInherit(name string) bool {
