@@ -426,7 +426,7 @@ func (b *BaseBox) draw(canvas *Canvas, drawChildren bool) {
 		canvas := canvas.Offset(borderWidth, borderWidth)
 		img, _ := b.document._loadImage(src, width, height, true)
 		if len(img.Pixels) > 0 {
-			canvas.DrawImage(img, width, height)
+			canvas.DrawImage(img)
 		} else {
 			b.document.loadImageAsync(src, width, height, func(di DecodedImage, err error) {
 				if err == nil {
@@ -1519,8 +1519,15 @@ func (b *Image) Calc(availWidth, availHeight int, constraints Constraints) {
 				scaleX := float64(b.layoutBox.Width) / float64(b.decodedImage.Width)
 				scaleY := float64(b.layoutBox.Height) / float64(b.decodedImage.Height)
 				scale := Iif(fill == FillContain, min(scaleX, scaleY), max(scaleX, scaleY))
-				fittingWidth = int(float64(b.decodedImage.Width) * scale)
-				fittingHeight = int(float64(b.decodedImage.Height) * scale)
+				if fill == FillCover {
+					// cover 必须在两个方向上都覆盖容器，向上取整
+					// 可避免浮点误差令某一边少一个像素。
+					fittingWidth = int(math.Ceil(float64(b.decodedImage.Width) * scale))
+					fittingHeight = int(math.Ceil(float64(b.decodedImage.Height) * scale))
+				} else {
+					fittingWidth = int(float64(b.decodedImage.Width) * scale)
+					fittingHeight = int(float64(b.decodedImage.Height) * scale)
+				}
 			case FillNone:
 				fittingWidth = b.decodedImage.Width
 				fittingHeight = b.decodedImage.Height
@@ -1581,12 +1588,22 @@ func (b *Image) Draw(canvas *Canvas) {
 	switch b.status {
 	case imageLoadStatusDecoded:
 		// TODO 没处理border和padding
-		// 图片的宽度和高度不一定等于容器的，所以居中。
-		width := b.decodedImage.Width
-		height := b.decodedImage.Height
-		offsetX := (b.layoutBox.Width - width) / 2
-		offsetY := (b.layoutBox.Height - height) / 2
-		canvas.Offset(offsetX, offsetY).DrawImage(b.decodedImage, width, height)
+		// 图片的宽高不一定等于容器。contain 会在容器内居中；
+		// cover/none 可能超出容器，此时从图片中心裁出可见部分。
+		imageWidth := b.decodedImage.Width
+		imageHeight := b.decodedImage.Height
+		visibleWidth := min(imageWidth, max(0, b.layoutBox.Width))
+		visibleHeight := min(imageHeight, max(0, b.layoutBox.Height))
+		if visibleWidth <= 0 || visibleHeight <= 0 {
+			return
+		}
+		srcX := max(0, (imageWidth-b.layoutBox.Width)/2)
+		srcY := max(0, (imageHeight-b.layoutBox.Height)/2)
+		dstX := max(0, (b.layoutBox.Width-imageWidth)/2)
+		dstY := max(0, (b.layoutBox.Height-imageHeight)/2)
+		canvas.Offset(dstX, dstY).DrawImageRegion(
+			b.decodedImage, srcX, srcY, visibleWidth, visibleHeight,
+		)
 	case imageLoadStatusFailed:
 		if b.err != nil {
 			// 暂时！没有换行，没有border、padding……

@@ -57,9 +57,6 @@ type Styles struct {
 
 // 可替换对象内容的填充方式。
 // [object-fit CSS property - CSS | MDN](https://developer.mozilla.org/en-US/docs/Web/CSS/Reference/Properties/object-fit)
-//
-// 目前的canvas绘图不能超出范围，所以暂时不支持 cover 和 none。
-// 大多数时候用 scale-down 足够？
 type Fill uint8
 
 const (
@@ -329,15 +326,11 @@ func (s *Styles) parseProperty(name string, raw string) (
 		case ``, `stretch`:
 			update = NumberValue(0)
 		case `none`:
-			// 太大的图片绘制会超出canvas范围，还没修bug
-			// 大多数时候使用 scale-down 其实足够。
-			panic(`目前不支持none填充模式`)
-			// update = NumberValue(int(FillNone))
+			update = NumberValue(int(FillNone))
 		case `contain`:
 			update = NumberValue(int(FillContain))
 		case `cover`:
-			panic(`目前不支持cover填充模式`)
-			// update = NumberValue(int(FillCover))
+			update = NumberValue(int(FillCover))
 		case `scale-down`:
 			update = NumberValue(int(FillScaleDown))
 		default:

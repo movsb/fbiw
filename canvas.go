@@ -78,30 +78,74 @@ func (c *Canvas) Offset(x, y int) *Canvas {
 	}
 }
 
-func (c *Canvas) DrawImage(img DecodedImage, width, height int) {
-	c.drawImage5(img, width, height)
+func (c *Canvas) DrawImage(img DecodedImage) {
+	c.drawImage5Region(img, 0, 0, img.Width, img.Height)
+}
+
+// DrawImageRegion 把图片的指定区域绘制到 Canvas 当前原点。
+func (c *Canvas) DrawImageRegion(img DecodedImage, srcX, srcY, width, height int) {
+	c.drawImage5Region(img, srcX, srcY, width, height)
+}
+
+type imageDrawRegion struct {
+	dstX, dstY    int
+	srcX, srcY    int
+	width, height int
+}
+
+// clipImageRegion 同时裁剪源图和 framebuffer；目标左上越界时，
+// 必须同步跳过源图左上的像素，否则不仅会切片 panic，图像也会错位。
+func (c *Canvas) clipImageRegion(img DecodedImage, srcX, srcY, width, height int) (imageDrawRegion, bool) {
+	r := imageDrawRegion{
+		dstX:   c.x,
+		dstY:   c.y,
+		srcX:   srcX,
+		srcY:   srcY,
+		width:  width,
+		height: height,
+	}
+	if r.srcX < 0 {
+		r.dstX -= r.srcX
+		r.width += r.srcX
+		r.srcX = 0
+	}
+	if r.srcY < 0 {
+		r.dstY -= r.srcY
+		r.height += r.srcY
+		r.srcY = 0
+	}
+	r.width = min(r.width, img.Width-r.srcX)
+	r.height = min(r.height, img.Height-r.srcY)
+	if r.dstX < 0 {
+		delta := -r.dstX
+		r.dstX = 0
+		r.srcX += delta
+		r.width -= delta
+	}
+	if r.dstY < 0 {
+		delta := -r.dstY
+		r.dstY = 0
+		r.srcY += delta
+		r.height -= delta
+	}
+	r.width = min(r.width, c.width-r.dstX)
+	r.height = min(r.height, c.height-r.dstY)
+	return r, r.width > 0 && r.height > 0
 }
 
 // 版本 1：逐像素切出四字节切片，并分别计算 B、G、R 三个通道。
 // 这是优化前的基线实现，保留下来用于性能和最终显存数据对照。
 func (c *Canvas) drawImage1(img DecodedImage, width, height int) {
-	// 右下角限制在屏幕内。
-	if c.x+width > c.width {
-		width = c.width - c.x
+	r, ok := c.clipImageRegion(img, 0, 0, width, height)
+	if !ok {
+		return
 	}
-	if c.y+height > c.height {
-		height = c.height - c.y
-	}
-	// 也不要超出图片外。
-	// 后期缩放图片的时候需要考虑。
-	width = min(width, img.Width)
-	height = min(height, img.Height)
+	width, height = r.width, r.height
 
-	for y := range height {
-		offset := (c.y + y) * c.width * 4
-		offset += c.x * 4
+	for y := range r.height {
+		offset := (r.dstY+y)*c.width*4 + r.dstX*4
 		dst := c.buffer[offset:]
-		src := img.Pixels[y*img.Width*4:]
+		src := img.Pixels[((r.srcY+y)*img.Width+r.srcX)*4:]
 		// len := width * 4
 		// copy(dst, src[0:len])
 		for x := range width {
@@ -129,17 +173,16 @@ func (c *Canvas) drawImage1(img DecodedImage, width, height int) {
 // 版本 2：按 uint32 BGRA 像素读写，并用 SWAR 同时混合 B/R 两个通道。
 // 混色仍然精确除以 255，因此最终结果应当与版本 1 逐字节完全相同。
 func (c *Canvas) drawImage2(img DecodedImage, width, height int) {
-	// 右下角限制在屏幕内，也不要读取图片范围之外的数据。
-	width = min(width, c.width-c.x, img.Width)
-	height = min(height, c.height-c.y, img.Height)
-	if width <= 0 || height <= 0 {
+	r, ok := c.clipImageRegion(img, 0, 0, width, height)
+	if !ok {
 		return
 	}
+	width, height = r.width, r.height
 
 	const maskBR = uint32(0x00ff00ff)
-	for y := range height {
-		dstOffset := ((c.y+y)*c.width + c.x) * 4
-		srcOffset := y * img.Width * 4
+	for y := range r.height {
+		dstOffset := ((r.dstY+y)*c.width + r.dstX) * 4
+		srcOffset := ((r.srcY+y)*img.Width + r.srcX) * 4
 		dstBytes := c.buffer[dstOffset : dstOffset+width*4]
 		srcBytes := img.Pixels[srcOffset : srcOffset+width*4]
 		dst := unsafe.Slice((*uint32)(unsafe.Pointer(&dstBytes[0])), width)
@@ -197,29 +240,36 @@ func (c *Canvas) drawImage4(img DecodedImage, width, height int) {
 手写 archsimd.LoadUint32x4/Store 每次只复制 16 字节，通常很难超过 runtime 每轮 64 字节的软件流水线；还会增加 Go 循环、边界和分支开销。所以不透明图片继续使用内置 copy 是合理的，TinaLinux 的结果也证明它明显更快。
 */
 func (c *Canvas) drawImage5(img DecodedImage, width, height int) {
+	c.drawImage5Region(img, 0, 0, width, height)
+}
+
+func (c *Canvas) drawImage5Region(img DecodedImage, srcX, srcY, width, height int) {
 	if !img.Opaque {
-		c.drawImage3(img, width, height)
+		c.drawImageSIMDRegion(img, srcX, srcY, width, height, false)
 		return
 	}
 
-	width = min(width, c.width-c.x, img.Width)
-	height = min(height, c.height-c.y, img.Height)
-	if width <= 0 || height <= 0 {
+	r, ok := c.clipImageRegion(img, srcX, srcY, width, height)
+	if !ok {
 		return
 	}
-	for y := range height {
-		dstOffset := ((c.y+y)*c.width + c.x) * 4
-		srcOffset := y * img.Width * 4
-		copy(c.buffer[dstOffset:dstOffset+width*4], img.Pixels[srcOffset:srcOffset+width*4])
+	for y := range r.height {
+		dstOffset := ((r.dstY+y)*c.width + r.dstX) * 4
+		srcOffset := ((r.srcY+y)*img.Width + r.srcX) * 4
+		copy(c.buffer[dstOffset:dstOffset+r.width*4], img.Pixels[srcOffset:srcOffset+r.width*4])
 	}
 }
 
 func (c *Canvas) drawImageSIMD(img DecodedImage, width, height int, copyOpaque bool) {
-	width = min(width, c.width-c.x, img.Width)
-	height = min(height, c.height-c.y, img.Height)
-	if width <= 0 || height <= 0 {
+	c.drawImageSIMDRegion(img, 0, 0, width, height, copyOpaque)
+}
+
+func (c *Canvas) drawImageSIMDRegion(img DecodedImage, srcX, srcY, width, height int, copyOpaque bool) {
+	r, ok := c.clipImageRegion(img, srcX, srcY, width, height)
+	if !ok {
 		return
 	}
+	width, height = r.width, r.height
 
 	vMaskBR := archsimd.BroadcastUint32x4(0x00ff00ff)
 	vMaskG := archsimd.BroadcastUint32x4(0x000000ff)
@@ -231,8 +281,8 @@ func (c *Canvas) drawImageSIMD(img DecodedImage, width, height int, copyOpaque b
 	vectorWidth := width &^ 3
 
 	for y := range height {
-		dstOffset := ((c.y+y)*c.width + c.x) * 4
-		srcOffset := y * img.Width * 4
+		dstOffset := ((r.dstY+y)*c.width + r.dstX) * 4
+		srcOffset := ((r.srcY+y)*img.Width + r.srcX) * 4
 		dstBytes := c.buffer[dstOffset : dstOffset+width*4]
 		srcBytes := img.Pixels[srcOffset : srcOffset+width*4]
 		dst := unsafe.Slice((*uint32)(unsafe.Pointer(&dstBytes[0])), width)

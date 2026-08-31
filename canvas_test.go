@@ -70,6 +70,9 @@ func TestDrawImageVersions(t *testing.T) {
 		{0, 0, imageWidth, imageHeight},
 		{5, 3, 17, 11},
 		{canvasWidth - 9, canvasHeight - 7, imageWidth, imageHeight},
+		{-10, -5, imageWidth, imageHeight},
+		{-imageWidth, 0, imageWidth, imageHeight},
+		{0, -imageHeight, imageWidth, imageHeight},
 		{0, 0, imageWidth + 10, imageHeight + 10},
 		{0, 0, 0, imageHeight},
 	}
@@ -105,6 +108,26 @@ func TestDrawImageVersions(t *testing.T) {
 		}
 		if !bytes.Equal(buffer1, buffer5) {
 			t.Fatalf("offset=(%d,%d) size=(%d,%d): drawImage1 和 drawImage5 的结果不同", tc.x, tc.y, tc.width, tc.height)
+		}
+	}
+}
+
+func TestDrawImageRegion(t *testing.T) {
+	img := DecodedImage{Width: 4, Height: 3, Pixels: make([]byte, 4*3*4), Opaque: true}
+	for i := 0; i < 12; i++ {
+		img.Pixels[i*4] = byte(i + 1)
+		img.Pixels[i*4+3] = 255
+	}
+	canvas := Canvas{buffer: make([]byte, 3*2*4), width: 3, height: 2}
+	canvas.DrawImageRegion(img, 1, 1, 3, 2)
+
+	for y := 0; y < 2; y++ {
+		for x := 0; x < 3; x++ {
+			got := canvas.buffer[(y*3+x)*4]
+			want := byte((y+1)*4 + (x + 1) + 1)
+			if got != want {
+				t.Fatalf("pixel (%d,%d)=%d, want %d", x, y, got, want)
+			}
 		}
 	}
 }
