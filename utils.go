@@ -8,7 +8,6 @@ import (
 	"runtime"
 	"strconv"
 
-	"github.com/goccy/go-yaml"
 	"github.com/mattn/go-isatty"
 	"golang.org/x/sys/unix"
 )
@@ -75,22 +74,6 @@ func init() {
 			captureStdoutStderr(logFile)
 		}
 	}
-}
-
-func LoadTestCases[T any](path string) []*T {
-	fp, err := os.Open(path)
-	if err != nil {
-		panic(err)
-	}
-	defer fp.Close()
-
-	var t []*T
-
-	if err := yaml.NewDecoder(fp, yaml.DisallowUnknownField()).Decode(&t); err != nil {
-		panic(err)
-	}
-
-	return t
 }
 
 // 返回此函数的调用者的目录文件系统。

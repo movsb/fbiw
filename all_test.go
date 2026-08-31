@@ -1,11 +1,28 @@
 package fbiw
 
 import (
+	"os"
 	"reflect"
 	"strings"
 	"testing"
 	"testing/fstest"
+
+	"github.com/goccy/go-yaml"
 )
+
+func loadTestCases[T any](path string) []*T {
+	fp, err := os.Open(path)
+	if err != nil {
+		panic(err)
+	}
+	defer fp.Close()
+
+	var cases []*T
+	if err := yaml.NewDecoder(fp, yaml.DisallowUnknownField()).Decode(&cases); err != nil {
+		panic(err)
+	}
+	return cases
+}
 
 type BoxTest struct {
 	HTML                string            `yaml:"html"`
@@ -18,7 +35,7 @@ type BoxTest struct {
 }
 
 func TestCalc(t *testing.T) {
-	cases := LoadTestCases[BoxTest](`testdata/box.yaml`)
+	cases := loadTestCases[BoxTest](`testdata/box.yaml`)
 	for i, tc := range cases {
 		fontManager := NewFontManager()
 		imageManager := NewImageManager()
@@ -97,7 +114,7 @@ type StyleParseTest struct {
 }
 
 func TestParseStyle(t *testing.T) {
-	cases := LoadTestCases[StyleParseTest](`testdata/style.yaml`)
+	cases := loadTestCases[StyleParseTest](`testdata/style.yaml`)
 	for i, tc := range cases {
 		sheet, err := ParseStyle(tc.Style)
 		if err != nil {
@@ -123,7 +140,7 @@ func TestQuery(t *testing.T) {
 		Boxes    []string
 	}
 
-	cases := LoadTestCases[_Test](`testdata/query.yaml`)
+	cases := loadTestCases[_Test](`testdata/query.yaml`)
 	for i, tc := range cases {
 		// 早期非标准页面兼容
 		if strings.HasPrefix(tc.HTML, `<block`) || strings.HasPrefix(tc.HTML, `<inline`) {
