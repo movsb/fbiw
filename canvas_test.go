@@ -2,11 +2,39 @@ package fbiw
 
 import (
 	"bytes"
+	"image"
 	"testing"
 	"testing/fstest"
 
 	"golang.org/x/image/font/gofont/goregular"
 )
+
+func TestCanvasImageAlwaysRepresentsEntireFramebuffer(t *testing.T) {
+	const width, height = 160, 48
+	tests := []struct {
+		x, y                       int
+		wantImage, wantFramebuffer image.Rectangle
+	}{
+		{0, 0, image.Rect(0, 0, width, height), image.Rect(0, 0, width, height)},
+		{-20, -10, image.Rect(0, 0, width, height), image.Rect(20, 10, width+20, height+10)},
+		{20, 10, image.Rect(0, 0, width, height), image.Rect(-20, -10, width-20, height-10)},
+		{width, height, image.Rect(0, 0, width, height), image.Rect(-width, -height, 0, 0)},
+	}
+
+	for _, tt := range tests {
+		canvas := Canvas{
+			buffer: make([]byte, width*height*4),
+			x:      tt.x, y: tt.y,
+			width: width, height: height,
+		}
+		if got := canvas.framebuffer().Bounds(); got != tt.wantImage {
+			t.Errorf("offset=(%d,%d): Image.Bounds()=%v, want %v", tt.x, tt.y, got, tt.wantImage)
+		}
+		if got := canvas.drawable().Bounds(); got != tt.wantFramebuffer {
+			t.Errorf("offset=(%d,%d): framebuffer Bounds()=%v, want %v", tt.x, tt.y, got, tt.wantFramebuffer)
+		}
+	}
+}
 
 func TestDiv255(t *testing.T) {
 	// 混色公式的分子只可能落在 [0, 255²]。穷举整个有效范围，确保移位
@@ -155,11 +183,16 @@ func TestDrawStringDeviceVersions(t *testing.T) {
 					buffer1[i+3] = 255           // A
 				}
 				buffer2 := bytes.Clone(buffer1)
+				buffer3 := bytes.Clone(buffer1)
 				canvas1 := Canvas{buffer: buffer1, x: offset.x, y: offset.y, width: width, height: height}
 				canvas2 := Canvas{buffer: buffer2, x: offset.x, y: offset.y, width: width, height: height}
+				canvas3 := Canvas{buffer: buffer3, x: offset.x, y: offset.y, width: width, height: height}
 
-				canvas1.drawStringDevice1(text, []*FontFace{face}, color, width, height)
-				canvas2.drawStringDevice2(text, []*FontFace{face}, color, width, height)
+				canvas1.drawStringDevice1(text, []*FontFace{face}, color)
+				canvas2.drawStringDevice2(text, []*FontFace{face}, color)
+				// 标准库基线路径也必须能处理负坐标和整段文字
+				// 位于屏幕外的情况，不得访问 framebuffer 之外的像素。
+				canvas3.drawStringStd(text, []*FontFace{face}, color)
 				if bytes.Equal(buffer1, buffer2) {
 					continue
 				}
@@ -474,7 +507,7 @@ func BenchmarkDrawString(b *testing.B) {
 			height: 768,
 		}
 		for b.Loop() {
-			canvas.drawStringStd(`Canvas text rendering benchmark`, []*FontFace{face}, ColorValueFromString(`red`).Color, 1024, 768)
+			canvas.drawStringStd(`Canvas text rendering benchmark`, []*FontFace{face}, ColorValueFromString(`red`).Color)
 		}
 	})
 	b.Run(`dev1`, func(b *testing.B) {
@@ -484,7 +517,7 @@ func BenchmarkDrawString(b *testing.B) {
 			height: 768,
 		}
 		for b.Loop() {
-			canvas.drawStringDevice1(`Canvas text rendering benchmark`, []*FontFace{face}, ColorValueFromString(`red`).Color, 1024, 768)
+			canvas.drawStringDevice1(`Canvas text rendering benchmark`, []*FontFace{face}, ColorValueFromString(`red`).Color)
 		}
 	})
 	b.Run(`dev2`, func(b *testing.B) {
@@ -494,7 +527,7 @@ func BenchmarkDrawString(b *testing.B) {
 			height: 768,
 		}
 		for b.Loop() {
-			canvas.drawStringDevice2(`Canvas text rendering benchmark`, []*FontFace{face}, ColorValueFromString(`red`).Color, 1024, 768)
+			canvas.drawStringDevice2(`Canvas text rendering benchmark`, []*FontFace{face}, ColorValueFromString(`red`).Color)
 		}
 	})
 }

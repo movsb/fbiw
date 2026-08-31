@@ -1246,7 +1246,6 @@ func (t *Text) Draw(canvas *Canvas) {
 			canvas.drawStringDevice(text,
 				t.document.LoadFaces(owner),
 				owner.Base().computedStyles.Color.Color,
-				rc.Width, rc.Height,
 			)
 
 			drawOffsetX += rc.Width
@@ -1591,7 +1590,7 @@ func (b *Image) Draw(canvas *Canvas) {
 	case imageLoadStatusFailed:
 		if b.err != nil {
 			// 暂时！没有换行，没有border、padding……
-			canvas.DrawString(b.err.Error(), b.document.LoadFaces(b), ColorFromRGBA(0xFF, 0, 0, 0xFF), b.layoutBox.Width, b.layoutBox.Height)
+			canvas.DrawString(b.err.Error(), b.document.LoadFaces(b), ColorFromRGBA(0xFF, 0, 0, 0xFF))
 		}
 	}
 }

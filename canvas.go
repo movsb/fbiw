@@ -58,18 +58,13 @@ func (c *Canvas) SaveToFile(path string) {
 		panic(err)
 	}
 	defer fp.Close()
-	origin := Canvas{
-		buffer: c.buffer,
-		x:      0,
-		y:      0,
-		width:  c.width,
-		height: c.height,
-	}
-	if err := png.Encode(fp, origin.Image()); err != nil {
+	if err := png.Encode(fp, c.framebuffer()); err != nil {
 		panic(err)
 	}
 }
 
+// 提供局部平移 ——— 仅仅是把内部的起点 (x,y) 平移 (x,y) 个单位，并不承担任何裁剪功能。
+// 非常类似于常见的 translate 方法。
 func (c *Canvas) Offset(x, y int) *Canvas {
 	if x == 0 && y == 0 {
 		return c
@@ -585,24 +580,29 @@ func (c *Canvas) Clear() {
 	clear(c.buffer)
 }
 
-// 返回满足 image.Image 和  draw.Image 的接口。
-func (c *Canvas) Image() draw.Image {
-	return c.toDrawable(c.width, c.height)
+// 返回包含整个 framebuffer 的 image.Image/draw.Image。
+//
+// Image 不受 Canvas 当前 Offset 影响；它主要用于导出完整屏幕截图。
+func (c *Canvas) framebuffer() draw.Image {
+	origin := *c
+	origin.x = 0
+	origin.y = 0
+	return _CanvasImage{
+		underlying: &origin,
+		bounds:     image.Rect(0, 0, c.width, c.height),
+	}
 }
 
-func (c *Canvas) toDrawable(width, height int) draw.Image {
-	fc := _CanvasImage{
+// drawable 返回整个 framebuffer 在 Canvas 局部坐标系中
+// 的可绘制范围。它与 Image 的公开语义不同：Bounds 可以包含
+// 负坐标，使负 bearing 的字形仍能在 framebuffer 边界处正确裁剪。
+//
+// 如果写(0,0)，仍然写的是 canvas.(x,y)。
+func (c *Canvas) drawable() draw.Image {
+	return _CanvasImage{
 		underlying: c,
-		width:      width,
-		height:     height,
+		bounds:     image.Rect(-c.x, -c.y, c.width-c.x, c.height-c.y),
 	}
-	if c.x+width > c.width {
-		fc.width = c.width - c.x
-	}
-	if c.y+height > c.height {
-		fc.height = c.height - c.y
-	}
-	return fc
 }
 
 // TODO 去掉。换成画矩形。
@@ -615,9 +615,9 @@ func (c *Canvas) DrawBorder(cr Color, w, h int, borderWidth int) {
 
 // 画字符串，以指定的字体、指定的颜色、于当前位置。
 //
-// width 和 height 目前应该没有使用，会完整画完指定的字符串。
-func (c *Canvas) DrawString(text string, faces []*FontFace, color Color, width, height int) {
-	c.drawStringDevice(text, faces, color, width, height)
+// 超出 framebuffer 的像素会被裁剪。
+func (c *Canvas) DrawString(text string, faces []*FontFace, color Color) {
+	c.drawStringDevice(text, faces, color)
 }
 
 // 精确计算 value / 255。
@@ -630,9 +630,9 @@ func div255(value uint32) uint8 {
 }
 
 // 内部方法：只是简单地调用官方库在当前位置画完字符串。
-func (c *Canvas) drawStringStd(text string, faces []*FontFace, color Color, width, height int) {
+func (c *Canvas) drawStringStd(text string, faces []*FontFace, color Color) {
 	drawer := font.Drawer{
-		Dst:  c.toDrawable(width, height),
+		Dst:  c.drawable(),
 		Src:  image.NewUniform(color.NRGBA()),
 		Face: faces[0],
 		Dot:  fixed.Point26_6{X: 0, Y: faces[0].Metrics().Ascent},
@@ -644,14 +644,14 @@ func (c *Canvas) drawStringStd(text string, faces []*FontFace, color Color, widt
 //
 // 和 fillAlphaBlend 系列一样保留各个版本，方便在实际设备上持续比较。
 // 正常绘制始终调用当前最快的版本。
-func (c *Canvas) drawStringDevice(text string, faces []*FontFace, color Color, width, height int) {
-	c.drawStringDevice2(text, faces, color, width, height)
+func (c *Canvas) drawStringDevice(text string, faces []*FontFace, color Color) {
+	c.drawStringDevice2(text, faces, color)
 }
 
 // 版本 1：逐像素计算屏幕坐标、判断边界并使用整数除法混色。
 //
 // 这是优化前的基线实现。不要随新版同步优化，否则基准会失去参照意义。
-func (c *Canvas) drawStringDevice1(text string, faces []*FontFace, color Color, width, height int) {
+func (c *Canvas) drawStringDevice1(text string, faces []*FontFace, color Color) {
 	prev := rune(-1)
 	dot := fixed.Point26_6{X: 0, Y: faces[0].Metrics().Ascent}
 	for _, next := range text {
@@ -719,7 +719,7 @@ func (c *Canvas) drawStringDevice1(text string, faces []*FontFace, color Color, 
 // 与目标颜色、显存中原有的 BGRA 像素混合，避免经过 image/draw 的通用
 // Color 接口和颜色模型转换。这个函数处于每帧绘制的热路径，内层循环应当
 // 尽量只保留读取 mask、混色和写回三个步骤。
-func (c *Canvas) drawStringDevice2(text string, faces []*FontFace, color Color, width, height int) {
+func (c *Canvas) drawStringDevice2(text string, faces []*FontFace, color Color) {
 	prev := rune(-1)
 	dot := fixed.Point26_6{X: 0, Y: faces[0].Metrics().Ascent}
 
@@ -1253,12 +1253,12 @@ func SegmentText(text string, maxWidth int, faces []*FontFace) (int, int, error)
 }
 
 type _CanvasImage struct {
-	underlying    *Canvas
-	width, height int
+	underlying *Canvas
+	bounds     image.Rectangle
 }
 
 func (c _CanvasImage) Bounds() image.Rectangle {
-	return image.Rect(0, 0, c.width, c.height)
+	return c.bounds
 }
 
 func (c _CanvasImage) ColorModel() color.Model {
@@ -1266,6 +1266,11 @@ func (c _CanvasImage) ColorModel() color.Model {
 }
 
 func (c _CanvasImage) At(x, y int) color.Color {
+	if !image.Pt(x, y).In(c.bounds) ||
+		c.underlying.x+x < 0 || c.underlying.x+x >= c.underlying.width ||
+		c.underlying.y+y < 0 || c.underlying.y+y >= c.underlying.height {
+		return color.NRGBA{}
+	}
 	return c.underlying.getPixel(x, y)
 }
 

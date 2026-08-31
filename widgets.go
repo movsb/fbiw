@@ -491,8 +491,8 @@ func (b *SelectBox) Draw(canvas *Canvas) {
 	fontSize := max(1, int(b.computedStyles.FontSize.Number))
 	arrowWidth := min(width, fontSize*1)
 	content := canvas.Offset(b.InsetLeft(), b.InsetTop())
-	content.DrawString(text, faces, color, max(0, width-arrowWidth), height)
-	content.Offset(max(0, width-arrowWidth), 0).DrawString(`▼`, faces, color, arrowWidth, height)
+	content.DrawString(text, faces, color)
+	content.Offset(max(0, width-arrowWidth), 0).DrawString(`▼`, faces, color)
 }
 
 func (b *SelectBox) SetItems(items []string) {
