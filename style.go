@@ -83,7 +83,7 @@ const (
 	FillScaleDown
 )
 
-var DefaultStyles = Must1(ParseStyle(`
+var DefaultStyles = Must1((StyleParser{}).ParseStyle(`
 document {
 	color: black;
 	font-family: system;
@@ -807,7 +807,16 @@ type Sheet struct {
 	Rules []Rule
 }
 
+// StyleParser 解析项目支持的 CSS 子集。
+type StyleParser struct{}
+
+// ParseStyle 是为现有调用方保留的兼容入口。
 func ParseStyle(data string) (_ *Sheet, outErr error) {
+	return (StyleParser{}).ParseStyle(data)
+}
+
+// ParseStyle 解析样式表，并将嵌套规则展开为扁平规则。
+func (p StyleParser) ParseStyle(data string) (_ *Sheet, outErr error) {
 	buf := &BufioReader{
 		Reader: bufio.NewReaderSize(strings.NewReader(data), max(4096, len(data)+1)),
 	}
@@ -824,13 +833,13 @@ func ParseStyle(data string) (_ *Sheet, outErr error) {
 		if buf.peekByte() == 0 {
 			break
 		}
-		ss.Rules = append(ss.Rules, parseRule(buf, nil)...)
+		ss.Rules = append(ss.Rules, p.parseRule(buf, nil)...)
 	}
 
 	return &ss, nil
 }
 
-func parseRule(buf *BufioReader, parents []Selector) []Rule {
+func (p StyleParser) parseRule(buf *BufioReader, parents []Selector) []Rule {
 	header := strings.TrimSpace(buf.readUntil('{'))
 	if header == `` {
 		panic(`没有选择器。`)
@@ -840,7 +849,7 @@ func parseRule(buf *BufioReader, parents []Selector) []Rule {
 	}
 	buf.Discard(1)
 
-	selectors := expandSelectors(parents, header)
+	selectors := p.expandSelectors(parents, header)
 	rules := []Rule{}
 	declarations := []Declaration{}
 	hadContent := false
@@ -873,10 +882,10 @@ func parseRule(buf *BufioReader, parents []Selector) []Rule {
 		hadContent = true
 		switch buf.nextDelimiter() {
 		case ':':
-			declarations = append(declarations, parseDeclaration(buf))
+			declarations = append(declarations, p.parseDeclaration(buf))
 		case '{':
 			flushDeclarations()
-			rules = append(rules, parseRule(buf, selectors)...)
+			rules = append(rules, p.parseRule(buf, selectors)...)
 		default:
 			panic(`缺少 { 或 :`)
 		}
@@ -944,7 +953,7 @@ func (b *BufioReader) nextDelimiter() byte {
 	}
 }
 
-func expandSelectors(parents []Selector, header string) []Selector {
+func (p StyleParser) expandSelectors(parents []Selector, header string) []Selector {
 	parts := strings.Split(header, `,`)
 	if len(parents) == 0 {
 		selectors := make([]Selector, 0, len(parts))
@@ -953,14 +962,14 @@ func expandSelectors(parents []Selector, header string) []Selector {
 			if strings.Contains(part, `&`) {
 				panic(`& 只能用在嵌套选择器中`)
 			}
-			selectors = append(selectors, parseSelectorString(part))
+			selectors = append(selectors, p.ParseSelector(part))
 		}
 		return selectors
 	}
 
 	selectors := make([]Selector, 0, len(parents)*len(parts))
 	for _, parent := range parents {
-		parentText := selectorString(parent)
+		parentText := p.selectorString(parent)
 		for _, part := range parts {
 			part = strings.TrimSpace(part)
 			if part == `` {
@@ -975,13 +984,13 @@ func expandSelectors(parents []Selector, header string) []Selector {
 			default:
 				expanded = parentText + ` ` + part
 			}
-			selectors = append(selectors, parseSelectorString(expanded))
+			selectors = append(selectors, p.ParseSelector(expanded))
 		}
 	}
 	return selectors
 }
 
-func selectorString(selector Selector) string {
+func (StyleParser) selectorString(selector Selector) string {
 	var out strings.Builder
 	for i, node := range selector {
 		if i > 0 {
@@ -1007,11 +1016,12 @@ func selectorString(selector Selector) string {
 	return out.String()
 }
 
-func parseSelectorString(selector string) Selector {
+// ParseSelector 解析单个选择器。无效选择器会 panic，与 DOM 查询的既有行为一致。
+func (p StyleParser) ParseSelector(selector string) Selector {
 	buf := BufioReader{
 		Reader: bufio.NewReader(strings.NewReader(selector)),
 	}
-	return parseSelector(&buf)
+	return p.parseSelector(&buf)
 }
 
 // 解析选择器。
@@ -1022,7 +1032,7 @@ func parseSelectorString(selector string) Selector {
 //   - .class
 //   - *
 //   - >
-func parseSelector(buf *BufioReader) []NodeSelector {
+func (p StyleParser) parseSelector(buf *BufioReader) []NodeSelector {
 	selectors := []NodeSelector{}
 	current := NodeSelector{}
 
@@ -1032,14 +1042,14 @@ func parseSelector(buf *BufioReader) []NodeSelector {
 		b := buf.peekByte()
 		if b == '#' {
 			buf.Discard(1)
-			current.ID = parseIdent(buf)
+			current.ID = p.parseIdent(buf)
 			current.Specificity += 1 << 16
 		} else if b == '.' {
 			buf.Discard(1)
-			current.Class = append(current.Class, parseIdent(buf))
+			current.Class = append(current.Class, p.parseIdent(buf))
 			current.Specificity += 1 << 8
-		} else if isIdentChar(b) {
-			current.Tag = parseIdent(buf)
+		} else if p.isIdentChar(b) {
+			current.Tag = p.parseIdent(buf)
 			current.Specificity += 1 << 0
 		} else if b == '*' {
 			buf.Discard(1)
@@ -1081,10 +1091,10 @@ func parseSelector(buf *BufioReader) []NodeSelector {
 	return selectors
 }
 
-func parseDeclaration(buf *BufioReader) Declaration {
+func (p StyleParser) parseDeclaration(buf *BufioReader) Declaration {
 	current := Declaration{}
 	buf.skipSpaces()
-	current.Name = parseIdent(buf)
+	current.Name = p.parseIdent(buf)
 	if current.Name == `` {
 		panic(`没有声明名`)
 	}
@@ -1121,15 +1131,15 @@ func parseDeclaration(buf *BufioReader) Declaration {
 	return current
 }
 
-func isIdentChar(b byte) bool {
+func (StyleParser) isIdentChar(b byte) bool {
 	return '0' <= b && b <= '9' || 'a' <= b && b <= 'z' || 'A' <= b && b <= 'Z' || b == '-' || b == '_'
 }
 
-func parseIdent(buf *BufioReader) string {
+func (p StyleParser) parseIdent(buf *BufioReader) string {
 	tmp := []byte{}
 	for {
 		b := buf.peekByte()
-		if isIdentChar(b) {
+		if p.isIdentChar(b) {
 			buf.Discard(1)
 			tmp = append(tmp, b)
 			continue

@@ -233,7 +233,7 @@ func parseDocument(owner *Document, content io.Reader) (*_ParsedDocumentData, er
 			return nil, fmt.Errorf(`不是文本节点`)
 		} else {
 			textData := styleNode.FirstChild.Data
-			sheet2, err := ParseStyle(textData)
+			sheet2, err := (StyleParser{}).ParseStyle(textData)
 			if err != nil {
 				return nil, fmt.Errorf(`样式解析失败：%w`, err)
 			}
@@ -302,7 +302,7 @@ func Bind(to any, box Box) {
 			continue
 		}
 
-		parsedSelector := parseSelectorString(selector)
+		parsedSelector := (StyleParser{}).ParseSelector(selector)
 
 		// 普通成员，非切片。只选择一个盒子。
 		if field.Type.Kind() != reflect.Slice {
@@ -703,7 +703,7 @@ func (doc *Document) GetBoxByID[T Box](id string) T {
 func (doc *Document) QuerySelector[T Box](selector string) T {
 	var outBox T
 	var ok bool
-	sel := parseSelectorString(selector)
+	sel := (StyleParser{}).ParseSelector(selector)
 	walkBox(doc.root, func(box Box) bool {
 		if doc.match(box, sel) {
 			outBox, ok = box.(T)
@@ -722,7 +722,7 @@ func (doc *Document) QuerySelector[T Box](selector string) T {
 // 选择所有匹配的元素。
 func (doc *Document) QuerySelectorAll[T Box](selector string) []T {
 	var outBoxes []T
-	sel := parseSelectorString(selector)
+	sel := (StyleParser{}).ParseSelector(selector)
 	walkBox(doc.root, func(box Box) bool {
 		if doc.match(box, sel) {
 			outBoxes = append(outBoxes, box.(T))
