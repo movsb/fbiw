@@ -660,12 +660,18 @@ func (b *SelectBox) OnChange(handler func(index int)) func() {
 var alertDialogAssets embed.FS
 
 type AlertDialogOptions struct {
+	// 标题与正文。
 	Title       string
 	Description string
 
+	// 以下均可为空。
+
+	// “确定”按钮文本。默认为“确定”。
 	ActionText    string
 	ActionVariant ButtonVariant
 	OnAction      func()
+
+	// 以下均可为空。
 
 	CancelText string
 	OnCancel   func()

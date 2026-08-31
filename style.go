@@ -356,13 +356,14 @@ const (
 )
 
 // 表示各种样式值。
+//
+// 摆放顺序大概是内存对齐后的最小空间？
 type Value struct {
-	Type _ValueType
-
+	Number int64
 	String string
 	Color  Color
-	Number int64
 	Bool   bool
+	Type   _ValueType
 }
 
 // 特别地：对于颜色来说，Empty() 只表示它没有设置，
