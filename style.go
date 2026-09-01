@@ -80,7 +80,7 @@ type Styles struct {
 	Fill Fill
 }
 
-func (s Styles) has(property styleProperty) bool {
+func (s *Styles) has(property styleProperty) bool {
 	return s.bits&uint64(property) != 0
 }
 
@@ -112,10 +112,6 @@ func (s *Styles) SetFontItalic(value bool)     { s.FontItalic = value; s.mark(pr
 func (s *Styles) SetSpacer(value bool)         { s.Spacer = value; s.mark(propertySpacer) }
 func (s *Styles) SetDisplay(value DisplayMode) { s.Display = value; s.mark(propertyDisplay) }
 func (s *Styles) SetFill(value Fill)           { s.Fill = value; s.mark(propertyFill) }
-
-func (s Styles) HasWidth() bool {
-	return s.has(propertyWidth)
-}
 
 func stylePropertyByName(name string) styleProperty {
 	switch name {
