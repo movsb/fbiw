@@ -975,10 +975,10 @@ func (doc *Document) LoadFaces(box Box) []*FontFace {
 
 	var (
 		computed = box.GetComputedStyles()
-		family   = computed.FontFamily.Str()
+		family   = computed.FontFamily
 		size     = computed.FontSize.Number()
-		bold     = computed.FontBold.Bool()
-		italic   = computed.FontItalic.Bool()
+		bold     = computed.FontBold
+		italic   = computed.FontItalic
 	)
 
 	for _, name := range ParseFontFamily(family) {

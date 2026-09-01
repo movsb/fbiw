@@ -117,7 +117,7 @@ func TestNestedStyleMatchesFlatStyle(t *testing.T) {
 func TestStylesPaddingShorthand(t *testing.T) {
 	tests := []struct {
 		raw  string
-		want Value
+		want Padding
 	}{
 		{raw: `10`, want: PaddingValue(10, 10, 10, 10)},
 		{raw: `10 20`, want: PaddingValue(10, 20, 10, 20)},
@@ -195,7 +195,7 @@ func TestStylerStyle(t *testing.T) {
 			t.Fatalf(`Style() 返回错误：%v`, err)
 		}
 
-		if got, want := box.GetComputedStyles().Color, ColorValueFromString(`blue`); got != want {
+		if got, want := box.GetComputedStyles().Color, ColorValueFromString(`blue`).Color(); got != want {
 			t.Errorf(`Color = %+v，期望页面样式覆盖默认样式后得到 %+v`, got, want)
 		}
 	})
@@ -203,7 +203,7 @@ func TestStylerStyle(t *testing.T) {
 	t.Run(`继承父节点和 document 样式`, func(t *testing.T) {
 		parent, child := newTree()
 		documentStyles := Styles{
-			Color:    ColorValueFromString(`red`),
+			Color:    ColorValueFromString(`red`).Color(),
 			FontSize: NumberValue(18),
 			Width:    NumberValue(999),
 		}
@@ -214,10 +214,10 @@ func TestStylerStyle(t *testing.T) {
 			t.Fatalf(`Style() 返回错误：%v`, err)
 		}
 
-		if got := parent.GetComputedStyles().Color; got != ColorValueFromString(`blue`) {
+		if got := parent.GetComputedStyles().Color; got != ColorValueFromString(`blue`).Color() {
 			t.Errorf(`父节点 Color = %+v，期望样式表覆盖后的蓝色`, got)
 		}
-		if got := child.GetComputedStyles().Color; got != ColorValueFromString(`blue`) {
+		if got := child.GetComputedStyles().Color; got != ColorValueFromString(`blue`).Color() {
 			t.Errorf(`子节点 Color = %+v，期望继承父节点的蓝色`, got)
 		}
 		if got := child.GetComputedStyles().FontSize; got != NumberValue(18) {

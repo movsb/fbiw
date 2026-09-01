@@ -129,10 +129,19 @@ func TestCalc(t *testing.T) {
 				if !field.IsValid() {
 					panic(`找不到字段：` + name)
 				}
-				fieldValue := field.Interface().(Value)
-				if fieldValue != expected {
+				var fieldValue any = field.Interface()
+				var expectedValue any = expected
+				switch {
+				case expected.IsColor():
+					expectedValue = expected.Color()
+				case expected.IsBool():
+					expectedValue = expected.Bool()
+				case expected.IsString():
+					expectedValue = expected.Str()
+				}
+				if fieldValue != expectedValue {
 					t.Errorf("样式错误：#%d, id: %s, name: %s\nwant: %+v\ngot:  %+v",
-						i, id, name, expected, fieldValue)
+						i, id, name, expectedValue, fieldValue)
 				}
 			}
 		}

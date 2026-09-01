@@ -47,26 +47,26 @@ type Styles struct {
 	//   - 默认("")水平居左，“center”居中。
 	//   - 默认("")垂直居顶，“middle”居中。
 	//   - “both”两者均居中。
-	Align Value
+	Align string
 
-	BackgroundColor Value
-	BackgroundImage Value
-	BorderColor     Value
-	BorderWidth     Value
-	OutlineWidth    Value
-	OutlineColor    Value
-	Color           Value
+	BackgroundColor Color
+	BackgroundImage string
+	BorderColor     Color
+	BorderWidth     int
+	OutlineWidth    int
+	OutlineColor    Color
+	Color           Color
 	Height          Value
-	Padding         Value
+	Padding         Padding
 	Width           Value
 
-	FontFamily Value // font-family
-	FontSize   Value // font-size
-	FontBold   Value // bold
-	FontItalic Value // italic
+	FontFamily string // font-family
+	FontSize   Value  // font-size
+	FontBold   bool   // bold
+	FontItalic bool   // italic
 
 	// 是否当作Spacer可变大小布局。
-	Spacer Value
+	Spacer bool
 
 	// 显示属性。布尔类型或字符串(block/inline)。
 	// 如果为true，参与排版；如果为false，完全隐藏。
@@ -77,7 +77,7 @@ type Styles struct {
 	Display Value
 
 	// 填充方式。
-	Fill Value
+	Fill Fill
 }
 
 func (s Styles) has(property styleProperty) bool {
@@ -140,10 +140,10 @@ func stylePropertyByName(name string) styleProperty {
 func (s *Styles) syncBitsFromValues() {
 	value := reflect.ValueOf(s).Elem()
 	for field, fieldValue := range value.Fields() {
-		if field.Type != reflect.TypeFor[Value]() {
+		if field.Name == `bits` {
 			continue
 		}
-		if !fieldValue.Interface().(Value).Empty() {
+		if !fieldValue.IsZero() {
 			s.mark(stylePropertyByName(field.Name))
 		}
 	}
@@ -204,16 +204,19 @@ var ErrUnknownStyleProperty = errors.New(`未知样式属性`)
 // TODO 值未变是否可以affect*=false？
 // 比如 display，这个外面设置得比较多。
 func (s *Styles) Set(name string, raw string) (affectInherit, affectLayout, affectPaint bool, outErr error) {
-	var current *Value
-	var update Value
+	var current, update any
 
 	affectInherit, affectLayout, affectPaint, current, update, outErr = s.parseProperty(name, raw)
 	if outErr == nil {
-		*current = update
+		assignStyleProperty(current, update)
 		s.mark(stylePropertyByName(name))
 	}
 
 	return
+}
+
+func assignStyleProperty(current, update any) {
+	reflect.ValueOf(current).Elem().Set(reflect.ValueOf(update))
 }
 
 var namedFontSizeScale = map[string]int{
@@ -229,90 +232,81 @@ var namedFontSizeScale = map[string]int{
 // 后面计算样式覆盖的时候会有优先级的覆盖考虑，所以不能直接覆盖。
 func (s *Styles) parseProperty(name string, raw string) (
 	affectInherit, affectLayout, affectPaint bool,
-	current *Value, update Value,
+	current, update any,
 	outErr error,
 ) {
-	setNumberOrPercentage := func(v *Value, raw string) error {
+	parseNumberOrPercentage := func(raw string) (Value, error) {
 		if before, ok := strings.CutSuffix(raw, `%`); ok {
 			n, err := strconv.Atoi(before)
-			*v = PercentageValue(n)
-			return err
+			return PercentageValue(n), err
 		} else {
 			n, err := strconv.Atoi(before)
-			*v = NumberValue(n)
-			return err
+			return NumberValue(n), err
 		}
 	}
-	setFontSize := func(v *Value, raw string) error {
+	parseFontSize := func(raw string) (Value, error) {
 		if before, ok := strings.CutSuffix(raw, `rem`); ok {
 			n, err := strconv.ParseFloat(before, 64)
 			if err != nil {
-				return err
+				return Value{}, err
 			}
 			if n < 0 {
-				return fmt.Errorf(`字号不能为负数：%s`, raw)
+				return Value{}, fmt.Errorf(`字号不能为负数：%s`, raw)
 			}
-			*v = RemValue(n)
-			return nil
+			return RemValue(n), nil
 		}
 		if n, ok := namedFontSizeScale[raw]; ok {
-			*v = PercentageValue(n)
-			return nil
+			return PercentageValue(n), nil
 		}
-		return setNumberOrPercentage(v, raw)
+		return parseNumberOrPercentage(raw)
 	}
-	setNumber := func(v *Value, raw string) error {
+	parseNumber := func(raw string) (int, error) {
 		n, err := strconv.Atoi(raw)
-		*v = NumberValue(n)
-		return err
+		return n, err
 	}
-	setPadding := func(v *Value, raw string) error {
+	parsePadding := func(raw string) (Padding, error) {
 		const maxPadding = int(^uint16(0))
 		parts := strings.Fields(raw)
 		if len(parts) < 1 || len(parts) > 4 {
-			return fmt.Errorf(`padding 需要 1 到 4 个值：%s`, raw)
+			return 0, fmt.Errorf(`padding 需要 1 到 4 个值：%s`, raw)
 		}
 		values := make([]int, len(parts))
 		for i, part := range parts {
 			n, err := strconv.Atoi(part)
 			if err != nil {
-				return err
+				return 0, err
 			}
 			if n < 0 || n > maxPadding {
-				return fmt.Errorf(`padding 必须在 0 到 %d 之间：%s`, maxPadding, raw)
+				return 0, fmt.Errorf(`padding 必须在 0 到 %d 之间：%s`, maxPadding, raw)
 			}
 			values[i] = n
 		}
 		switch len(values) {
 		case 1:
-			*v = PaddingValue(values[0], values[0], values[0], values[0])
+			return PaddingValue(values[0], values[0], values[0], values[0]), nil
 		case 2:
-			*v = PaddingValue(values[0], values[1], values[0], values[1])
+			return PaddingValue(values[0], values[1], values[0], values[1]), nil
 		case 3:
-			*v = PaddingValue(values[0], values[1], values[2], values[1])
+			return PaddingValue(values[0], values[1], values[2], values[1]), nil
 		case 4:
-			*v = PaddingValue(values[0], values[1], values[2], values[3])
+			return PaddingValue(values[0], values[1], values[2], values[3]), nil
 		}
-		return nil
+		panic(`unreachable`)
 	}
-	setColor := func(v *Value, raw string) error {
+	parseColor := func(raw string) (Color, error) {
 		vv, err := ParseColor(raw)
-		*v = vv
-		return err
+		return vv.Color(), err
 	}
-	setBoolean := func(v *Value, raw string, emptyIsTrue bool) error {
+	parseBoolean := func(raw string, emptyIsTrue bool) (bool, error) {
 		switch raw {
 		case `1`, `true`:
-			*v = BoolValue(true)
-			return nil
+			return true, nil
 		case `0`, `false`:
-			*v = BoolValue(false)
-			return nil
+			return false, nil
 		case ``:
-			*v = BoolValue(emptyIsTrue)
-			return nil
+			return emptyIsTrue, nil
 		default:
-			return fmt.Errorf(`未知布尔值：%v`, raw)
+			return false, fmt.Errorf(`未知布尔值：%v`, raw)
 		}
 	}
 	switch name {
@@ -322,7 +316,7 @@ func (s *Styles) parseProperty(name string, raw string) (
 	case `align`:
 		if raw == `` || raw == `center` || raw == `middle` || raw == `both` {
 			current = &s.Align
-			update = StringValue(raw)
+			update = raw
 			affectLayout = true
 			return
 		}
@@ -331,103 +325,105 @@ func (s *Styles) parseProperty(name string, raw string) (
 	case `background-color`:
 		affectPaint = true
 		current = &s.BackgroundColor
-		outErr = setColor(&update, raw)
+		update, outErr = parseColor(raw)
 		return
 	case `background-image`:
 		current = &s.BackgroundImage
-		update = StringValue(raw)
+		update = raw
 		affectPaint = true
 		return
 	case `border-color`:
 		affectPaint = true
 		current = &s.BorderColor
-		outErr = setColor(&update, raw)
+		update, outErr = parseColor(raw)
 		return
 	case `border-width`:
 		affectLayout = true
 		current = &s.BorderWidth
-		outErr = setNumber(&update, raw)
+		update, outErr = parseNumber(raw)
 		return
 	case `outline-color`:
 		affectPaint = true
 		current = &s.OutlineColor
-		outErr = setColor(&update, raw)
+		update, outErr = parseColor(raw)
 		return
 	case `outline-width`:
 		// outline不会影响布局。
 		// affectLayout = true
 		current = &s.OutlineWidth
-		outErr = setNumber(&update, raw)
+		update, outErr = parseNumber(raw)
 		return
 	case `color`:
 		affectInherit = true
 		affectPaint = true
 		current = &s.Color
-		outErr = setColor(&update, raw)
+		update, outErr = parseColor(raw)
 		return
 	case `height`:
 		affectLayout = true
 		current = &s.Height
-		outErr = setNumberOrPercentage(&update, raw)
+		update, outErr = parseNumberOrPercentage(raw)
 		return
 	case `padding`:
 		affectLayout = true
 		current = &s.Padding
-		outErr = setPadding(&update, raw)
+		update, outErr = parsePadding(raw)
 		return
 	case `width`:
 		affectLayout = true
 		current = &s.Width
-		outErr = setNumberOrPercentage(&update, raw)
+		update, outErr = parseNumberOrPercentage(raw)
 		return
 	case `font-family`:
 		// 不同字体大小不一样，所以也会影响布局
 		affectInherit = true
 		affectLayout = true
 		current = &s.FontFamily
-		update = StringValue(raw)
+		update = raw
 		return
 	case `font-size`:
 		affectInherit = true
 		affectLayout = true
 		current = &s.FontSize
-		outErr = setFontSize(&update, raw)
+		update, outErr = parseFontSize(raw)
 		return
 	case `bold`, `font-bold`:
 		affectInherit = true
 		affectLayout = true
 		current = &s.FontBold
-		outErr = setBoolean(&update, raw, true)
+		update, outErr = parseBoolean(raw, true)
 		return
 	case `italic`, `font-italic`:
 		affectInherit = true
 		affectLayout = true
 		current = &s.FontItalic
-		outErr = setBoolean(&update, raw, true)
+		update, outErr = parseBoolean(raw, true)
 		return
 	case `spacer`:
 		affectLayout = true
 		current = &s.Spacer
-		outErr = setBoolean(&update, raw, true)
+		update, outErr = parseBoolean(raw, true)
 		return
 	case `display`:
 		affectLayout = true
 		current = &s.Display
-		outErr = setBoolean(&update, raw, true)
+		var boolean bool
+		boolean, outErr = parseBoolean(raw, true)
+		update = BoolValue(boolean)
 		return
 	case `fill`:
 		affectLayout = true
 		switch raw {
 		case ``, `stretch`:
-			update = NumberValue(0)
+			update = FillStretch
 		case `none`:
-			update = NumberValue(int(FillNone))
+			update = FillNone
 		case `contain`:
-			update = NumberValue(int(FillContain))
+			update = FillContain
 		case `cover`:
-			update = NumberValue(int(FillCover))
+			update = FillCover
 		case `scale-down`:
-			update = NumberValue(int(FillScaleDown))
+			update = FillScaleDown
 		default:
 			outErr = fmt.Errorf(`不认识的填充方式: %s`, raw)
 			return
@@ -541,33 +537,32 @@ func RemValue(v float64) Value {
 	}
 }
 
-func PaddingValue(top, right, bottom, left int) Value {
+type Padding uint64
+
+func PaddingValue(top, right, bottom, left int) Padding {
 	packed := uint64(top)<<48 |
 		uint64(right)<<32 |
 		uint64(bottom)<<16 |
 		uint64(left)
-	return Value{
-		ty:     VTNumber,
-		number: int64(packed),
-	}
+	return Padding(packed)
 }
 
 const paddingMask = uint64(0xffff)
 
-func (v Value) PaddingTop() int {
-	return int(uint64(v.number) >> 48 & paddingMask)
+func (p Padding) PaddingTop() int {
+	return int(uint64(p) >> 48 & paddingMask)
 }
 
-func (v Value) PaddingRight() int {
-	return int(uint64(v.number) >> 32 & paddingMask)
+func (p Padding) PaddingRight() int {
+	return int(uint64(p) >> 32 & paddingMask)
 }
 
-func (v Value) PaddingBottom() int {
-	return int(uint64(v.number) >> 16 & paddingMask)
+func (p Padding) PaddingBottom() int {
+	return int(uint64(p) >> 16 & paddingMask)
 }
 
-func (v Value) PaddingLeft() int {
-	return int(uint64(v.number) & paddingMask)
+func (p Padding) PaddingLeft() int {
+	return int(uint64(p) & paddingMask)
 }
 func BoolValue(v bool) Value {
 	return Value{
@@ -1314,7 +1309,7 @@ func (s _Styler) computeStyles(node Box, rules [][]RuleMatch) error {
 		}
 		property := stylePropertyByName(d.Name)
 		if !styles.has(property) {
-			*current = update
+			assignStyleProperty(current, update)
 			styles.mark(property)
 		}
 	}
@@ -1327,7 +1322,7 @@ func (s _Styler) computeStyles(node Box, rules [][]RuleMatch) error {
 			continue
 		}
 		property := stylePropertyByName(field.Name)
-		if field.Type == reflect.TypeFor[Value]() && !styles.has(property) {
+		if !styles.has(property) {
 			setFromParent := false
 			for parent := range node.Base().Ancestors() {
 				parentStyles := parent.GetComputedStyles()

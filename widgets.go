@@ -482,7 +482,7 @@ func (b *SelectBox) Draw(canvas *Canvas) {
 	}
 
 	text := b.placeholder
-	color := b.computedStyles.Color.Color()
+	color := b.computedStyles.Color
 	if selected, ok := b.Selected(); ok {
 		text = selected
 	}

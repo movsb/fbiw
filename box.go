@@ -342,19 +342,19 @@ func (b *BaseBox) paddingLeft() int {
 }
 
 func (b *BaseBox) InsetTop() int {
-	return int(b.computedStyles.BorderWidth.Number()) + b.paddingTop()
+	return b.computedStyles.BorderWidth + b.paddingTop()
 }
 
 func (b *BaseBox) InsetRight() int {
-	return int(b.computedStyles.BorderWidth.Number()) + b.paddingRight()
+	return b.computedStyles.BorderWidth + b.paddingRight()
 }
 
 func (b *BaseBox) InsetBottom() int {
-	return int(b.computedStyles.BorderWidth.Number()) + b.paddingBottom()
+	return b.computedStyles.BorderWidth + b.paddingBottom()
 }
 
 func (b *BaseBox) InsetLeft() int {
-	return int(b.computedStyles.BorderWidth.Number()) + b.paddingLeft()
+	return b.computedStyles.BorderWidth + b.paddingLeft()
 }
 
 func (b *BaseBox) HorizontalInsets() int {
@@ -399,28 +399,28 @@ func (b *BaseBox) Draw(canvas *Canvas) {
 // 所有盒子通用的画法。
 // 包括：Outline、Border、Background、Children。
 func (b *BaseBox) draw(canvas *Canvas, drawChildren bool) {
-	borderWidth := int(b.computedStyles.BorderWidth.Number())
+	borderWidth := b.computedStyles.BorderWidth
 	layoutWidth := b.layoutBox.Width
 	layoutHeight := b.layoutBox.Height
 
-	if outlineWidth := int(b.computedStyles.OutlineWidth.Number()); outlineWidth > 0 {
-		if outlineColor := b.computedStyles.OutlineColor; outlineColor.IsColor() && !outlineColor.Color().IsNone() {
+	if outlineWidth := b.computedStyles.OutlineWidth; outlineWidth > 0 {
+		if outlineColor := b.computedStyles.OutlineColor; b.computedStyles.has(propertyOutlineColor) && !outlineColor.IsNone() {
 			// Outline（外边框）是不算在盒子本身的width和height内的，
 			// 所以要负向（左上）偏移到父元素。
 			canvas := canvas.Offset(-outlineWidth, -outlineWidth)
 			// 同时，宽度和高度有要向右下偏移。
 			width := layoutWidth + outlineWidth*2
 			height := layoutHeight + outlineWidth*2
-			canvas.DrawBorder(outlineColor.Color(), width, height, outlineWidth)
+			canvas.DrawBorder(outlineColor, width, height, outlineWidth)
 		}
 	}
 
 	// 默认都是 border-box，所以以实际的宽和高为准。
-	if bcv := b.computedStyles.BorderColor; borderWidth > 0 && !bcv.Empty() && !bcv.Color().IsNone() {
-		canvas.DrawBorder(bcv.Color(), layoutWidth, layoutHeight, borderWidth)
+	if bcv := b.computedStyles.BorderColor; borderWidth > 0 && b.computedStyles.has(propertyBorderColor) && !bcv.IsNone() {
+		canvas.DrawBorder(bcv, layoutWidth, layoutHeight, borderWidth)
 	}
 
-	if src := b.computedStyles.BackgroundImage.Str(); src != `` {
+	if src := b.computedStyles.BackgroundImage; src != `` {
 		width := layoutWidth - borderWidth*2
 		height := layoutHeight - borderWidth*2
 		canvas := canvas.Offset(borderWidth, borderWidth)
@@ -434,12 +434,12 @@ func (b *BaseBox) draw(canvas *Canvas, drawChildren bool) {
 				}
 			})
 		}
-	} else if bcv := b.computedStyles.BackgroundColor; !bcv.Empty() && !bcv.Color().IsNone() {
+	} else if bcv := b.computedStyles.BackgroundColor; b.computedStyles.has(propertyBackgroundColor) && !bcv.IsNone() {
 		canvas.Offset(borderWidth, borderWidth).FillRect(
 			0, 0,
 			layoutWidth-borderWidth*2,
 			layoutHeight-borderWidth*2,
-			bcv.Color(),
+			bcv,
 		)
 	}
 
@@ -504,7 +504,7 @@ func blockCalc(b *BaseBox, availWidth, availHeight int, constraints Constraints)
 		if spacer, ok := child.(*Spacer); ok && spacer.computedStyles.Height.Empty() {
 			zeroSpacers = append(zeroSpacers, spacer)
 			contentHeight += spacer.VerticalInsets()
-		} else if child.Base().computedStyles.Spacer.Bool() {
+		} else if child.Base().computedStyles.Spacer {
 			zeroSpacers = append(zeroSpacers, child)
 			contentHeight += child.Base().VerticalInsets()
 		} else {
@@ -559,13 +559,13 @@ func blockCalc(b *BaseBox, availWidth, availHeight int, constraints Constraints)
 	// 先是垂直对齐。
 	// 对于block来说，垂直方向不止一个元素，需要整体平移。
 	offsetY := b.InsetTop()
-	if align := computed.Align.Str(); align == `both` || align == `middle` {
+	if align := computed.Align; align == `both` || align == `middle` {
 		offsetY += (b.layoutBox.Height - b.VerticalInsets() - contentHeight) / 2
 	}
 
 	// 然后是水平对齐。
 	// 水平对齐需要对每一个子元素单独改（因为它们是在垂直方向排列的，不在一条水平线上）。
-	alignCenter := computed.Align.Str() == `both` || computed.Align.Str() == `center`
+	alignCenter := computed.Align == `both` || computed.Align == `center`
 
 	for _, child := range b.children {
 		if !displaying(child) {
@@ -623,7 +623,7 @@ func inlineCalc(b *BaseBox, availWidth, availHeight int, constraints Constraints
 		if spacer, ok := child.(*Spacer); ok && spacer.computedStyles.Width.Empty() {
 			zeroSpacers = append(zeroSpacers, spacer)
 			contentWidth += spacer.HorizontalInsets()
-		} else if child.Base().computedStyles.Spacer.Bool() {
+		} else if child.Base().computedStyles.Spacer {
 			zeroSpacers = append(zeroSpacers, child)
 			contentWidth += child.Base().HorizontalInsets()
 		} else {
@@ -684,13 +684,13 @@ func inlineCalc(b *BaseBox, availWidth, availHeight int, constraints Constraints
 	// 先是水平对齐。
 	// 对于inline来说，水平方向不止一个元素，需要整体平移。
 	// BUG: inline 是可以跨行的。这里没有考虑多行元素的对齐。
-	if align := computed.Align.Str(); align == `both` || align == `center` {
+	if align := computed.Align; align == `both` || align == `center` {
 		offsetX += (b.layoutBox.Width - b.HorizontalInsets() - contentWidth) / 2
 	}
 
 	// 然后是垂直对齐。也只处理了单行元素。
 	// 垂直对齐需要对每一个子元素单独改（因为它们是水平排列的，不在一条竖线上）。
-	alignMiddle := computed.Align.Str() == `both` || computed.Align.Str() == `middle`
+	alignMiddle := computed.Align == `both` || computed.Align == `middle`
 
 	for _, child := range b.children {
 		if !displaying(child) {
@@ -1231,21 +1231,21 @@ func (t *Text) Draw(canvas *Canvas) {
 		}
 
 		// 如果是水平居中。
-		drawOffsetX := t.InsetLeft() + line.horizontalOffset(contentWidth, t.computedStyles.Align.Str())
+		drawOffsetX := t.InsetLeft() + line.horizontalOffset(contentWidth, t.computedStyles.Align)
 
 		for _, fragment := range line.Fragments {
 			rc := fragment.layoutBox
 			owner := fragment.Run.Owner
 			canvas := canvas.Offset(drawOffsetX, drawOffsetY)
 
-			if cr := owner.Base().computedStyles.BackgroundColor; cr.IsColor() && !cr.Color().IsNone() {
-				canvas.FillRect(0, 0, rc.Width, rc.Height, cr.Color())
+			if cr := owner.Base().computedStyles.BackgroundColor; owner.Base().computedStyles.has(propertyBackgroundColor) && !cr.IsNone() {
+				canvas.FillRect(0, 0, rc.Width, rc.Height, cr)
 			}
 
 			text := fragment.Run.Data[fragment.Start:fragment.End]
 			canvas.DrawString(text,
 				t.document.LoadFaces(owner),
-				owner.Base().computedStyles.Color.Color(),
+				owner.Base().computedStyles.Color,
 			)
 
 			drawOffsetX += rc.Width
@@ -1511,7 +1511,7 @@ func (b *Image) Calc(availWidth, availHeight int, constraints Constraints) {
 			fittingWidth = b.decodedImage.Width
 			fittingHeight = b.decodedImage.Height
 		} else {
-			switch fill := Fill(b.computedStyles.Fill.Number()); fill {
+			switch fill := b.computedStyles.Fill; fill {
 			case FillStretch:
 				fittingWidth = b.layoutBox.Width
 				fittingHeight = b.layoutBox.Height

@@ -26,7 +26,7 @@ func TestSegmentInlineStopsWhenFirstCharacterDoesNotFit(t *testing.T) {
 	doc := _NewDocument(100, 100, nil, fontManager, nil)
 	text := NewText(doc)
 	text.computedStyles = Styles{
-		FontFamily: StringValue(`system`),
+		FontFamily: `system`,
 		FontSize:   NumberValue(32),
 	}
 	text.SetText(`A`)
@@ -54,7 +54,7 @@ func TestSegmentBlockKeepsLineHeightWhenAvailableHeightIsSmaller(t *testing.T) {
 	doc := _NewDocument(100, 30, nil, fontManager, nil)
 	text := NewText(doc)
 	text.computedStyles = Styles{
-		FontFamily: StringValue(`system`),
+		FontFamily: `system`,
 		FontSize:   NumberValue(32),
 	}
 	text.SetText(`A`)
