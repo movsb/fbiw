@@ -702,7 +702,6 @@ func (c *Canvas) drawStringStd(text string, faces []*FontFace, color Color) {
 // 和 fillAlphaBlend 系列一样保留各个版本，方便在实际设备上持续比较。
 // 正常绘制始终调用当前最快的版本。
 func (c *Canvas) drawStringDevice(text string, faces []*FontFace, color Color) {
-	log.Println(`画文本:`, text)
 	c.drawStringDevice2(text, faces, color)
 }
 
@@ -874,10 +873,7 @@ type _ImageCacheKey struct {
 	fsys          fs.FS
 	path          string
 	width, height int
-}
-type _ImageConfigCacheKey struct {
-	fsys fs.FS
-	path string
+	options       ImageDecodeOptions
 }
 
 // 用标准库的 draw.Draw 造成了极多不必要的计算，
@@ -886,13 +882,20 @@ type _ImageConfigCacheKey struct {
 // 所以这里直接在内存中保存目标格式，加快渲染效率。
 type DecodedImage struct {
 	Pixels        []byte // 内存格式：B G R A，长度：width*height*4
-	Width, Height int
-	Opaque        bool // 整张图片的 Alpha 是否全部为 255；用于选择直接复制路径。
+	Width, Height int    // 如果指定了移除透明像素，则保存的是移除后的大小。
+	Opaque        bool   // 整张图片的 Alpha 是否全部为 255；用于选择直接复制路径。
+}
+
+// ImageDecodeOptions 控制图片解码时执行的变换。
+type ImageDecodeOptions struct {
+	// TrimTransparentBorder 移除图片四周全部像素均为全透明的行和列。
+	// 全透明图片会保留为一个透明像素。
+	// 先移除再计算大小。
+	TrimTransparentBorder bool
 }
 
 type ImageManager struct {
 	contentCache *lru.TTLCache[_ImageCacheKey, DecodedImage]
-	configCache  *lru.TTLCache[_ImageConfigCacheKey, DecodedImage]
 
 	// 图片加载可能被异步调用。
 	closed atomic.Bool
@@ -902,7 +905,6 @@ func NewImageManager() *ImageManager {
 	return &ImageManager{
 		// https://github.com/phuslu/lru/issues/32
 		contentCache: lru.NewTTLCache(1024, lru.WithShards[_ImageCacheKey, DecodedImage](1)),
-		configCache:  lru.NewTTLCache(1024, lru.WithShards[_ImageConfigCacheKey, DecodedImage](1)),
 	}
 }
 
@@ -912,53 +914,9 @@ func (m *ImageManager) Close() {
 	m.closed.Store(true)
 }
 
-func (m *ImageManager) decodeImageConfigCached(fsys fs.FS, path string, checking bool) (DecodedImage, error) {
-	if m.closed.Load() {
-		return DecodedImage{}, fs.ErrClosed
-	}
-
-	key := _ImageConfigCacheKey{
-		fsys: fsys,
-		path: path,
-	}
-	if checking {
-		img, found := m.configCache.Get(key)
-		if found {
-			return img, nil
-		}
-		return img, os.ErrNotExist
-	}
-	img, err, _ := m.configCache.GetOrLoad(context.Background(), key,
-		func(ctx context.Context, _ _ImageConfigCacheKey) (DecodedImage, time.Duration, error) {
-			width, height, err := m.decodeImageConfig(fsys, path)
-			return DecodedImage{Width: width, Height: height}, time.Minute * 30, err
-		},
-	)
-	return img, err
-}
-
-func (m *ImageManager) decodeImageConfig(fsys fs.FS, path string) (int, int, error) {
-	if m.closed.Load() {
-		return 0, 0, fs.ErrClosed
-	}
-
-	fp, err := fsys.Open(path)
-	if err != nil {
-		log.Println(err, path)
-		return 0, 0, err
-	}
-	defer fp.Close()
-	img, _, err := image.DecodeConfig(fp)
-	if err != nil {
-		log.Println(err)
-		return 0, 0, err
-	}
-	return img.Width, img.Height, nil
-}
-
 // 如果 width和height均为0，返回原图大小。
 // 否则表示指定缩放到此大小。
-func (m *ImageManager) decodeImage(fsys fs.FS, path string, wantWidth, wantHeight int) (DecodedImage, error) {
+func (m *ImageManager) decodeImage(fsys fs.FS, path string, wantWidth, wantHeight int, options ImageDecodeOptions) (DecodedImage, error) {
 	if m.closed.Load() {
 		return DecodedImage{}, fs.ErrClosed
 	}
@@ -976,6 +934,9 @@ func (m *ImageManager) decodeImage(fsys fs.FS, path string, wantWidth, wantHeigh
 	if err != nil {
 		log.Println(`图片解码错误`, err, path)
 		return DecodedImage{}, err
+	}
+	if options.TrimTransparentBorder {
+		img = trimTransparentBorder(img)
 	}
 
 	width, height := img.Bounds().Dx(), img.Bounds().Dy()
@@ -1045,25 +1006,54 @@ func (m *ImageManager) decodeImage(fsys fs.FS, path string, wantWidth, wantHeigh
 	return decoded, nil
 }
 
-// 多线程安全。
-func (m *ImageManager) GetImageCached(fsys fs.FS, path string) (DecodedImage, error) {
-	return m.getImageCached(fsys, path, 0, 0, false)
+func trimTransparentBorder(img image.Image) image.Image {
+	bounds := img.Bounds()
+	content := image.Rectangle{Min: bounds.Max, Max: bounds.Min}
+	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+		for x := bounds.Min.X; x < bounds.Max.X; x++ {
+			_, _, _, alpha := img.At(x, y).RGBA()
+			if alpha == 0 {
+				continue
+			}
+			content.Min.X = min(content.Min.X, x)
+			content.Min.Y = min(content.Min.Y, y)
+			content.Max.X = max(content.Max.X, x+1)
+			content.Max.Y = max(content.Max.Y, y+1)
+		}
+	}
+
+	if content.Empty() {
+		return image.NewNRGBA(image.Rect(0, 0, 1, 1))
+	}
+	if content == bounds {
+		return img
+	}
+
+	trimmed := image.NewNRGBA(image.Rect(0, 0, content.Dx(), content.Dy()))
+	draw.Draw(trimmed, trimmed.Bounds(), img, content.Min, draw.Src)
+	return trimmed
 }
 
 // 多线程安全。
-func (m *ImageManager) GetImageScaledCached(fsys fs.FS, path string, width, height int, checking bool) (DecodedImage, error) {
-	return m.getImageCached(fsys, path, width, height, checking)
+func (m *ImageManager) GetImageCached(fsys fs.FS, path string, options ImageDecodeOptions) (DecodedImage, error) {
+	return m._getImageCached(fsys, path, 0, 0, false, options)
 }
 
-func (m *ImageManager) getImageCached(fsys fs.FS, path string, width, height int, checking bool) (DecodedImage, error) {
+// 多线程安全。
+func (m *ImageManager) GetImageScaledCached(fsys fs.FS, path string, width, height int, checking bool, options ImageDecodeOptions) (DecodedImage, error) {
+	return m._getImageCached(fsys, path, width, height, checking, options)
+}
+
+func (m *ImageManager) _getImageCached(fsys fs.FS, path string, width, height int, checking bool, options ImageDecodeOptions) (DecodedImage, error) {
 	if m.closed.Load() {
 		return DecodedImage{}, fs.ErrClosed
 	}
 	key := _ImageCacheKey{
-		fsys:   fsys,
-		path:   path,
-		width:  width,
-		height: height,
+		fsys:    fsys,
+		path:    path,
+		width:   width,
+		height:  height,
+		options: options,
 	}
 	if checking {
 		img, found := m.contentCache.Get(key)
@@ -1074,10 +1064,19 @@ func (m *ImageManager) getImageCached(fsys fs.FS, path string, width, height int
 	}
 	img, err, _ := m.contentCache.GetOrLoad(context.Background(), key,
 		func(ctx context.Context, _ _ImageCacheKey) (DecodedImage, time.Duration, error) {
-			decoded, err := m.decodeImage(fsys, path, width, height)
+			decoded, err := m.decodeImage(fsys, path, width, height, options)
 			return decoded, time.Minute * 10, err
 		},
 	)
+
+	// 如果没指定尺寸，则应该用实际的尺寸也缓存一份。
+	if width == 0 && height == 0 && err == nil {
+		k := key
+		k.width = img.Width
+		k.height = img.Height
+		m.contentCache.SetIfAbsent(k, img, time.Minute*10)
+	}
+
 	return img, err
 }
 

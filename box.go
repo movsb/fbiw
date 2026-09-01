@@ -425,15 +425,18 @@ func (b *BaseBox) draw(canvas *Canvas, drawChildren bool) {
 		width := layoutWidth - borderWidth*2
 		height := layoutHeight - borderWidth*2
 		canvas := canvas.Offset(borderWidth, borderWidth)
-		img, _ := b.document._loadImage(src, width, height, true)
-		if len(img.Pixels) > 0 {
+		img, err := b.document.loadImageSync(src, width, height, ImageDecodeOptions{TrimTransparentBorder: true})
+		if err == nil && len(img.Pixels) > 0 {
 			canvas.DrawImage(img)
 		} else {
-			b.document.loadImageAsync(src, width, height, func(di DecodedImage, err error) {
-				if err == nil {
-					b.document.RequestPaint()
-				}
-			})
+			b.document.loadImageAsync(src, width, height,
+				ImageDecodeOptions{TrimTransparentBorder: true},
+				func(di DecodedImage, err error) {
+					if err == nil {
+						b.document.RequestPaint()
+					}
+				},
+			)
 		}
 	} else if bcv := b.computedStyles.BackgroundColor; b.computedStyles.has(propertyBackgroundColor) && !bcv.IsNone() {
 		canvas.Offset(borderWidth, borderWidth).FillRect(
@@ -1380,17 +1383,15 @@ func (t *ItalicText) AppendChild(child any) {
 	t.textParts.appendChildOrText(t, child)
 }
 
-// 为什么比web的图片要多一个parsing状态？
-// 因为内部缓存的是已经解码/转码/缩放后的图片，原始图片不保存。
-// 计算一次，绘制多次。
+// 缩放完成才是最终Draw的形态。
 type _ImageLoadingStatus uint8
 
 const (
 	imageLoadStatusNone     _ImageLoadingStatus = iota // 还没开始
-	imageLoadStatusParsing                             // 解析配置中
-	imageLoadStatusParsed                              // 解析完成，已取得基础配置
-	imageLoadStatusDecoding                            // 缩放中
+	imageLoadStatusDecoding                            // 解码中
 	imageLoadStatusDecoded                             // 完成，并且加载成功
+	imageLoadStatusScaling                             // 缩放中
+	imageLoadStatusScaled                              // 完成，并且已缩放
 	imageLoadStatusFailed                              // 完成，并且加载失败
 )
 
@@ -1473,15 +1474,16 @@ func (b *Image) Calc(availWidth, availHeight int, constraints Constraints) {
 	switch b.status {
 	case imageLoadStatusNone:
 		// 如果有缓存的大小信息，直接用。
-		if img, err := b.document.loadImageConfigSync(b.src); err == nil {
+		// 这里总是以零大小加载，不缩放，才能获取到原始大小信息。
+		if img, err := b.document.loadImageSync(b.src, 0, 0, ImageDecodeOptions{TrimTransparentBorder: true}); err == nil {
 			b.decodedImage = img
-			b.status = imageLoadStatusParsed
+			b.status = imageLoadStatusDecoded
 			b.Calc(availWidth, availHeight, constraints)
 			return
 		}
 
-		// 如果缓存的原始尺寸信息，异步加载。
-		b.document.loadImageConfigAsync(b.src,
+		b.document.loadImageAsync(b.src, 0, 0,
+			ImageDecodeOptions{TrimTransparentBorder: true},
 			func(img DecodedImage, err error) {
 				if err != nil {
 					b.err = err
@@ -1489,16 +1491,16 @@ func (b *Image) Calc(availWidth, availHeight int, constraints Constraints) {
 					return
 				}
 				b.decodedImage = img
-				b.status = imageLoadStatusParsed
+				b.status = imageLoadStatusDecoded
 				b.document.RequestLayout()
 			},
 		)
-		b.status = imageLoadStatusParsing
+		b.status = imageLoadStatusDecoding
 		return
-	case imageLoadStatusParsing:
+	case imageLoadStatusDecoding:
 		break
-	case imageLoadStatusParsed:
-		// 图片元数据加载成功，获得了真实尺寸，重新布局。
+	case imageLoadStatusDecoded:
+		// 图片数据加载成功，获得了真实尺寸，重新布局。
 		fittingWidth, fittingHeight := 0, 0
 
 		if b.layoutBox.Width == 0 || b.layoutBox.Height == 0 {
@@ -1544,27 +1546,30 @@ func (b *Image) Calc(availWidth, availHeight int, constraints Constraints) {
 			return
 		}
 
-		if di, err := b.document.loadImageSync(b.src, fittingWidth, fittingHeight); err == nil {
+		if di, err := b.document.loadImageSync(b.src, fittingWidth, fittingHeight, ImageDecodeOptions{TrimTransparentBorder: true}); err == nil {
 			b.decodedImage = di
-			b.status = imageLoadStatusDecoded
+			b.status = imageLoadStatusScaled
 			b.Calc(availWidth, availHeight, constraints)
 			return
 		}
 
-		b.document.loadImageAsync(b.src, fittingWidth, fittingHeight, func(di DecodedImage, err error) {
-			if err != nil {
-				b.status = imageLoadStatusFailed
-				b.err = err
-				return
-			}
-			b.decodedImage = di
-			b.status = imageLoadStatusDecoded
-			b.document.RequestPaint()
-		})
+		b.document.loadImageAsync(b.src, fittingWidth, fittingHeight,
+			ImageDecodeOptions{TrimTransparentBorder: true},
+			func(di DecodedImage, err error) {
+				if err != nil {
+					b.status = imageLoadStatusFailed
+					b.err = err
+					return
+				}
+				b.decodedImage = di
+				b.status = imageLoadStatusScaled
+				b.document.RequestPaint()
+			},
+		)
 
-		b.status = imageLoadStatusDecoding
+		b.status = imageLoadStatusScaling
 		return
-	case imageLoadStatusDecoded:
+	case imageLoadStatusScaled:
 		if b.layoutBox.Width == 0 {
 			b.layoutBox.Width = b.decodedImage.Width
 		}
@@ -1580,7 +1585,7 @@ func (b *Image) Draw(canvas *Canvas) {
 	b.Base().draw(canvas, false)
 
 	switch b.status {
-	case imageLoadStatusDecoded:
+	case imageLoadStatusScaled:
 		// TODO 没处理border和padding
 		// 图片的宽高不一定等于容器。contain 会在容器内居中；
 		// cover/none 可能超出容器，此时从图片中心裁出可见部分。

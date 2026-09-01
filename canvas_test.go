@@ -3,11 +3,64 @@ package fbiw
 import (
 	"bytes"
 	"image"
+	"image/color"
+	"image/png"
 	"testing"
 	"testing/fstest"
 
 	"golang.org/x/image/font/gofont/goregular"
 )
+
+func TestDecodeImageTrimTransparentBorder(t *testing.T) {
+	source := image.NewNRGBA(image.Rect(0, 0, 6, 5))
+	source.SetNRGBA(2, 1, color.NRGBA{R: 10, G: 20, B: 30, A: 128})
+	source.SetNRGBA(3, 1, color.NRGBA{R: 40, G: 50, B: 60, A: 255})
+	source.SetNRGBA(2, 2, color.NRGBA{R: 70, G: 80, B: 90, A: 255})
+	source.SetNRGBA(3, 2, color.NRGBA{R: 100, G: 110, B: 120, A: 255})
+
+	var encoded bytes.Buffer
+	if err := png.Encode(&encoded, source); err != nil {
+		t.Fatal(err)
+	}
+	mapFS := fstest.MapFS{"border.png": &fstest.MapFile{Data: encoded.Bytes()}}
+	fsys := &mapFS
+	manager := NewImageManager()
+
+	untrimmed, err := manager.GetImageCached(fsys, "border.png", ImageDecodeOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if untrimmed.Width != 6 || untrimmed.Height != 5 {
+		t.Fatalf("未开启裁剪时尺寸错误：%dx%d", untrimmed.Width, untrimmed.Height)
+	}
+
+	trimmed, err := manager.GetImageCached(fsys, "border.png", ImageDecodeOptions{
+		TrimTransparentBorder: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if trimmed.Width != 2 || trimmed.Height != 2 {
+		t.Fatalf("裁剪后尺寸错误：%dx%d", trimmed.Width, trimmed.Height)
+	}
+	if got := trimmed.Pixels[:4]; !bytes.Equal(got, []byte{30, 20, 10, 128}) {
+		t.Fatalf("裁剪后的首个像素错误：%v", got)
+	}
+	if trimmed.Opaque {
+		t.Fatal("裁剪不应改变内容像素的半透明状态")
+	}
+}
+
+func TestTrimTransparentBorderFullyTransparent(t *testing.T) {
+	trimmed := trimTransparentBorder(image.NewNRGBA(image.Rect(0, 0, 8, 6)))
+	if trimmed.Bounds() != image.Rect(0, 0, 1, 1) {
+		t.Fatalf("全透明图片应保留一个透明像素：%v", trimmed.Bounds())
+	}
+	_, _, _, alpha := trimmed.At(0, 0).RGBA()
+	if alpha != 0 {
+		t.Fatalf("保留的像素应为全透明：alpha=%d", alpha)
+	}
+}
 
 func TestCanvasImageAlwaysRepresentsEntireFramebuffer(t *testing.T) {
 	const width, height = 160, 48
