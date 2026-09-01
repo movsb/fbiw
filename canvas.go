@@ -12,6 +12,7 @@ import (
 	"log"
 	"os"
 	"simd/archsimd"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 	"unsafe"
@@ -892,6 +893,9 @@ type DecodedImage struct {
 type ImageManager struct {
 	contentCache *lru.TTLCache[_ImageCacheKey, DecodedImage]
 	configCache  *lru.TTLCache[_ImageConfigCacheKey, DecodedImage]
+
+	// 图片加载可能被异步调用。
+	closed atomic.Bool
 }
 
 func NewImageManager() *ImageManager {
@@ -902,12 +906,17 @@ func NewImageManager() *ImageManager {
 	}
 }
 
+// 不需要清空两个cache，因为刚刚启动的 goroutine 可能仍然在访问。
+// 原子锁没有阻止此行为。
 func (m *ImageManager) Close() {
-	m.configCache = nil
-	m.contentCache = nil
+	m.closed.Store(true)
 }
 
 func (m *ImageManager) decodeImageConfigCached(fsys fs.FS, path string, checking bool) (DecodedImage, error) {
+	if m.closed.Load() {
+		return DecodedImage{}, fs.ErrClosed
+	}
+
 	key := _ImageConfigCacheKey{
 		fsys: fsys,
 		path: path,
@@ -929,6 +938,10 @@ func (m *ImageManager) decodeImageConfigCached(fsys fs.FS, path string, checking
 }
 
 func (m *ImageManager) decodeImageConfig(fsys fs.FS, path string) (int, int, error) {
+	if m.closed.Load() {
+		return 0, 0, fs.ErrClosed
+	}
+
 	fp, err := fsys.Open(path)
 	if err != nil {
 		log.Println(err, path)
@@ -946,6 +959,10 @@ func (m *ImageManager) decodeImageConfig(fsys fs.FS, path string) (int, int, err
 // 如果 width和height均为0，返回原图大小。
 // 否则表示指定缩放到此大小。
 func (m *ImageManager) decodeImage(fsys fs.FS, path string, wantWidth, wantHeight int) (DecodedImage, error) {
+	if m.closed.Load() {
+		return DecodedImage{}, fs.ErrClosed
+	}
+
 	log.Println(`重新解码：`, path)
 
 	fp, err := fsys.Open(path)
@@ -1039,6 +1056,9 @@ func (m *ImageManager) GetImageScaledCached(fsys fs.FS, path string, width, heig
 }
 
 func (m *ImageManager) getImageCached(fsys fs.FS, path string, width, height int, checking bool) (DecodedImage, error) {
+	if m.closed.Load() {
+		return DecodedImage{}, fs.ErrClosed
+	}
 	key := _ImageCacheKey{
 		fsys:   fsys,
 		path:   path,
