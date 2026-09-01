@@ -388,18 +388,18 @@ func TestStylerStyle(t *testing.T) {
 }
 
 func TestSpecialColors(t *testing.T) {
-	transparent := ColorValue(Color(0))
-	if transparent.Color().IsNone() || transparent.Color().IsClear() {
-		t.Fatal("透明黑色不应是特殊颜色")
+	transparent := ColorFromRGBA(0, 0, 2, 0)
+	if transparent != 0 {
+		t.Fatalf("透明颜色未规范化为零：%#x", transparent)
+	}
+	if transparent.IsNone() || transparent.IsClear() {
+		t.Fatal("普通透明颜色不应成为特殊颜色")
 	}
 
-	none := ColorValue(colorNone)
-	if !none.Color().IsNone() || none.Color().Value() != 0 {
+	if !ColorValue(colorNone).Color().IsNone() {
 		t.Fatal("none 编码错误")
 	}
-
-	clear := ColorValue(colorClear)
-	if !clear.Color().IsClear() || clear.Color().Value() != 0 {
+	if !ColorValue(colorClear).Color().IsClear() {
 		t.Fatal("clear 编码错误")
 	}
 }

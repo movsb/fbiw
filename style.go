@@ -477,15 +477,16 @@ func BoolValue(v bool) Value {
 
 // 0xAA_RR_GG_BB
 // 低32位与设备的像素格式匹配（低端序）
-type Color int64
+type Color uint32
 
+// 特殊值的AA始终为零，所以是安全的。
 const (
 	// 特殊值：判断是否为空色。
 	//
 	// 如果父元素设备了背景，子元素不想要。
 	// 这时候如果什么也不写，会导致继承。
 	// 所以只能写个none。
-	colorNone Color = (iota + 1) << 32
+	colorNone Color = iota + 1
 
 	// 特殊的打洞色。
 	// 使用此色后，此块屏幕区域会直接清空成透明色。
@@ -497,6 +498,9 @@ const (
 )
 
 func ColorFromRGBA(r, g, b, a uint8) Color {
+	if a == 0 {
+		return 0
+	}
 	out := uint32(0)
 	out |= uint32(b) << 0
 	out |= uint32(g) << 8
