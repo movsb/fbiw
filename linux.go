@@ -52,15 +52,13 @@ func openDisplay() *Display {
 	}
 	fmt.Println("OK!")
 
-	d.Data = make([]byte, len(data))
-
 	d.close = func() {
 		unix.Munmap(data)
 		unix.Close(fd)
 	}
 
-	d.sync = func() {
-		copy(data, d.Data)
+	d.sync = func(pixels []byte) {
+		copy(data, pixels)
 		// 对fb来说，很难有用，非原子的。
 		waitForVSync(fd)
 		// 任何时候改offset都能导致直接从新的地方读，跟v sync无关，fb的缺陷。

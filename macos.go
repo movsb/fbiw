@@ -49,14 +49,12 @@ func openDisplay() *Display {
 	if err != nil {
 		panic(err)
 	}
-	// d.Data = buffer.Pixels()
-	d.Data = make([]byte, len(buffer.Pixels()))
 
 	originRect := sdl.Rect{X: 0, Y: 0, W: windowWidth, H: windowHeight}
 	scaledRect := sdl.Rect{X: 0, Y: 0, W: windowWidth, H: windowHeight}
 
-	d.sync = func() {
-		copy(buffer.Pixels(), d.Data)
+	d.sync = func(pixels []byte) {
+		copy(buffer.Pixels(), pixels)
 		buffer.Blit(&originRect, surface, &scaledRect)
 		window.UpdateSurface()
 	}

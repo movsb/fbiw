@@ -99,7 +99,7 @@ func NewApp(options ...Option) *App {
 
 	app := &App{
 		display: display,
-		canvas:  NewCanvas(display),
+		canvas:  NewCanvas(display.Width, display.Height),
 		images:  NewImageManager(),
 		fonts:   NewFontManager(),
 
@@ -533,7 +533,7 @@ func (app *App) sync() {
 		overlay.sync(app.canvas, false, true)
 	}
 
-	app.display.Sync()
+	app.display.Sync(app.canvas.buffer)
 	app.dirty = false
 	app.overlayChanged = false
 

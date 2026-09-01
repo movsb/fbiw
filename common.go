@@ -74,18 +74,15 @@ type Display struct {
 	// 位深以及一行的字节数（带padding）
 	Bpp, Stride int
 
-	// 内部双缓冲，可放心写这个缓冲。
-	Data []byte
-
 	// 写完后调用此方法同步到屏幕。
-	sync func()
+	sync func(pixels []byte)
 
 	close func()
 }
 
 // 把数据同步到屏幕显示。
-func (d *Display) Sync() {
-	d.sync()
+func (d *Display) Sync(pixels []byte) {
+	d.sync(pixels)
 }
 
 // 关闭屏幕（断开与屏幕的连接）。

@@ -42,13 +42,16 @@ type Canvas struct {
 	width, height int
 }
 
-func NewCanvas(display *Display) *Canvas {
+func NewCanvas(width, height int) *Canvas {
+	if width <= 0 || height <= 0 {
+		panic(`无效Canvas大小`)
+	}
 	return &Canvas{
-		buffer: display.Data,
+		width:  width,
+		height: height,
 		x:      0,
 		y:      0,
-		width:  display.Width,
-		height: display.Height,
+		buffer: make([]byte, width*height*4),
 	}
 }
 
@@ -698,6 +701,7 @@ func (c *Canvas) drawStringStd(text string, faces []*FontFace, color Color) {
 // 和 fillAlphaBlend 系列一样保留各个版本，方便在实际设备上持续比较。
 // 正常绘制始终调用当前最快的版本。
 func (c *Canvas) drawStringDevice(text string, faces []*FontFace, color Color) {
+	log.Println(`画文本:`, text)
 	c.drawStringDevice2(text, faces, color)
 }
 
