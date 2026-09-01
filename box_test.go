@@ -25,10 +25,9 @@ func TestSegmentInlineStopsWhenFirstCharacterDoesNotFit(t *testing.T) {
 	}
 	doc := _NewDocument(100, 100, nil, fontManager, nil)
 	text := NewText(doc)
-	text.computedStyles = Styles{
-		FontFamily: `system`,
-		FontSize:   NumberLength(32),
-	}
+	text.computedStyles = Styles{}
+	text.computedStyles.SetFontFamily(`system`)
+	text.computedStyles.SetFontSize(NumberLength(32))
 	text.SetText(`A`)
 
 	if more := text.SegmentInline(1, 100); more {
@@ -53,10 +52,9 @@ func TestSegmentBlockKeepsLineHeightWhenAvailableHeightIsSmaller(t *testing.T) {
 	}
 	doc := _NewDocument(100, 30, nil, fontManager, nil)
 	text := NewText(doc)
-	text.computedStyles = Styles{
-		FontFamily: `system`,
-		FontSize:   NumberLength(32),
-	}
+	text.computedStyles = Styles{}
+	text.computedStyles.SetFontFamily(`system`)
+	text.computedStyles.SetFontSize(NumberLength(32))
 	text.SetText(`A`)
 
 	text.SegmentBlock(100, 30)
@@ -165,7 +163,7 @@ func TestScrollWidthConstraintControlsItemSizing(t *testing.T) {
 		scroll._setItems(1, func() (Box, any) {
 			item = NewBlock(doc)
 			item._EventTarget.box = item
-			item.inlineStyles.Width = NumberLength(30)
+			item.inlineStyles.SetWidth(NumberLength(30))
 			return item, nil
 		}, func(any, int) {})
 		return scroll, item

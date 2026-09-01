@@ -319,11 +319,11 @@ func (b *BaseBox) presetSize(parentTotalAvailWidth, parentTotalAvailHeight int) 
 		// 这里比较特殊：把计算值写回参考值中了。
 		// 正常来说，这个在排版（非样式计算）过程中是只读的，真正的值应该写到 layoutBox。
 		// 但是由于每次计算这个值都会因为百分比变化，没有因为单次排版而被固定，所以看起来没有问题？
-		b.computedStyles.Width = NumberLength(w)
+		b.computedStyles.SetWidth(NumberLength(w))
 	}
 	if b.computedStyles.Height.IsPercentage() {
 		h := int(float32(b.computedStyles.Height.Number()) / 100 * float32(parentTotalAvailHeight))
-		b.computedStyles.Height = NumberLength(h)
+		b.computedStyles.SetHeight(NumberLength(h))
 	}
 }
 

@@ -157,7 +157,7 @@ func TestStylerStyle(t *testing.T) {
 	t.Run(`应用默认样式、文档样式和内联样式`, func(t *testing.T) {
 		box := &BaseBox{Tag: `block`, ID: `target`}
 		box.class.Set(`featured`)
-		box.inlineStyles.Padding = PaddingValue(40, 40, 40, 40)
+		box.inlineStyles.SetPadding(PaddingValue(40, 40, 40, 40))
 
 		styler := _Styler{
 			defaultStyles: Must1(ParseStyle(`block { width: 10; height: 20; }`)),
@@ -202,11 +202,10 @@ func TestStylerStyle(t *testing.T) {
 
 	t.Run(`继承父节点和 document 样式`, func(t *testing.T) {
 		parent, child := newTree()
-		documentStyles := Styles{
-			Color:    ColorFromString(`red`),
-			FontSize: NumberLength(18),
-			Width:    NumberLength(999),
-		}
+		documentStyles := Styles{}
+		documentStyles.SetColor(ColorFromString(`red`))
+		documentStyles.SetFontSize(NumberLength(18))
+		documentStyles.SetWidth(NumberLength(999))
 		styler := _Styler{documentStyles: &documentStyles}
 		sheet := Must1(ParseStyle(`block { color: blue; }`))
 
@@ -287,7 +286,8 @@ func TestStylerStyle(t *testing.T) {
 		root.children = []Box{absoluteChild, fractionalChild}
 		absoluteChild.children = []Box{grandchild}
 
-		documentStyles := Styles{FontSize: NumberLength(20)}
+		documentStyles := Styles{}
+		documentStyles.SetFontSize(NumberLength(20))
 		styler := _Styler{documentStyles: &documentStyles}
 		sheet := Must1(ParseStyle(`
 			block { font-size: 1.5rem; }
@@ -417,6 +417,13 @@ func TestStylesPropertyBits(t *testing.T) {
 	}
 	if got := styles.Width.Number(); got != 0 {
 		t.Fatalf("width = %d，期望 0", got)
+	}
+
+	styles.SetBorderWidth(0)
+	styles.SetFontBold(false)
+	styles.SetAlign("")
+	if !styles.has(propertyBorderWidth) || !styles.has(propertyFontBold) || !styles.has(propertyAlign) {
+		t.Fatal("类型化 setter 必须标记显式零值")
 	}
 }
 

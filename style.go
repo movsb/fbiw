@@ -40,6 +40,8 @@ const (
 )
 
 // 用于保存节点的样式值。
+//
+// 值可以直接读取，但是如果需要写入，应该调用应对的 Set*。
 type Styles struct {
 	bits uint64
 
@@ -86,6 +88,31 @@ func (s *Styles) mark(property styleProperty) {
 	s.bits |= uint64(property)
 }
 
+func (s *Styles) SetAlign(value string) { s.Align = value; s.mark(propertyAlign) }
+func (s *Styles) SetBackgroundColor(value Color) {
+	s.BackgroundColor = value
+	s.mark(propertyBackgroundColor)
+}
+func (s *Styles) SetBackgroundImage(value string) {
+	s.BackgroundImage = value
+	s.mark(propertyBackgroundImage)
+}
+func (s *Styles) SetBorderColor(value Color)   { s.BorderColor = value; s.mark(propertyBorderColor) }
+func (s *Styles) SetBorderWidth(value int)     { s.BorderWidth = value; s.mark(propertyBorderWidth) }
+func (s *Styles) SetOutlineWidth(value int)    { s.OutlineWidth = value; s.mark(propertyOutlineWidth) }
+func (s *Styles) SetOutlineColor(value Color)  { s.OutlineColor = value; s.mark(propertyOutlineColor) }
+func (s *Styles) SetColor(value Color)         { s.Color = value; s.mark(propertyColor) }
+func (s *Styles) SetHeight(value Length)       { s.Height = value; s.mark(propertyHeight) }
+func (s *Styles) SetPadding(value Padding)     { s.Padding = value; s.mark(propertyPadding) }
+func (s *Styles) SetWidth(value Length)        { s.Width = value; s.mark(propertyWidth) }
+func (s *Styles) SetFontFamily(value string)   { s.FontFamily = value; s.mark(propertyFontFamily) }
+func (s *Styles) SetFontSize(value Length)     { s.FontSize = value; s.mark(propertyFontSize) }
+func (s *Styles) SetFontBold(value bool)       { s.FontBold = value; s.mark(propertyFontBold) }
+func (s *Styles) SetFontItalic(value bool)     { s.FontItalic = value; s.mark(propertyFontItalic) }
+func (s *Styles) SetSpacer(value bool)         { s.Spacer = value; s.mark(propertySpacer) }
+func (s *Styles) SetDisplay(value DisplayMode) { s.Display = value; s.mark(propertyDisplay) }
+func (s *Styles) SetFill(value Fill)           { s.Fill = value; s.mark(propertyFill) }
+
 func (s Styles) HasWidth() bool {
 	return s.has(propertyWidth)
 }
@@ -130,20 +157,6 @@ func stylePropertyByName(name string) styleProperty {
 		return propertyFill
 	default:
 		return 0
-	}
-}
-
-// 兼容包内已有的结构体字面量和直接字段赋值。迁移为专用字段后，
-// 所有写入都应通过 setter 同时维护位图，届时可以删除这个方法。
-func (s *Styles) syncBitsFromValues() {
-	value := reflect.ValueOf(s).Elem()
-	for field, fieldValue := range value.Fields() {
-		if field.Name == `bits` {
-			continue
-		}
-		if !fieldValue.IsZero() {
-			s.mark(stylePropertyByName(field.Name))
-		}
 	}
 }
 
@@ -1246,14 +1259,9 @@ func (s _Styler) declarationsByPriority(rulesSet [][]RuleMatch) iter.Seq[Declara
 // 为节点计算样式。依次完成 cascade、defaulting 和相对值计算，
 // 最后直接将结果保存到节点。
 func (s _Styler) computeStyles(node Box, rules [][]RuleMatch) error {
-	if s.documentStyles != nil {
-		s.documentStyles.syncBitsFromValues()
-	}
-
 	// Cascade：内联样式优先，然后从高到低查找样式表声明。每个属性
 	// 一旦取得值，低优先级声明就不能再覆盖它。
 	styles := node.Base().inlineStyles
-	styles.syncBitsFromValues()
 	stylesValue := reflect.ValueOf(&styles).Elem()
 	for d := range s.declarationsByPriority(rules) {
 		_, _, _, current, update, err := styles.parseProperty(d.Name, d.Value)
