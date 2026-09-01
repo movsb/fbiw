@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"reflect"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -1407,7 +1408,13 @@ type Image struct {
 	decodedImage DecodedImage
 
 	// 如果失败？
-	err error
+	err     error
+	tmpFile *_ImageTempFile
+}
+
+type _ImageTempFile struct {
+	path    string
+	cleanup runtime.Cleanup
 }
 
 func NewImage(doc *Document) *Image {
@@ -1424,6 +1431,11 @@ func (b *Image) SetProp(key string, val string) error {
 		b.src = val
 		b.status = imageLoadStatusNone
 		b.err = nil
+		if old := b.tmpFile; old != nil {
+			old.cleanup.Stop()
+			os.Remove(old.path)
+			b.tmpFile = nil
+		}
 		b.document.RequestLayout()
 		return nil
 	default:
@@ -1448,12 +1460,17 @@ func (b *Image) SetImage(img image.Image) {
 		}
 		defer fp.Close()
 		if err := png.Encode(fp, img); err != nil {
+			os.Remove(fp.Name())
 			log.Println(err)
 			return
 		}
 		path := fp.Name()
 		b.document.Async(func() {
 			b.SetPath(path)
+			cleanup := runtime.AddCleanup(b, func(path string) {
+				os.Remove(path)
+			}, path)
+			b.tmpFile = &_ImageTempFile{path: path, cleanup: cleanup}
 		})
 	}()
 }
