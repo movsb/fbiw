@@ -313,14 +313,14 @@ func (b *BaseBox) presetSize(parentTotalAvailWidth, parentTotalAvailHeight int) 
 	if b.computedStyles.Width.IsPercentage() {
 		// 百分比暂时优先级更高，所以如果窗口大小变了。b.Width会怎样？
 		// 因为百分比才是真实的初始化，Width原本是没有的。
-		w := int(float32(b.computedStyles.Width.Number) / 100 * float32(parentTotalAvailWidth))
+		w := int(float32(b.computedStyles.Width.Number()) / 100 * float32(parentTotalAvailWidth))
 		// 这里比较特殊：把计算值写回参考值中了。
 		// 正常来说，这个在排版（非样式计算）过程中是只读的，真正的值应该写到 layoutBox。
 		// 但是由于每次计算这个值都会因为百分比变化，没有因为单次排版而被固定，所以看起来没有问题？
 		b.computedStyles.Width = NumberValue(w)
 	}
 	if b.computedStyles.Height.IsPercentage() {
-		h := int(float32(b.computedStyles.Height.Number) / 100 * float32(parentTotalAvailHeight))
+		h := int(float32(b.computedStyles.Height.Number()) / 100 * float32(parentTotalAvailHeight))
 		b.computedStyles.Height = NumberValue(h)
 	}
 }
@@ -342,19 +342,19 @@ func (b *BaseBox) paddingLeft() int {
 }
 
 func (b *BaseBox) InsetTop() int {
-	return int(b.computedStyles.BorderWidth.Number) + b.paddingTop()
+	return int(b.computedStyles.BorderWidth.Number()) + b.paddingTop()
 }
 
 func (b *BaseBox) InsetRight() int {
-	return int(b.computedStyles.BorderWidth.Number) + b.paddingRight()
+	return int(b.computedStyles.BorderWidth.Number()) + b.paddingRight()
 }
 
 func (b *BaseBox) InsetBottom() int {
-	return int(b.computedStyles.BorderWidth.Number) + b.paddingBottom()
+	return int(b.computedStyles.BorderWidth.Number()) + b.paddingBottom()
 }
 
 func (b *BaseBox) InsetLeft() int {
-	return int(b.computedStyles.BorderWidth.Number) + b.paddingLeft()
+	return int(b.computedStyles.BorderWidth.Number()) + b.paddingLeft()
 }
 
 func (b *BaseBox) HorizontalInsets() int {
@@ -380,7 +380,7 @@ func (b *BaseBox) Calc(availWidth, availHeight int, constraints Constraints) {
 		return
 	}
 
-	display := b.computedStyles.Display.String
+	display := b.computedStyles.Display.Str()
 
 	if b.Tag == `block` || display == `block` {
 		blockCalc(b, availWidth, availHeight, constraints)
@@ -399,11 +399,11 @@ func (b *BaseBox) Draw(canvas *Canvas) {
 // 所有盒子通用的画法。
 // 包括：Outline、Border、Background、Children。
 func (b *BaseBox) draw(canvas *Canvas, drawChildren bool) {
-	borderWidth := int(b.computedStyles.BorderWidth.Number)
+	borderWidth := int(b.computedStyles.BorderWidth.Number())
 	layoutWidth := b.layoutBox.Width
 	layoutHeight := b.layoutBox.Height
 
-	if outlineWidth := int(b.computedStyles.OutlineWidth.Number); outlineWidth > 0 {
+	if outlineWidth := int(b.computedStyles.OutlineWidth.Number()); outlineWidth > 0 {
 		if outlineColor := b.computedStyles.OutlineColor; outlineColor.IsColor() && !outlineColor.Color().IsNone() {
 			// Outline（外边框）是不算在盒子本身的width和height内的，
 			// 所以要负向（左上）偏移到父元素。
@@ -420,7 +420,7 @@ func (b *BaseBox) draw(canvas *Canvas, drawChildren bool) {
 		canvas.DrawBorder(bcv.Color(), layoutWidth, layoutHeight, borderWidth)
 	}
 
-	if src := b.computedStyles.BackgroundImage.String; src != `` {
+	if src := b.computedStyles.BackgroundImage.Str(); src != `` {
 		width := layoutWidth - borderWidth*2
 		height := layoutHeight - borderWidth*2
 		canvas := canvas.Offset(borderWidth, borderWidth)
@@ -481,8 +481,8 @@ func blockCalc(b *BaseBox, availWidth, availHeight int, constraints Constraints)
 	computed := &b.computedStyles
 
 	// 根据自身大小及可用空间大小取最佳值。
-	boxMaxWidth := Iif(computed.Width.IsNumber(), int(computed.Width.Number), availWidth)
-	boxMaxHeight := Iif(computed.Height.IsNumber(), int(computed.Height.Number), availHeight)
+	boxMaxWidth := Iif(computed.Width.IsNumber(), int(computed.Width.Number()), availWidth)
+	boxMaxHeight := Iif(computed.Height.IsNumber(), int(computed.Height.Number()), availHeight)
 
 	// 内容区域可用的大小。
 	contentAvailWidth := boxMaxWidth - b.HorizontalInsets()
@@ -546,8 +546,8 @@ func blockCalc(b *BaseBox, availWidth, availHeight int, constraints Constraints)
 		}
 	}
 
-	// if hv := b.computedStyles.Height; hv.IsNumber() && hv.Number-b.verticalInsets() > contentHeight {
-	// 	contentHeight = hv.Number - b.verticalInsets()
+	// if hv := b.computedStyles.Height; hv.IsNumber() && hv.Number()-b.verticalInsets() > contentHeight {
+	// 	contentHeight = hv.Number() - b.verticalInsets()
 	// }
 
 	// 此时已经可以确定容器本身的大小了。
@@ -559,13 +559,13 @@ func blockCalc(b *BaseBox, availWidth, availHeight int, constraints Constraints)
 	// 先是垂直对齐。
 	// 对于block来说，垂直方向不止一个元素，需要整体平移。
 	offsetY := b.InsetTop()
-	if align := computed.Align.String; align == `both` || align == `middle` {
+	if align := computed.Align.Str(); align == `both` || align == `middle` {
 		offsetY += (b.layoutBox.Height - b.VerticalInsets() - contentHeight) / 2
 	}
 
 	// 然后是水平对齐。
 	// 水平对齐需要对每一个子元素单独改（因为它们是在垂直方向排列的，不在一条水平线上）。
-	alignCenter := computed.Align.String == `both` || computed.Align.String == `center`
+	alignCenter := computed.Align.Str() == `both` || computed.Align.Str() == `center`
 
 	for _, child := range b.children {
 		if !displaying(child) {
@@ -599,8 +599,8 @@ func inlineCalc(b *BaseBox, availWidth, availHeight int, constraints Constraints
 	computed := &b.computedStyles
 
 	// 根据自身大小及可用空间大小取最佳值。
-	boxMaxWidth := Iif(computed.Width.IsNumber(), int(computed.Width.Number), availWidth)
-	boxMaxHeight := Iif(computed.Height.IsNumber(), int(computed.Height.Number), availHeight)
+	boxMaxWidth := Iif(computed.Width.IsNumber(), int(computed.Width.Number()), availWidth)
+	boxMaxHeight := Iif(computed.Height.IsNumber(), int(computed.Height.Number()), availHeight)
 
 	// 内容区域可用的大小。
 	contentAvailWidth := boxMaxWidth - b.HorizontalInsets()
@@ -647,8 +647,8 @@ func inlineCalc(b *BaseBox, availWidth, availHeight int, constraints Constraints
 	}
 
 	// 指定了高度，且内容实际没有高度高，则扩展到指定高度。
-	if hv := b.computedStyles.Height; hv.IsNumber() && int(hv.Number)-b.VerticalInsets() > contentMaxHeight {
-		contentMaxHeight = int(hv.Number) - b.VerticalInsets()
+	if hv := b.computedStyles.Height; hv.IsNumber() && int(hv.Number())-b.VerticalInsets() > contentMaxHeight {
+		contentMaxHeight = int(hv.Number()) - b.VerticalInsets()
 	}
 
 	// 如果父元素希望最大，则在重新调整前直接使用。
@@ -684,13 +684,13 @@ func inlineCalc(b *BaseBox, availWidth, availHeight int, constraints Constraints
 	// 先是水平对齐。
 	// 对于inline来说，水平方向不止一个元素，需要整体平移。
 	// BUG: inline 是可以跨行的。这里没有考虑多行元素的对齐。
-	if align := computed.Align.String; align == `both` || align == `center` {
+	if align := computed.Align.Str(); align == `both` || align == `center` {
 		offsetX += (b.layoutBox.Width - b.HorizontalInsets() - contentWidth) / 2
 	}
 
 	// 然后是垂直对齐。也只处理了单行元素。
 	// 垂直对齐需要对每一个子元素单独改（因为它们是水平排列的，不在一条竖线上）。
-	alignMiddle := computed.Align.String == `both` || computed.Align.String == `middle`
+	alignMiddle := computed.Align.Str() == `both` || computed.Align.Str() == `middle`
 
 	for _, child := range b.children {
 		if !displaying(child) {
@@ -717,7 +717,7 @@ func inlineCalc(b *BaseBox, availWidth, availHeight int, constraints Constraints
 
 func resolveSize(computed Value, available int, prefersAvailable bool, actual int) int {
 	if computed.IsNumber() {
-		return int(computed.Number)
+		return int(computed.Number())
 	}
 	if prefersAvailable {
 		return available
@@ -752,8 +752,8 @@ func (b *Stack) Calc(availWidth, availHeight int, constrains Constraints) {
 	computed := &b.computedStyles
 
 	// 根据自身大小及可用空间大小取最佳值。
-	boxMaxWidth := Iif(computed.Width.IsNumber(), int(computed.Width.Number), availWidth)
-	boxMaxHeight := Iif(computed.Height.IsNumber(), int(computed.Height.Number), availHeight)
+	boxMaxWidth := Iif(computed.Width.IsNumber(), int(computed.Width.Number()), availWidth)
+	boxMaxHeight := Iif(computed.Height.IsNumber(), int(computed.Height.Number()), availHeight)
 
 	// 内容区域可用的大小。
 	contentAvailWidth := boxMaxWidth - b.HorizontalInsets()
@@ -803,8 +803,8 @@ func (b *Stack) Calc(availWidth, availHeight int, constrains Constraints) {
 	// 	// child.Base().layoutBox.Width = contentAvailWidth
 	// 	child.Base().layoutBox.Height = contentMaxHeight
 	// }
-	// if hv := b.computedStyles.Height; hv.IsNumber() && hv.Number-b.verticalInsets() > contentMaxHeight {
-	// 	contentMaxHeight = hv.Number - b.verticalInsets()
+	// if hv := b.computedStyles.Height; hv.IsNumber() && hv.Number()-b.verticalInsets() > contentMaxHeight {
+	// 	contentMaxHeight = hv.Number() - b.verticalInsets()
 	// }
 
 	// if len(zeroSpacers) > 0 {
@@ -829,12 +829,12 @@ func (b *Stack) Calc(availWidth, availHeight int, constrains Constraints) {
 
 	b.layoutBox.Width = Iif(
 		computed.Width.IsNumber(),
-		int(computed.Width.Number),
+		int(computed.Width.Number()),
 		Iif(constrains.PrefersMaxWidth, availWidth, contentAvailWidth),
 	)
 	b.layoutBox.Height = Iif(
 		computed.Height.IsNumber(),
-		int(computed.Height.Number),
+		int(computed.Height.Number()),
 		Iif(constrains.PrefersMaxHeight, availHeight, contentMaxHeight),
 	)
 }
@@ -1029,14 +1029,14 @@ func (t *Text) SegmentBlock(availWidth, availHeight int) {
 
 	// 文本的宽度肯定是限制在可用宽度内的，目前超宽的始终折行。
 	if w := t.computedStyles.Width; w.IsNumber() {
-		t.layoutBox.Width = int(w.Number)
+		t.layoutBox.Width = int(w.Number())
 	} else {
 		t.layoutBox.Width = t.textLineMaxWidth + t.HorizontalInsets()
 	}
 
 	// 但是高度就有可能超出盒子的高度了。
 	if h := t.computedStyles.Height; h.IsNumber() {
-		t.layoutBox.Height = int(h.Number)
+		t.layoutBox.Height = int(h.Number())
 	} else {
 		// 文本高度随字体变化太麻烦，这里不应该简单取min值。取了min值后如果box高度不够，
 		// 居中还是按小的居中，结果就是没有效果。如果按大的来，虽然会占用一点padding，但是至少是真的在中间。
@@ -1085,8 +1085,8 @@ func (t *Text) SegmentInline(availWidth, availHeight int) bool {
 	computed := &t.computedStyles
 
 	// 根据自身大小及可用空间大小取最佳值。
-	boxMaxWidth := Iif(computed.Width.IsNumber(), int(computed.Width.Number), availWidth)
-	// boxMaxHeight := Iif(computed.Height.IsNumber(), computed.Height.Number, availHeight)
+	boxMaxWidth := Iif(computed.Width.IsNumber(), int(computed.Width.Number()), availWidth)
+	// boxMaxHeight := Iif(computed.Height.IsNumber(), computed.Height.Number(), availHeight)
 
 	// 内容区域可用的大小。
 	contentAvailWidth := boxMaxWidth - t.HorizontalInsets()
@@ -1231,7 +1231,7 @@ func (t *Text) Draw(canvas *Canvas) {
 		}
 
 		// 如果是水平居中。
-		drawOffsetX := t.InsetLeft() + line.horizontalOffset(contentWidth, t.computedStyles.Align.String)
+		drawOffsetX := t.InsetLeft() + line.horizontalOffset(contentWidth, t.computedStyles.Align.Str())
 
 		for _, fragment := range line.Fragments {
 			rc := fragment.layoutBox
@@ -1468,8 +1468,8 @@ func (b *Image) Calc(availWidth, availHeight int, constraints Constraints) {
 	b.layoutBox.Height = Iif(constraints.PrefersMaxHeight, availHeight, 0)
 
 	if !b.computedStyles.Width.Empty() && !b.computedStyles.Height.Empty() {
-		b.layoutBox.Width = int(b.computedStyles.Width.Number)
-		b.layoutBox.Height = int(b.computedStyles.Height.Number)
+		b.layoutBox.Width = int(b.computedStyles.Width.Number())
+		b.layoutBox.Height = int(b.computedStyles.Height.Number())
 	}
 
 	if b.src == `` {
@@ -1511,7 +1511,7 @@ func (b *Image) Calc(availWidth, availHeight int, constraints Constraints) {
 			fittingWidth = b.decodedImage.Width
 			fittingHeight = b.decodedImage.Height
 		} else {
-			switch fill := Fill(b.computedStyles.Fill.Number); fill {
+			switch fill := Fill(b.computedStyles.Fill.Number()); fill {
 			case FillStretch:
 				fittingWidth = b.layoutBox.Width
 				fittingHeight = b.layoutBox.Height
@@ -1674,8 +1674,8 @@ func NewScroll(doc *Document) *Scroll {
 func (b *Scroll) Calc(availWidth, availHeight int, constraints Constraints) {
 	var (
 		computed     = &b.computedStyles
-		boxMaxWidth  = Iif(computed.Width.IsNumber(), int(computed.Width.Number), availWidth)
-		boxMaxHeight = Iif(computed.Height.IsNumber(), int(computed.Height.Number), availHeight)
+		boxMaxWidth  = Iif(computed.Width.IsNumber(), int(computed.Width.Number()), availWidth)
+		boxMaxHeight = Iif(computed.Height.IsNumber(), int(computed.Height.Number()), availHeight)
 
 		contentAvailWidth  = boxMaxWidth - (b.HorizontalInsets() + (b.cols-1)*b.gap)
 		contentAvailHeight = boxMaxHeight - (b.VerticalInsets() + (b.rows-1)*b.gap)

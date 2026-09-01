@@ -710,7 +710,7 @@ func TestAlertDialogEmptyDescriptionHidesViewport(t *testing.T) {
 	if displaying(dialog.view.descriptionViewport) || displaying(dialog.view.descriptionGap) {
 		t.Fatal(`空 Description 没有隐藏说明区域`)
 	}
-	if got := dialog.view.popup.GetComputedStyles().Height.Number; got != 220 {
+	if got := dialog.view.popup.GetComputedStyles().Height.Number(); got != 220 {
 		t.Fatalf(`空 Description 的弹窗高度 = %d，期望 220`, got)
 	}
 }

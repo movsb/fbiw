@@ -171,7 +171,7 @@ func NewToggle(doc *Document) *Toggle {
 // intrinsicSize 根据当前字号计算默认尺寸。比例以 32 像素字号下的
 // 72×40 开关为基准。
 func (b *Toggle) intrinsicSize() (width, height int) {
-	fontSize := int(b.computedStyles.FontSize.Number)
+	fontSize := int(b.computedStyles.FontSize.Number())
 	return max(1, fontSize*9/4), max(1, fontSize*5/4)
 }
 
@@ -309,7 +309,7 @@ func NewProgressBar(doc *Document) *ProgressBar {
 
 // intrinsicSize 根据当前字号计算默认尺寸。
 func (b *ProgressBar) intrinsicSize() (width, height int) {
-	fontSize := int(b.computedStyles.FontSize.Number)
+	fontSize := int(b.computedStyles.FontSize.Number())
 	return max(1, fontSize*8), max(1, fontSize/2)
 }
 
@@ -451,7 +451,7 @@ func NewSelectBox(doc *Document) *SelectBox {
 
 // intrinsicSize 根据当前字号计算默认尺寸。
 func (b *SelectBox) intrinsicSize() (width, height int) {
-	fontSize := int(b.computedStyles.FontSize.Number)
+	fontSize := int(b.computedStyles.FontSize.Number())
 	return max(1, fontSize*9), max(1, fontSize*3/2)
 }
 
@@ -488,7 +488,7 @@ func (b *SelectBox) Draw(canvas *Canvas) {
 	}
 
 	faces := b.document.LoadFaces(b)
-	fontSize := max(1, int(b.computedStyles.FontSize.Number))
+	fontSize := max(1, int(b.computedStyles.FontSize.Number()))
 	arrowWidth := min(width, fontSize*1)
 	content := canvas.Offset(b.InsetLeft(), b.InsetTop())
 	content.DrawString(text, faces, color)

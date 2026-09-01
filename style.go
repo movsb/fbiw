@@ -360,55 +360,61 @@ const (
 // 摆放顺序大概是内存对齐后的最小空间？
 // 优化后发现怎么摆空间都是最简了。
 type Value struct {
-	Type   _ValueType
-	String string
-	Number int64
+	ty     _ValueType
+	str    string
+	number int64
 }
 
 // 特别地：对于颜色来说，Empty() 只表示它没有设置，
 // 但它仍然要从父元素继承。为了不继承，需要判断 Color().IsNone()。
 func (v Value) Empty() bool {
-	return v.Type == VTNone
+	return v.ty == VTNone
 }
 
 func (v Value) IsString() bool {
-	return v.Type == VTString
+	return v.ty == VTString
+}
+func (v Value) Str() string {
+	return v.str
 }
 func (v Value) IsNumber() bool {
-	return v.Type == VTNumber
+	return v.ty == VTNumber
+}
+func (v Value) Number() int64 {
+	return v.number
 }
 func (v Value) IsPercentage() bool {
-	return v.Type == VTPercentage
+	return v.ty == VTPercentage
 }
 func (v Value) IsRem() bool {
-	return v.Type == VTRem
+	return v.ty == VTRem
 }
 func (v Value) IsBool() bool {
-	return v.Type == VTBool
+	return v.ty == VTBool
 }
 func (v Value) Bool() bool {
-	return v.Number != 0
+	return v.ty == VTBool && v.number != 0
 }
 func (v Value) IsColor() bool {
-	return v.Type == VTColor
+	return v.ty == VTColor
 }
 func (v Value) Color() Color {
-	return Color(v.Number)
+	return Color(v.number)
 }
 func (v Value) Fill() Fill {
-	return Fill(v.Number)
+	return Fill(v.number)
 }
 
 func StringValue(s string) Value {
 	return Value{
-		Type:   VTString,
-		String: s,
+		ty:  VTString,
+		str: s,
 	}
 }
 func ColorValue(cr Color) Value {
 	return Value{
-		Type:   VTColor,
-		Number: int64(cr),
+		ty:     VTColor,
+		number: int64(cr),
 	}
 }
 
@@ -419,14 +425,14 @@ func ColorValueFromString(cr string) Value {
 
 func NumberValue[T ~int | ~int64](v T) Value {
 	return Value{
-		Type:   VTNumber,
-		Number: int64(v),
+		ty:     VTNumber,
+		number: int64(v),
 	}
 }
 func PercentageValue[T ~int | ~int64](v T) Value {
 	return Value{
-		Type:   VTPercentage,
-		Number: int64(v),
+		ty:     VTPercentage,
+		number: int64(v),
 	}
 }
 
@@ -435,8 +441,8 @@ const remScale = 1000
 // RemValue 使用千分之一 rem 保存小数，避免样式计算引入浮点误差。
 func RemValue(v float64) Value {
 	return Value{
-		Type:   VTRem,
-		Number: int64(math.Round(v * remScale)),
+		ty:     VTRem,
+		number: int64(math.Round(v * remScale)),
 	}
 }
 
@@ -446,32 +452,32 @@ func PaddingValue(top, right, bottom, left int) Value {
 		uint64(bottom)<<16 |
 		uint64(left)
 	return Value{
-		Type:   VTNumber,
-		Number: int64(packed),
+		ty:     VTNumber,
+		number: int64(packed),
 	}
 }
 
 const paddingMask = uint64(0xffff)
 
 func (v Value) PaddingTop() int {
-	return int(uint64(v.Number) >> 48 & paddingMask)
+	return int(uint64(v.number) >> 48 & paddingMask)
 }
 
 func (v Value) PaddingRight() int {
-	return int(uint64(v.Number) >> 32 & paddingMask)
+	return int(uint64(v.number) >> 32 & paddingMask)
 }
 
 func (v Value) PaddingBottom() int {
-	return int(uint64(v.Number) >> 16 & paddingMask)
+	return int(uint64(v.number) >> 16 & paddingMask)
 }
 
 func (v Value) PaddingLeft() int {
-	return int(uint64(v.Number) & paddingMask)
+	return int(uint64(v.number) & paddingMask)
 }
 func BoolValue(v bool) Value {
 	return Value{
-		Type:   VTBool,
-		Number: Iif[int64](v, 1, 0),
+		ty:     VTBool,
+		number: Iif[int64](v, 1, 0),
 	}
 }
 
@@ -1250,7 +1256,7 @@ func (s _Styler) computeStyles(node Box, rules [][]RuleMatch) error {
 			base = s.documentStyles.FontSize
 		}
 		if base.IsNumber() {
-			styles.FontSize = NumberValue(base.Number * styles.FontSize.Number / 100)
+			styles.FontSize = NumberValue(base.number * styles.FontSize.number / 100)
 		}
 	}
 
@@ -1258,7 +1264,7 @@ func (s _Styler) computeStyles(node Box, rules [][]RuleMatch) error {
 	if styles.FontSize.IsRem() && s.documentStyles != nil {
 		base := s.documentStyles.FontSize
 		if base.IsNumber() {
-			styles.FontSize = NumberValue(base.Number * styles.FontSize.Number / remScale)
+			styles.FontSize = NumberValue(base.number * styles.FontSize.number / remScale)
 		}
 	}
 
