@@ -404,20 +404,20 @@ func (b *BaseBox) draw(canvas *Canvas, drawChildren bool) {
 	layoutHeight := b.layoutBox.Height
 
 	if outlineWidth := int(b.computedStyles.OutlineWidth.Number); outlineWidth > 0 {
-		if outlineColor := b.computedStyles.OutlineColor; outlineColor.IsColor() && !outlineColor.Color.None() {
+		if outlineColor := b.computedStyles.OutlineColor; outlineColor.IsColor() && !outlineColor.Color().IsNone() {
 			// Outline（外边框）是不算在盒子本身的width和height内的，
 			// 所以要负向（左上）偏移到父元素。
 			canvas := canvas.Offset(-outlineWidth, -outlineWidth)
 			// 同时，宽度和高度有要向右下偏移。
 			width := layoutWidth + outlineWidth*2
 			height := layoutHeight + outlineWidth*2
-			canvas.DrawBorder(outlineColor.Color, width, height, outlineWidth)
+			canvas.DrawBorder(outlineColor.Color(), width, height, outlineWidth)
 		}
 	}
 
 	// 默认都是 border-box，所以以实际的宽和高为准。
-	if bcv := b.computedStyles.BorderColor; borderWidth > 0 && !bcv.Empty() && !bcv.Color.None() {
-		canvas.DrawBorder(bcv.Color, layoutWidth, layoutHeight, borderWidth)
+	if bcv := b.computedStyles.BorderColor; borderWidth > 0 && !bcv.Empty() && !bcv.Color().IsNone() {
+		canvas.DrawBorder(bcv.Color(), layoutWidth, layoutHeight, borderWidth)
 	}
 
 	if src := b.computedStyles.BackgroundImage.String; src != `` {
@@ -434,12 +434,12 @@ func (b *BaseBox) draw(canvas *Canvas, drawChildren bool) {
 				}
 			})
 		}
-	} else if bcv := b.computedStyles.BackgroundColor; !bcv.Empty() && !bcv.Color.None() {
+	} else if bcv := b.computedStyles.BackgroundColor; !bcv.Empty() && !bcv.Color().IsNone() {
 		canvas.Offset(borderWidth, borderWidth).FillRect(
 			0, 0,
 			layoutWidth-borderWidth*2,
 			layoutHeight-borderWidth*2,
-			bcv.Color,
+			bcv.Color(),
 		)
 	}
 
@@ -1238,14 +1238,14 @@ func (t *Text) Draw(canvas *Canvas) {
 			owner := fragment.Run.Owner
 			canvas := canvas.Offset(drawOffsetX, drawOffsetY)
 
-			if cr := owner.Base().computedStyles.BackgroundColor; cr.IsColor() && !cr.Color.None() {
-				canvas.FillRect(0, 0, rc.Width, rc.Height, cr.Color)
+			if cr := owner.Base().computedStyles.BackgroundColor; cr.IsColor() && !cr.Color().IsNone() {
+				canvas.FillRect(0, 0, rc.Width, rc.Height, cr.Color())
 			}
 
 			text := fragment.Run.Data[fragment.Start:fragment.End]
 			canvas.drawStringDevice(text,
 				t.document.LoadFaces(owner),
-				owner.Base().computedStyles.Color.Color,
+				owner.Base().computedStyles.Color.Color(),
 			)
 
 			drawOffsetX += rc.Width

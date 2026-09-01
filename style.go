@@ -358,15 +358,15 @@ const (
 // 表示各种样式值。
 //
 // 摆放顺序大概是内存对齐后的最小空间？
+// 优化后发现怎么摆空间都是最简了。
 type Value struct {
-	Number int64
-	String string
-	Color  Color
 	Type   _ValueType
+	String string
+	Number int64
 }
 
 // 特别地：对于颜色来说，Empty() 只表示它没有设置，
-// 但它仍然要从父元素继承。为了不继承，需要判断 Color.None()。
+// 但它仍然要从父元素继承。为了不继承，需要判断 Color().IsNone()。
 func (v Value) Empty() bool {
 	return v.Type == VTNone
 }
@@ -392,6 +392,9 @@ func (v Value) Bool() bool {
 func (v Value) IsColor() bool {
 	return v.Type == VTColor
 }
+func (v Value) Color() Color {
+	return Color(v.Number)
+}
 func (v Value) Fill() Fill {
 	return Fill(v.Number)
 }
@@ -404,8 +407,8 @@ func StringValue(s string) Value {
 }
 func ColorValue(cr Color) Value {
 	return Value{
-		Type:  VTColor,
-		Color: cr,
+		Type:   VTColor,
+		Number: int64(cr),
 	}
 }
 
@@ -473,11 +476,16 @@ func BoolValue(v bool) Value {
 }
 
 // 0xAA_RR_GG_BB
-// 与设备的像素格式匹配（低端序）
-type Color uint32
+// 低32位与设备的像素格式匹配（低端序）
+type Color int64
 
 const (
-	ColorNone = Color(0x00010101)
+	// 特殊值：判断是否为空色。
+	//
+	// 如果父元素设备了背景，子元素不想要。
+	// 这时候如果什么也不写，会导致继承。
+	// 所以只能写个none。
+	colorNone Color = (iota + 1) << 32
 
 	// 特殊的打洞色。
 	// 使用此色后，此块屏幕区域会直接清空成透明色。
@@ -485,7 +493,7 @@ const (
 	// 此值的特殊背景：游戏机的GPU可以在UI层下面叠加一层
 	// 视频层，由于在UI层下面，这就要求UI层透明。最简单的办法是
 	// 直接清空需要的区域，而不是隐藏下面的所以文档/控件层，太麻烦了。
-	ColorClear = Color(0x00020202)
+	colorClear
 )
 
 func ColorFromRGBA(r, g, b, a uint8) Color {
@@ -497,13 +505,11 @@ func ColorFromRGBA(r, g, b, a uint8) Color {
 	return Color(out)
 }
 
-// 特殊值：判断是否为空色。
-//
-// 如果父元素设备了背景，子元素不想要。
-// 这时候如果什么也不写，会导致继承。
-// 所以只能写个none。
-func (c Color) None() bool {
-	return c == ColorNone
+func (c Color) IsNone() bool {
+	return c == colorNone
+}
+func (c Color) IsClear() bool {
+	return c == colorClear
 }
 func (c Color) R() uint8 {
 	return uint8(c >> 16)
@@ -525,8 +531,8 @@ func (c Color) NRGBA() color.NRGBA {
 		A: c.A(),
 	}
 }
-func (c Color) Invert() Color {
-	return c ^ 0x00FFFFFF
+func (c Color) Value() uint32 {
+	return uint32(c)
 }
 
 // 用结构体而不是直接type为[]string的原因是修改的时候不想重新赋值。
@@ -587,9 +593,9 @@ func ParseColor(c string) (_ Value, outErr error) {
 
 	switch c {
 	case `none`:
-		return ColorValue(ColorNone), nil
+		return ColorValue(colorNone), nil
 	case `clear`:
-		return ColorValue(ColorClear), nil
+		return ColorValue(colorClear), nil
 	}
 
 	defer func() {
@@ -703,7 +709,7 @@ var presetColors = map[string]uint32{
 }
 
 func ParseFontFamily(s string) (out []string) {
-	for _, name := range strings.Split(s, `,`) {
+	for name := range strings.SplitSeq(s, `,`) {
 		name = strings.TrimSpace(name)
 		if len(name) > 2 {
 			if r := name[0]; r == '"' || r == '\'' {

@@ -386,3 +386,20 @@ func TestStylerStyle(t *testing.T) {
 		}
 	})
 }
+
+func TestSpecialColors(t *testing.T) {
+	transparent := ColorValue(Color(0))
+	if transparent.Color().IsNone() || transparent.Color().IsClear() {
+		t.Fatal("透明黑色不应是特殊颜色")
+	}
+
+	none := ColorValue(colorNone)
+	if !none.Color().IsNone() || none.Color().Value() != 0 {
+		t.Fatal("none 编码错误")
+	}
+
+	clear := ColorValue(colorClear)
+	if !clear.Color().IsClear() || clear.Color().Value() != 0 {
+		t.Fatal("clear 编码错误")
+	}
+}

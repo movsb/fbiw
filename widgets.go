@@ -252,11 +252,11 @@ func (b *Toggle) SetProp(key, value string) error {
 		}
 		switch key {
 		case `track-color`:
-			b.trackColor = parsed.Color
+			b.trackColor = parsed.Color()
 		case `checked-track-color`:
-			b.checkedTrackColor = parsed.Color
+			b.checkedTrackColor = parsed.Color()
 		case `knob-color`:
-			b.knobColor = parsed.Color
+			b.knobColor = parsed.Color()
 		}
 		b.document.paintDirty = true
 		return nil
@@ -383,9 +383,9 @@ func (b *ProgressBar) SetProp(key, value string) error {
 			return fmt.Errorf(`%s 属性不是颜色：%s`, key, value)
 		}
 		if key == `track-color` {
-			b.trackColor = parsed.Color
+			b.trackColor = parsed.Color()
 		} else {
-			b.valueColor = parsed.Color
+			b.valueColor = parsed.Color()
 		}
 		b.document.RequestPaint()
 		return nil
@@ -482,7 +482,7 @@ func (b *SelectBox) Draw(canvas *Canvas) {
 	}
 
 	text := b.placeholder
-	color := b.computedStyles.Color.Color
+	color := b.computedStyles.Color.Color()
 	if selected, ok := b.Selected(); ok {
 		text = selected
 	}

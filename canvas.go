@@ -404,10 +404,7 @@ func (c *Canvas) FillRect(x, y, width, height int, color Color) {
 
 	// 如果是完全不透明色，则直接覆盖。
 	// 或者是需要“打洞”的颜色。
-	if color.A() == 255 || color == ColorClear {
-		if color == ColorClear {
-			color = 0
-		}
+	if color.A() == 255 || color.IsClear() {
 		var line0 []byte
 		for yy := y0; yy < y1; yy++ {
 			offset := c.width*4*yy + x0*4
@@ -415,7 +412,7 @@ func (c *Canvas) FillRect(x, y, width, height int, color Color) {
 				line0 = c.buffer[offset : offset+(x1-x0)*4]
 				for i := 0; i < (x1-x0)*4; i += 4 {
 					p := c.buffer[offset+i : offset+i+4]
-					*(*uint32)(unsafe.Pointer(&p[0])) = uint32(color)
+					*(*uint32)(unsafe.Pointer(&p[0])) = color.Value()
 				}
 			} else {
 				copy(c.buffer[offset:], line0)
