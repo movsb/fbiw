@@ -309,6 +309,8 @@ func (b *BaseBox) classChanged() {
 }
 
 // 如果宽度指定了百分比，其百分比是相对于父元素的，不能等到其它元素占用（并减去）后再计算。
+//
+// Width 已由百分比样式显式设置，这里只替换计算值，属性位保持不变。
 func (b *BaseBox) presetSize(parentTotalAvailWidth, parentTotalAvailHeight int) {
 	if b.computedStyles.Width.IsPercentage() {
 		// 百分比暂时优先级更高，所以如果窗口大小变了。b.Width会怎样？
@@ -317,11 +319,11 @@ func (b *BaseBox) presetSize(parentTotalAvailWidth, parentTotalAvailHeight int) 
 		// 这里比较特殊：把计算值写回参考值中了。
 		// 正常来说，这个在排版（非样式计算）过程中是只读的，真正的值应该写到 layoutBox。
 		// 但是由于每次计算这个值都会因为百分比变化，没有因为单次排版而被固定，所以看起来没有问题？
-		b.computedStyles.Width = NumberValue(w)
+		b.computedStyles.Width = NumberLength(w)
 	}
 	if b.computedStyles.Height.IsPercentage() {
 		h := int(float32(b.computedStyles.Height.Number()) / 100 * float32(parentTotalAvailHeight))
-		b.computedStyles.Height = NumberValue(h)
+		b.computedStyles.Height = NumberLength(h)
 	}
 }
 
@@ -715,7 +717,7 @@ func inlineCalc(b *BaseBox, availWidth, availHeight int, constraints Constraints
 	}
 }
 
-func resolveSize(computed Value, available int, prefersAvailable bool, actual int) int {
+func resolveSize(computed Length, available int, prefersAvailable bool, actual int) int {
 	if computed.IsNumber() {
 		return int(computed.Number())
 	}

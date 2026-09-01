@@ -138,6 +138,15 @@ func TestCalc(t *testing.T) {
 					expectedValue = expected.Bool()
 				case expected.IsString():
 					expectedValue = expected.Str()
+				case field.Type() == reflect.TypeFor[Length]():
+					switch {
+					case expected.IsNumber():
+						expectedValue = NumberLength(expected.Number())
+					case expected.IsPercentage():
+						expectedValue = PercentageLength(expected.Number())
+					case expected.IsRem():
+						expectedValue = Length{number: expected.Number(), kind: LengthRem}
+					}
 				}
 				if fieldValue != expectedValue {
 					t.Errorf("样式错误：#%d, id: %s, name: %s\nwant: %+v\ngot:  %+v",

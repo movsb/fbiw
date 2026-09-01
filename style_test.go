@@ -173,11 +173,11 @@ func TestStylerStyle(t *testing.T) {
 		}
 
 		got := box.GetComputedStyles()
-		if got.Width != NumberValue(40) {
-			t.Errorf(`Width = %+v，期望 ID 选择器的值 %+v`, got.Width, NumberValue(40))
+		if got.Width != NumberLength(40) {
+			t.Errorf(`Width = %+v，期望 ID 选择器的值 %+v`, got.Width, NumberLength(40))
 		}
-		if got.Height != NumberValue(20) {
-			t.Errorf(`Height = %+v，期望默认样式的值 %+v`, got.Height, NumberValue(20))
+		if got.Height != NumberLength(20) {
+			t.Errorf(`Height = %+v，期望默认样式的值 %+v`, got.Height, NumberLength(20))
 		}
 		if got.Padding != PaddingValue(40, 40, 40, 40) {
 			t.Errorf(`Padding = %+v，期望内联样式的值 %+v`, got.Padding, PaddingValue(40, 40, 40, 40))
@@ -204,8 +204,8 @@ func TestStylerStyle(t *testing.T) {
 		parent, child := newTree()
 		documentStyles := Styles{
 			Color:    ColorValueFromString(`red`).Color(),
-			FontSize: NumberValue(18),
-			Width:    NumberValue(999),
+			FontSize: NumberLength(18),
+			Width:    NumberLength(999),
 		}
 		styler := _Styler{documentStyles: &documentStyles}
 		sheet := Must1(ParseStyle(`block { color: blue; }`))
@@ -220,8 +220,8 @@ func TestStylerStyle(t *testing.T) {
 		if got := child.GetComputedStyles().Color; got != ColorValueFromString(`blue`).Color() {
 			t.Errorf(`子节点 Color = %+v，期望继承父节点的蓝色`, got)
 		}
-		if got := child.GetComputedStyles().FontSize; got != NumberValue(18) {
-			t.Errorf(`子节点 FontSize = %+v，期望继承 document 的值 %+v`, got, NumberValue(18))
+		if got := child.GetComputedStyles().FontSize; got != NumberLength(18) {
+			t.Errorf(`子节点 FontSize = %+v，期望继承 document 的值 %+v`, got, NumberLength(18))
 		}
 		if got := child.GetComputedStyles().Width; !got.Empty() {
 			t.Errorf(`子节点不应继承 Width，实际为 %+v`, got)
@@ -258,12 +258,12 @@ func TestStylerStyle(t *testing.T) {
 		tests := []struct {
 			name string
 			box  Box
-			want Value
+			want Length
 		}{
-			{name: `子节点的 150% 基于根节点的 20`, box: child, want: NumberValue(30)},
-			{name: `孙节点的 50% 基于子节点计算后的 30`, box: percentageGrandchild, want: NumberValue(15)},
-			{name: `孙节点使用绝对字号`, box: absoluteGrandchild, want: NumberValue(12)},
-			{name: `曾孙节点的 200% 基于绝对字号 12`, box: greatGrandchild, want: NumberValue(24)},
+			{name: `子节点的 150% 基于根节点的 20`, box: child, want: NumberLength(30)},
+			{name: `孙节点的 50% 基于子节点计算后的 30`, box: percentageGrandchild, want: NumberLength(15)},
+			{name: `孙节点使用绝对字号`, box: absoluteGrandchild, want: NumberLength(12)},
+			{name: `曾孙节点的 200% 基于绝对字号 12`, box: greatGrandchild, want: NumberLength(24)},
 		}
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
@@ -287,7 +287,7 @@ func TestStylerStyle(t *testing.T) {
 		root.children = []Box{absoluteChild, fractionalChild}
 		absoluteChild.children = []Box{grandchild}
 
-		documentStyles := Styles{FontSize: NumberValue(20)}
+		documentStyles := Styles{FontSize: NumberLength(20)}
 		styler := _Styler{documentStyles: &documentStyles}
 		sheet := Must1(ParseStyle(`
 			block { font-size: 1.5rem; }
@@ -303,12 +303,12 @@ func TestStylerStyle(t *testing.T) {
 		tests := []struct {
 			name string
 			box  Box
-			want Value
+			want Length
 		}{
-			{name: `根节点的 1.5rem`, box: root, want: NumberValue(30)},
-			{name: `子节点使用绝对字号`, box: absoluteChild, want: NumberValue(10)},
-			{name: `孙节点的 2rem 忽略父节点绝对字号`, box: grandchild, want: NumberValue(40)},
-			{name: `小数 0.75rem`, box: fractionalChild, want: NumberValue(15)},
+			{name: `根节点的 1.5rem`, box: root, want: NumberLength(30)},
+			{name: `子节点使用绝对字号`, box: absoluteChild, want: NumberLength(10)},
+			{name: `孙节点的 2rem 忽略父节点绝对字号`, box: grandchild, want: NumberLength(40)},
+			{name: `小数 0.75rem`, box: fractionalChild, want: NumberLength(15)},
 		}
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
@@ -327,8 +327,8 @@ func TestStylerStyle(t *testing.T) {
 			t.Fatalf(`Style() 返回错误：%v`, err)
 		}
 
-		if got := parent.GetComputedStyles().Width; got != NumberValue(12) {
-			t.Errorf(`父节点 Width = %+v，期望 %+v`, got, NumberValue(12))
+		if got := parent.GetComputedStyles().Width; got != NumberLength(12) {
+			t.Errorf(`父节点 Width = %+v，期望 %+v`, got, NumberLength(12))
 		}
 		if got := child.GetComputedStyles().Width; !got.Empty() {
 			t.Errorf(`子节点不应被处理，Width 实际为 %+v`, got)
@@ -378,7 +378,7 @@ func TestStylerStyle(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), `未知样式属性`) {
 			t.Fatalf(`Style() 错误 = %v，期望包含“未知样式属性”`, err)
 		}
-		if got := parent.GetComputedStyles().Width; got != NumberValue(10) {
+		if got := parent.GetComputedStyles().Width; got != NumberLength(10) {
 			t.Errorf(`出错前父节点应已完成处理，Width = %+v`, got)
 		}
 		if got := unvisited.GetComputedStyles().Width; !got.Empty() {

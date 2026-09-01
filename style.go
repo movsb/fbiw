@@ -56,12 +56,12 @@ type Styles struct {
 	OutlineWidth    int
 	OutlineColor    Color
 	Color           Color
-	Height          Value
+	Height          Length
 	Padding         Padding
-	Width           Value
+	Width           Length
 
 	FontFamily string // font-family
-	FontSize   Value  // font-size
+	FontSize   Length // font-size
 	FontBold   bool   // bold
 	FontItalic bool   // italic
 
@@ -235,28 +235,28 @@ func (s *Styles) parseProperty(name string, raw string) (
 	current, update any,
 	outErr error,
 ) {
-	parseNumberOrPercentage := func(raw string) (Value, error) {
+	parseNumberOrPercentage := func(raw string) (Length, error) {
 		if before, ok := strings.CutSuffix(raw, `%`); ok {
 			n, err := strconv.Atoi(before)
-			return PercentageValue(n), err
+			return PercentageLength(n), err
 		} else {
 			n, err := strconv.Atoi(before)
-			return NumberValue(n), err
+			return NumberLength(n), err
 		}
 	}
-	parseFontSize := func(raw string) (Value, error) {
+	parseFontSize := func(raw string) (Length, error) {
 		if before, ok := strings.CutSuffix(raw, `rem`); ok {
 			n, err := strconv.ParseFloat(before, 64)
 			if err != nil {
-				return Value{}, err
+				return Length{}, err
 			}
 			if n < 0 {
-				return Value{}, fmt.Errorf(`字号不能为负数：%s`, raw)
+				return Length{}, fmt.Errorf(`字号不能为负数：%s`, raw)
 			}
-			return RemValue(n), nil
+			return RemLength(n), nil
 		}
 		if n, ok := namedFontSizeScale[raw]; ok {
-			return PercentageValue(n), nil
+			return PercentageLength(n), nil
 		}
 		return parseNumberOrPercentage(raw)
 	}
@@ -446,6 +446,43 @@ const (
 	VTRem
 )
 
+type LengthKind uint8
+
+const (
+	LengthNone LengthKind = iota
+	LengthNumber
+	LengthPercentage
+	LengthRem
+)
+
+// Length 表示样式中的绝对数值、百分比或 rem。是否显式声明仍由
+// Styles 的属性位图记录；LengthNone 让脱离 Styles 使用的零值保持安全。
+type Length struct {
+	number int64
+	kind   LengthKind
+}
+
+func NumberLength[T ~int | ~int64](v T) Length {
+	return Length{number: int64(v), kind: LengthNumber}
+}
+
+func PercentageLength[T ~int | ~int64](v T) Length {
+	return Length{number: int64(v), kind: LengthPercentage}
+}
+
+const remScale = 1000
+
+// RemLength 使用千分之一 rem 保存小数，避免样式计算引入浮点误差。
+func RemLength(v float64) Length {
+	return Length{number: int64(math.Round(v * remScale)), kind: LengthRem}
+}
+
+func (l Length) Empty() bool        { return l.kind == LengthNone }
+func (l Length) IsNumber() bool     { return l.kind == LengthNumber }
+func (l Length) IsPercentage() bool { return l.kind == LengthPercentage }
+func (l Length) IsRem() bool        { return l.kind == LengthRem }
+func (l Length) Number() int64      { return l.number }
+
 // 表示各种样式值。
 //
 // 摆放顺序大概是内存对齐后的最小空间？
@@ -526,8 +563,6 @@ func PercentageValue[T ~int | ~int64](v T) Value {
 		number: int64(v),
 	}
 }
-
-const remScale = 1000
 
 // RemValue 使用千分之一 rem 保存小数，避免样式计算引入浮点误差。
 func RemValue(v float64) Value {
@@ -1350,14 +1385,14 @@ func (s _Styler) computeStyles(node Box, rules [][]RuleMatch) error {
 	// Compute：百分比字号相对于父节点的计算字号。根节点没有父节点时，
 	// <document> 充当它的继承来源。
 	if styles.FontSize.IsPercentage() {
-		base := Value{}
+		base := Length{}
 		if parent := node.Parent(); parent != nil {
 			base = parent.GetComputedStyles().FontSize
 		} else if s.documentStyles != nil {
 			base = s.documentStyles.FontSize
 		}
 		if base.IsNumber() {
-			styles.FontSize = NumberValue(base.number * styles.FontSize.number / 100)
+			styles.FontSize = NumberLength(base.number * styles.FontSize.number / 100)
 		}
 	}
 
@@ -1365,7 +1400,7 @@ func (s _Styler) computeStyles(node Box, rules [][]RuleMatch) error {
 	if styles.FontSize.IsRem() && s.documentStyles != nil {
 		base := s.documentStyles.FontSize
 		if base.IsNumber() {
-			styles.FontSize = NumberValue(base.number * styles.FontSize.number / remScale)
+			styles.FontSize = NumberLength(base.number * styles.FontSize.number / remScale)
 		}
 	}
 
