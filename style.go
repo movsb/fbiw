@@ -68,13 +68,11 @@ type Styles struct {
 	// 是否当作Spacer可变大小布局。
 	Spacer bool
 
-	// 显示属性。布尔类型或字符串(block/inline)。
-	// 如果为true，参与排版；如果为false，完全隐藏。
+	// 显示方式。兼容 true/false，并支持 none/block/inline。
 	// 此属性虽非继承属性，但是子盒子即便为true但父盒子为false时，
 	// 此子盒子仍然不会被显示。所以不能通过判断子盒子的display是否
 	// 为true来判断子盒子是否正处于显示状态。
-	// TODO 改成 none/block/inline
-	Display Value
+	Display DisplayMode
 
 	// 填充方式。
 	Fill Fill
@@ -175,6 +173,20 @@ const (
 	// 优先保持图片原始大小，但是如果大小超过容器，会缩小到容器大小。
 	FillScaleDown
 )
+
+type DisplayMode uint8
+
+const (
+	DisplayUnset DisplayMode = iota
+	DisplayVisible
+	DisplayNone
+	DisplayBlock
+	DisplayInline
+)
+
+func (d DisplayMode) Visible() bool {
+	return d != DisplayNone
+}
 
 //go:embed assets/defaults.css
 var _defaultsStyle string
@@ -294,8 +306,7 @@ func (s *Styles) parseProperty(name string, raw string) (
 		panic(`unreachable`)
 	}
 	parseColor := func(raw string) (Color, error) {
-		vv, err := ParseColor(raw)
-		return vv.Color(), err
+		return ParseColor(raw)
 	}
 	parseBoolean := func(raw string, emptyIsTrue bool) (bool, error) {
 		switch raw {
@@ -407,9 +418,18 @@ func (s *Styles) parseProperty(name string, raw string) (
 	case `display`:
 		affectLayout = true
 		current = &s.Display
-		var boolean bool
-		boolean, outErr = parseBoolean(raw, true)
-		update = BoolValue(boolean)
+		switch raw {
+		case ``, `1`, `true`:
+			update = DisplayVisible
+		case `0`, `false`, `none`:
+			update = DisplayNone
+		case `block`:
+			update = DisplayBlock
+		case `inline`:
+			update = DisplayInline
+		default:
+			outErr = fmt.Errorf(`不认识的显示方式：%s`, raw)
+		}
 		return
 	case `fill`:
 		affectLayout = true
@@ -433,18 +453,6 @@ func (s *Styles) parseProperty(name string, raw string) (
 		return
 	}
 }
-
-type _ValueType uint8
-
-const (
-	VTNone _ValueType = iota
-	VTString
-	VTColor
-	VTNumber
-	VTPercentage
-	VTBool
-	VTRem
-)
 
 type LengthKind uint8
 
@@ -483,95 +491,6 @@ func (l Length) IsPercentage() bool { return l.kind == LengthPercentage }
 func (l Length) IsRem() bool        { return l.kind == LengthRem }
 func (l Length) Number() int64      { return l.number }
 
-// 表示各种样式值。
-//
-// 摆放顺序大概是内存对齐后的最小空间？
-// 优化后发现怎么摆空间都是最简了。
-type Value struct {
-	ty     _ValueType
-	str    string
-	number int64
-}
-
-// 特别地：对于颜色来说，Empty() 只表示它没有设置，
-// 但它仍然要从父元素继承。为了不继承，需要判断 Color().IsNone()。
-func (v Value) Empty() bool {
-	return v.ty == VTNone
-}
-
-func (v Value) IsString() bool {
-	return v.ty == VTString
-}
-func (v Value) Str() string {
-	return v.str
-}
-func (v Value) IsNumber() bool {
-	return v.ty == VTNumber
-}
-func (v Value) Number() int64 {
-	return v.number
-}
-func (v Value) IsPercentage() bool {
-	return v.ty == VTPercentage
-}
-func (v Value) IsRem() bool {
-	return v.ty == VTRem
-}
-func (v Value) IsBool() bool {
-	return v.ty == VTBool
-}
-func (v Value) Bool() bool {
-	return v.ty == VTBool && v.number != 0
-}
-func (v Value) IsColor() bool {
-	return v.ty == VTColor
-}
-func (v Value) Color() Color {
-	return Color(v.number)
-}
-func (v Value) Fill() Fill {
-	return Fill(v.number)
-}
-
-func StringValue(s string) Value {
-	return Value{
-		ty:  VTString,
-		str: s,
-	}
-}
-func ColorValue(cr Color) Value {
-	return Value{
-		ty:     VTColor,
-		number: int64(cr),
-	}
-}
-
-// 如果解析失败，会崩溃。
-func ColorValueFromString(cr string) Value {
-	return Must1(ParseColor(cr))
-}
-
-func NumberValue[T ~int | ~int64](v T) Value {
-	return Value{
-		ty:     VTNumber,
-		number: int64(v),
-	}
-}
-func PercentageValue[T ~int | ~int64](v T) Value {
-	return Value{
-		ty:     VTPercentage,
-		number: int64(v),
-	}
-}
-
-// RemValue 使用千分之一 rem 保存小数，避免样式计算引入浮点误差。
-func RemValue(v float64) Value {
-	return Value{
-		ty:     VTRem,
-		number: int64(math.Round(v * remScale)),
-	}
-}
-
 type Padding uint64
 
 func PaddingValue(top, right, bottom, left int) Padding {
@@ -598,12 +517,6 @@ func (p Padding) PaddingBottom() int {
 
 func (p Padding) PaddingLeft() int {
 	return int(uint64(p) & paddingMask)
-}
-func BoolValue(v bool) Value {
-	return Value{
-		ty:     VTBool,
-		number: Iif[int64](v, 1, 0),
-	}
 }
 
 // 0xAA_RR_GG_BB
@@ -723,16 +636,16 @@ type RuleMatch struct {
 	Declarations []Declaration
 }
 
-func ParseColor(c string) (_ Value, outErr error) {
+func ParseColor(c string) (_ Color, outErr error) {
 	if len(c) == 0 {
-		return Value{}, nil
+		return 0, nil
 	}
 
 	switch c {
 	case `none`:
-		return ColorValue(ColorNone), nil
+		return ColorNone, nil
 	case `clear`:
-		return ColorValue(ColorClear), nil
+		return ColorClear, nil
 	}
 
 	defer func() {
@@ -798,7 +711,12 @@ func ParseColor(c string) (_ Value, outErr error) {
 		panic(`未知颜色`)
 	}
 
-	return ColorValue(ColorFromRGBA(cr.R, cr.G, cr.B, cr.A)), nil
+	return ColorFromRGBA(cr.R, cr.G, cr.B, cr.A), nil
+}
+
+// ColorFromString 在解析失败时崩溃。
+func ColorFromString(raw string) Color {
+	return Must1(ParseColor(raw))
 }
 
 var presetColors = map[string]uint32{

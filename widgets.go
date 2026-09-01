@@ -247,16 +247,16 @@ func (b *Toggle) SetProp(key, value string) error {
 	switch key {
 	case `track-color`, `checked-track-color`, `knob-color`:
 		parsed, err := ParseColor(value)
-		if err != nil || !parsed.IsColor() {
+		if err != nil {
 			return fmt.Errorf(`%s 属性不是颜色：%s`, key, value)
 		}
 		switch key {
 		case `track-color`:
-			b.trackColor = parsed.Color()
+			b.trackColor = parsed
 		case `checked-track-color`:
-			b.checkedTrackColor = parsed.Color()
+			b.checkedTrackColor = parsed
 		case `knob-color`:
-			b.knobColor = parsed.Color()
+			b.knobColor = parsed
 		}
 		b.document.paintDirty = true
 		return nil
@@ -379,13 +379,13 @@ func (b *ProgressBar) SetProp(key, value string) error {
 		return b.SetValue(parsed)
 	case `track-color`, `value-color`:
 		parsed, err := ParseColor(value)
-		if err != nil || !parsed.IsColor() {
+		if err != nil {
 			return fmt.Errorf(`%s 属性不是颜色：%s`, key, value)
 		}
 		if key == `track-color` {
-			b.trackColor = parsed.Color()
+			b.trackColor = parsed
 		} else {
-			b.valueColor = parsed.Color()
+			b.valueColor = parsed
 		}
 		b.document.RequestPaint()
 		return nil

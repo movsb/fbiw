@@ -730,7 +730,7 @@ func _NewSafeArea(doc *Document) *SafeArea {
 		BaseBox: NewBaseBox(doc, `safe-area`),
 		app:     doc.app,
 	}
-	b.inlineStyles.Display = StringValue(`block`)
+	b.inlineStyles.Display = DisplayBlock
 	return b
 }
 

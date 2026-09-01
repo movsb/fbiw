@@ -48,7 +48,7 @@ func TestButtonVariants(t *testing.T) {
 			if test.class != `` && !button.ClassContains(test.class) {
 				t.Fatalf(`缺少状态类：%s`, test.class)
 			}
-			if got, want := button.GetComputedStyles().BackgroundColor, ColorValueFromString(test.color).Color(); got != want {
+			if got, want := button.GetComputedStyles().BackgroundColor, ColorFromString(test.color); got != want {
 				t.Fatalf(`背景色不正确：got=%v want=%v`, got, want)
 			}
 		})
@@ -363,7 +363,7 @@ func TestProgressIntrinsicAndExplicitSize(t *testing.T) {
 	if got := progress.GetLayoutBox(); got.Width != 410 || got.Height != 18 {
 		t.Fatalf(`CSS 尺寸覆盖失败：%+v`, got)
 	}
-	if got, want := progress.GetComputedStyles().BackgroundColor, ColorValueFromString(`#123456`).Color(); got != want {
+	if got, want := progress.GetComputedStyles().BackgroundColor, ColorFromString(`#123456`); got != want {
 		t.Fatalf(`CSS 背景覆盖失败：got=%v want=%v`, got, want)
 	}
 }
@@ -567,7 +567,7 @@ func TestSelectIntrinsicAndExplicitSize(t *testing.T) {
 	if got := b.GetLayoutBox(); got.Width != 410 || got.Height != 70 {
 		t.Fatalf(`CSS 尺寸覆盖失败：%+v`, got)
 	}
-	if got, want := b.GetComputedStyles().BackgroundColor, ColorValueFromString(`#123456`).Color(); got != want {
+	if got, want := b.GetComputedStyles().BackgroundColor, ColorFromString(`#123456`); got != want {
 		t.Fatalf(`CSS 背景覆盖失败：got=%v want=%v`, got, want)
 	}
 }

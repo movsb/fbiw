@@ -12,7 +12,11 @@ import (
 	"github.com/goccy/go-yaml"
 )
 
-func (v *Value) UnmarshalYAML(data []byte) error {
+type expectedStyleValue struct {
+	value any
+}
+
+func (v *expectedStyleValue) UnmarshalYAML(data []byte) error {
 	var s string
 	if err := yaml.Unmarshal(data, &s); err != nil {
 		return err
@@ -23,18 +27,18 @@ func (v *Value) UnmarshalYAML(data []byte) error {
 	}
 	switch before {
 	case `string`:
-		*v = StringValue(after)
+		v.value = after
 		return nil
 	case `bool`:
-		*v = BoolValue(after == `true`)
+		v.value = after == `true`
 		return nil
 	case `number`:
 		n, err := strconv.ParseInt(after, 10, 64)
-		*v = NumberValue(n)
+		v.value = NumberLength(n)
 		return err
 	case `color`:
 		if preset, ok := presetColors[after]; ok {
-			*v = ColorValue(Color(preset))
+			v.value = Color(preset)
 			return nil
 		}
 	}
@@ -61,8 +65,8 @@ type BoxTest struct {
 	EnableDefaultStyles bool              `yaml:"enable_default_styles"`
 	Calc                map[string][4]int `yaml:"calc"`
 
-	// ID -> Property（大写开头的） -> Value
-	Computed map[string]map[string]Value `yaml:"computed"`
+	// ID -> Property（大写开头的） -> 期望值
+	Computed map[string]map[string]expectedStyleValue `yaml:"computed"`
 }
 
 func TestCalc(t *testing.T) {
@@ -129,25 +133,8 @@ func TestCalc(t *testing.T) {
 				if !field.IsValid() {
 					panic(`找不到字段：` + name)
 				}
-				var fieldValue any = field.Interface()
-				var expectedValue any = expected
-				switch {
-				case expected.IsColor():
-					expectedValue = expected.Color()
-				case expected.IsBool():
-					expectedValue = expected.Bool()
-				case expected.IsString():
-					expectedValue = expected.Str()
-				case field.Type() == reflect.TypeFor[Length]():
-					switch {
-					case expected.IsNumber():
-						expectedValue = NumberLength(expected.Number())
-					case expected.IsPercentage():
-						expectedValue = PercentageLength(expected.Number())
-					case expected.IsRem():
-						expectedValue = Length{number: expected.Number(), kind: LengthRem}
-					}
-				}
+				fieldValue := field.Interface()
+				expectedValue := expected.value
 				if fieldValue != expectedValue {
 					t.Errorf("样式错误：#%d, id: %s, name: %s\nwant: %+v\ngot:  %+v",
 						i, id, name, expectedValue, fieldValue)

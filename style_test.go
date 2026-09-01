@@ -195,7 +195,7 @@ func TestStylerStyle(t *testing.T) {
 			t.Fatalf(`Style() 返回错误：%v`, err)
 		}
 
-		if got, want := box.GetComputedStyles().Color, ColorValueFromString(`blue`).Color(); got != want {
+		if got, want := box.GetComputedStyles().Color, ColorFromString(`blue`); got != want {
 			t.Errorf(`Color = %+v，期望页面样式覆盖默认样式后得到 %+v`, got, want)
 		}
 	})
@@ -203,7 +203,7 @@ func TestStylerStyle(t *testing.T) {
 	t.Run(`继承父节点和 document 样式`, func(t *testing.T) {
 		parent, child := newTree()
 		documentStyles := Styles{
-			Color:    ColorValueFromString(`red`).Color(),
+			Color:    ColorFromString(`red`),
 			FontSize: NumberLength(18),
 			Width:    NumberLength(999),
 		}
@@ -214,10 +214,10 @@ func TestStylerStyle(t *testing.T) {
 			t.Fatalf(`Style() 返回错误：%v`, err)
 		}
 
-		if got := parent.GetComputedStyles().Color; got != ColorValueFromString(`blue`).Color() {
+		if got := parent.GetComputedStyles().Color; got != ColorFromString(`blue`) {
 			t.Errorf(`父节点 Color = %+v，期望样式表覆盖后的蓝色`, got)
 		}
-		if got := child.GetComputedStyles().Color; got != ColorValueFromString(`blue`).Color() {
+		if got := child.GetComputedStyles().Color; got != ColorFromString(`blue`) {
 			t.Errorf(`子节点 Color = %+v，期望继承父节点的蓝色`, got)
 		}
 		if got := child.GetComputedStyles().FontSize; got != NumberLength(18) {
@@ -396,10 +396,10 @@ func TestSpecialColors(t *testing.T) {
 		t.Fatal("普通透明颜色不应成为特殊颜色")
 	}
 
-	if !ColorValue(ColorNone).Color().IsNone() {
+	if !ColorNone.IsNone() {
 		t.Fatal("none 编码错误")
 	}
-	if !ColorValue(ColorClear).Color().IsClear() {
+	if !ColorClear.IsClear() {
 		t.Fatal("clear 编码错误")
 	}
 }
@@ -417,5 +417,25 @@ func TestStylesPropertyBits(t *testing.T) {
 	}
 	if got := styles.Width.Number(); got != 0 {
 		t.Fatalf("width = %d，期望 0", got)
+	}
+}
+
+func TestDisplayModes(t *testing.T) {
+	tests := map[string]DisplayMode{
+		"":       DisplayVisible,
+		"true":   DisplayVisible,
+		"false":  DisplayNone,
+		"none":   DisplayNone,
+		"block":  DisplayBlock,
+		"inline": DisplayInline,
+	}
+	for raw, want := range tests {
+		var styles Styles
+		if _, _, _, err := styles.Set("display", raw); err != nil {
+			t.Fatalf("设置 display: %q 失败：%v", raw, err)
+		}
+		if styles.Display != want {
+			t.Errorf("display: %q = %v，期望 %v", raw, styles.Display, want)
+		}
 	}
 }

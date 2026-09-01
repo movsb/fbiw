@@ -377,16 +377,15 @@ func (b *BaseBox) VerticalInsets() int {
 // 只针对没有自己实现 Calc 方法的元素而言。如果自己实现了 Calc 方法（比如 Scroll），
 // 行为不受此约束。
 func (b *BaseBox) Calc(availWidth, availHeight int, constraints Constraints) {
-	// 兼容
-	if b := b.computedStyles.Display; b.IsBool() && !b.Bool() {
+	if b.computedStyles.Display == DisplayNone {
 		return
 	}
 
-	display := b.computedStyles.Display.Str()
+	display := b.computedStyles.Display
 
-	if b.Tag == `block` || display == `block` {
+	if b.Tag == `block` || display == DisplayBlock {
 		blockCalc(b, availWidth, availHeight, constraints)
-	} else if b.Tag == `inline` || display == `inline` {
+	} else if b.Tag == `inline` || display == DisplayInline {
 		inlineCalc(b, availWidth, availHeight, constraints)
 	} else {
 		// 其它自己不实现的通通按inline来。
@@ -458,14 +457,7 @@ func (b *BaseBox) draw(canvas *Canvas, drawChildren bool) {
 }
 
 func displaying(b Box) bool {
-	d := b.Base().computedStyles.Display
-	if d.Empty() {
-		return true
-	}
-	if d.IsBool() {
-		return d.Bool()
-	}
-	return true
+	return b.Base().computedStyles.Display.Visible()
 }
 
 // 纵向排版容器。
@@ -2024,7 +2016,7 @@ func (b *Scroll) adjust() {
 			child := b.children[r*b.cols+c].(*_ScrollChild)
 			display := child.dataIndex() <= b.count-1
 			displayValue := child.computedStyles.Display
-			if displayValue.Empty() || displayValue.Bool() != display {
+			if displayValue.Visible() != display {
 				// TODO 可以不用重新排版
 				child.SetProp(`display`, fmt.Sprint(display))
 			}

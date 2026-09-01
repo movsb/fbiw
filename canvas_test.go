@@ -530,7 +530,7 @@ func BenchmarkDrawString(b *testing.B) {
 			height: 768,
 		}
 		for b.Loop() {
-			canvas.drawStringStd(`Canvas text rendering benchmark`, []*FontFace{face}, ColorValueFromString(`red`).Color())
+			canvas.drawStringStd(`Canvas text rendering benchmark`, []*FontFace{face}, ColorFromString(`red`))
 		}
 	})
 	b.Run(`dev1`, func(b *testing.B) {
@@ -540,7 +540,7 @@ func BenchmarkDrawString(b *testing.B) {
 			height: 768,
 		}
 		for b.Loop() {
-			canvas.drawStringDevice1(`Canvas text rendering benchmark`, []*FontFace{face}, ColorValueFromString(`red`).Color())
+			canvas.drawStringDevice1(`Canvas text rendering benchmark`, []*FontFace{face}, ColorFromString(`red`))
 		}
 	})
 	b.Run(`dev2`, func(b *testing.B) {
@@ -550,7 +550,7 @@ func BenchmarkDrawString(b *testing.B) {
 			height: 768,
 		}
 		for b.Loop() {
-			canvas.drawStringDevice2(`Canvas text rendering benchmark`, []*FontFace{face}, ColorValueFromString(`red`).Color())
+			canvas.drawStringDevice2(`Canvas text rendering benchmark`, []*FontFace{face}, ColorFromString(`red`))
 		}
 	})
 }
