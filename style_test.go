@@ -396,10 +396,10 @@ func TestSpecialColors(t *testing.T) {
 		t.Fatal("普通透明颜色不应成为特殊颜色")
 	}
 
-	if !ColorValue(colorNone).Color().IsNone() {
+	if !ColorValue(ColorNone).Color().IsNone() {
 		t.Fatal("none 编码错误")
 	}
-	if !ColorValue(colorClear).Color().IsClear() {
+	if !ColorValue(ColorClear).Color().IsClear() {
 		t.Fatal("clear 编码错误")
 	}
 }

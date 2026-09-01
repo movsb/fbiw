@@ -483,6 +483,8 @@ func BoolValue(v bool) Value {
 
 // 0xAA_RR_GG_BB
 // 低32位与设备的像素格式匹配（低端序）
+//
+// 颜色包含特殊值，使用前应判断 IsNone，IsClear。
 type Color uint32
 
 // 特殊值的AA始终为零，所以是安全的。
@@ -492,7 +494,7 @@ const (
 	// 如果父元素设备了背景，子元素不想要。
 	// 这时候如果什么也不写，会导致继承。
 	// 所以只能写个none。
-	colorNone Color = iota + 1
+	ColorNone Color = iota + 1
 
 	// 特殊的打洞色。
 	// 使用此色后，此块屏幕区域会直接清空成透明色。
@@ -500,7 +502,7 @@ const (
 	// 此值的特殊背景：游戏机的GPU可以在UI层下面叠加一层
 	// 视频层，由于在UI层下面，这就要求UI层透明。最简单的办法是
 	// 直接清空需要的区域，而不是隐藏下面的所以文档/控件层，太麻烦了。
-	colorClear
+	ColorClear
 )
 
 func ColorFromRGBA(r, g, b, a uint8) Color {
@@ -516,10 +518,10 @@ func ColorFromRGBA(r, g, b, a uint8) Color {
 }
 
 func (c Color) IsNone() bool {
-	return c == colorNone
+	return c == ColorNone
 }
 func (c Color) IsClear() bool {
-	return c == colorClear
+	return c == ColorClear
 }
 func (c Color) R() uint8 {
 	return uint8(c >> 16)
@@ -603,9 +605,9 @@ func ParseColor(c string) (_ Value, outErr error) {
 
 	switch c {
 	case `none`:
-		return ColorValue(colorNone), nil
+		return ColorValue(ColorNone), nil
 	case `clear`:
-		return ColorValue(colorClear), nil
+		return ColorValue(ColorClear), nil
 	}
 
 	defer func() {

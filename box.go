@@ -1243,7 +1243,7 @@ func (t *Text) Draw(canvas *Canvas) {
 			}
 
 			text := fragment.Run.Data[fragment.Start:fragment.End]
-			canvas.drawStringDevice(text,
+			canvas.DrawString(text,
 				t.document.LoadFaces(owner),
 				owner.Base().computedStyles.Color.Color(),
 			)

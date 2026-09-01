@@ -667,6 +667,9 @@ func (c *Canvas) DrawBorder(cr Color, w, h int, borderWidth int) {
 //
 // 超出 framebuffer 的像素会被裁剪。
 func (c *Canvas) DrawString(text string, faces []*FontFace, color Color) {
+	if color == ColorNone {
+		return
+	}
 	c.drawStringDevice(text, faces, color)
 }
 
