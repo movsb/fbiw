@@ -16,8 +16,33 @@ import (
 	_ "embed"
 )
 
+type styleProperty uint64
+
+const (
+	propertyAlign styleProperty = 1 << iota
+	propertyBackgroundColor
+	propertyBackgroundImage
+	propertyBorderColor
+	propertyBorderWidth
+	propertyOutlineWidth
+	propertyOutlineColor
+	propertyColor
+	propertyHeight
+	propertyPadding
+	propertyWidth
+	propertyFontFamily
+	propertyFontSize
+	propertyFontBold
+	propertyFontItalic
+	propertySpacer
+	propertyDisplay
+	propertyFill
+)
+
 // 用于保存节点的样式值。
 type Styles struct {
+	bits uint64
+
 	// 子元素的水平/垂直对齐方式。
 	//   - 默认("")水平居左，“center”居中。
 	//   - 默认("")垂直居顶，“middle”居中。
@@ -53,6 +78,75 @@ type Styles struct {
 
 	// 填充方式。
 	Fill Value
+}
+
+func (s Styles) has(property styleProperty) bool {
+	return s.bits&uint64(property) != 0
+}
+
+func (s *Styles) mark(property styleProperty) {
+	s.bits |= uint64(property)
+}
+
+func (s Styles) HasWidth() bool {
+	return s.has(propertyWidth)
+}
+
+func stylePropertyByName(name string) styleProperty {
+	switch name {
+	case `align`, `Align`:
+		return propertyAlign
+	case `background-color`, `BackgroundColor`:
+		return propertyBackgroundColor
+	case `background-image`, `BackgroundImage`:
+		return propertyBackgroundImage
+	case `border-color`, `BorderColor`:
+		return propertyBorderColor
+	case `border-width`, `BorderWidth`:
+		return propertyBorderWidth
+	case `outline-width`, `OutlineWidth`:
+		return propertyOutlineWidth
+	case `outline-color`, `OutlineColor`:
+		return propertyOutlineColor
+	case `color`, `Color`:
+		return propertyColor
+	case `height`, `Height`:
+		return propertyHeight
+	case `padding`, `Padding`:
+		return propertyPadding
+	case `width`, `Width`:
+		return propertyWidth
+	case `font-family`, `FontFamily`:
+		return propertyFontFamily
+	case `font-size`, `FontSize`:
+		return propertyFontSize
+	case `bold`, `font-bold`, `FontBold`:
+		return propertyFontBold
+	case `italic`, `font-italic`, `FontItalic`:
+		return propertyFontItalic
+	case `spacer`, `Spacer`:
+		return propertySpacer
+	case `display`, `Display`:
+		return propertyDisplay
+	case `fill`, `Fill`:
+		return propertyFill
+	default:
+		return 0
+	}
+}
+
+// 兼容包内已有的结构体字面量和直接字段赋值。迁移为专用字段后，
+// 所有写入都应通过 setter 同时维护位图，届时可以删除这个方法。
+func (s *Styles) syncBitsFromValues() {
+	value := reflect.ValueOf(s).Elem()
+	for field, fieldValue := range value.Fields() {
+		if field.Type != reflect.TypeFor[Value]() {
+			continue
+		}
+		if !fieldValue.Interface().(Value).Empty() {
+			s.mark(stylePropertyByName(field.Name))
+		}
+	}
 }
 
 // 可替换对象内容的填充方式。
@@ -116,6 +210,7 @@ func (s *Styles) Set(name string, raw string) (affectInherit, affectLayout, affe
 	affectInherit, affectLayout, affectPaint, current, update, outErr = s.parseProperty(name, raw)
 	if outErr == nil {
 		*current = update
+		s.mark(stylePropertyByName(name))
 	}
 
 	return
@@ -1203,17 +1298,24 @@ func (s _Styler) declarationsByPriority(rulesSet [][]RuleMatch) iter.Seq[Declara
 // 为节点计算样式。依次完成 cascade、defaulting 和相对值计算，
 // 最后直接将结果保存到节点。
 func (s _Styler) computeStyles(node Box, rules [][]RuleMatch) error {
+	if s.documentStyles != nil {
+		s.documentStyles.syncBitsFromValues()
+	}
+
 	// Cascade：内联样式优先，然后从高到低查找样式表声明。每个属性
 	// 一旦取得值，低优先级声明就不能再覆盖它。
 	styles := node.Base().inlineStyles
+	styles.syncBitsFromValues()
 	stylesValue := reflect.ValueOf(&styles).Elem()
 	for d := range s.declarationsByPriority(rules) {
 		_, _, _, current, update, err := styles.parseProperty(d.Name, d.Value)
 		if err != nil {
 			return fmt.Errorf(`样式应用错误：%w`, err)
 		}
-		if current.Empty() {
+		property := stylePropertyByName(d.Name)
+		if !styles.has(property) {
 			*current = update
+			styles.mark(property)
 		}
 	}
 
@@ -1224,14 +1326,16 @@ func (s _Styler) computeStyles(node Box, rules [][]RuleMatch) error {
 		if !shouldInherit(field.Name) {
 			continue
 		}
-		if field.Type == reflect.TypeFor[Value]() && value.Interface().(Value).Empty() {
+		property := stylePropertyByName(field.Name)
+		if field.Type == reflect.TypeFor[Value]() && !styles.has(property) {
 			setFromParent := false
 			for parent := range node.Base().Ancestors() {
-				parentValue := reflect.ValueOf(parent.GetComputedStyles())
+				parentStyles := parent.GetComputedStyles()
+				parentValue := reflect.ValueOf(parentStyles)
 				parentField := parentValue.Elem().FieldByIndex(field.Index)
-				value3 := parentField.Interface().(Value)
-				if !value3.Empty() {
+				if parentStyles.has(property) {
 					value.Set(parentField)
+					styles.mark(property)
 					setFromParent = true
 					// 从最近的祖先那里获取一次即可。
 					break
@@ -1240,9 +1344,9 @@ func (s _Styler) computeStyles(node Box, rules [][]RuleMatch) error {
 			// <document> 才是最终的根节点。
 			if !setFromParent && !optDocValue.IsNil() {
 				docField := optDocValue.Elem().FieldByIndex(field.Index)
-				docValue := docField.Interface().(Value)
-				if !docValue.Empty() {
+				if s.documentStyles.has(property) {
 					value.Set(docField)
+					styles.mark(property)
 				}
 			}
 		}

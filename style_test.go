@@ -403,3 +403,19 @@ func TestSpecialColors(t *testing.T) {
 		t.Fatal("clear 编码错误")
 	}
 }
+
+func TestStylesPropertyBits(t *testing.T) {
+	var styles Styles
+	if styles.HasWidth() {
+		t.Fatal("空样式不应设置 width")
+	}
+	if _, _, _, err := styles.Set("width", "0"); err != nil {
+		t.Fatalf("设置 width: 0 失败：%v", err)
+	}
+	if !styles.HasWidth() {
+		t.Fatal("显式 width: 0 应被标记为已设置")
+	}
+	if got := styles.Width.Number(); got != 0 {
+		t.Fatalf("width = %d，期望 0", got)
+	}
+}
