@@ -85,9 +85,7 @@
     }
   computed:
     i:
-      Color:
-        type: 2
-        color: 4294914651
+      Color: color:red
 
 #8 非Spacer作为Spacer自动布局。
 - html: |
@@ -99,9 +97,7 @@
     a: [0,0,1024,700]
   computed:
     a:
-      Spacer:
-        type: 5
-        bool: true
+      Spacer: bool:true
 
 #9
 - html: |
@@ -116,13 +112,9 @@
     #status-bar { color: green; }
   computed:
     status-bar:
-      Color:
-        type: 2
-        color: 4279740439
+      Color: color:green
     img:
-      Color:
-        type: 2
-        color: 4279740439
+      Color: color:green
 
 #10 有默认值的情况下，如果父元素设置了，仍然应该从（最近有设置的）父元素继承
 - html: |
@@ -136,9 +128,7 @@
     #status-bar { color: green; }
   computed:
     img:
-      Color:
-        type: 2
-        color: 4279740439
+      Color: color:green
 
 #11 后代选择器继承
 - html: |
@@ -155,21 +145,13 @@
     #b1 inline { font-size: 18; }
   computed:
     b1:
-      FontSize:
-        type: 3
-        number: 10
+      FontSize: number:10
     b2:
-      FontSize:
-        type: 3
-        number: 10
+      FontSize: number:10
     i1:
-      FontSize:
-        type: 3
-        number: 18
+      FontSize: number:18
     i2:
-      FontSize:
-        type: 3
-        number: 10
+      FontSize: number:10
 
 #12 space本身有高度
 - html: |

@@ -1,14 +1,45 @@
 package fbiw
 
 import (
+	"fmt"
 	"os"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"testing/fstest"
 
 	"github.com/goccy/go-yaml"
 )
+
+func (v *Value) UnmarshalYAML(data []byte) error {
+	var s string
+	if err := yaml.Unmarshal(data, &s); err != nil {
+		return err
+	}
+	before, after, ok := strings.Cut(s, `:`)
+	if !ok {
+		return fmt.Errorf(`无效Value: %s`, s)
+	}
+	switch before {
+	case `string`:
+		*v = StringValue(after)
+		return nil
+	case `bool`:
+		*v = BoolValue(after == `true`)
+		return nil
+	case `number`:
+		n, err := strconv.ParseInt(after, 10, 64)
+		*v = NumberValue(n)
+		return err
+	case `color`:
+		if preset, ok := presetColors[after]; ok {
+			*v = ColorValue(Color(preset))
+			return nil
+		}
+	}
+	return fmt.Errorf(`未知值类型: %s`, s)
+}
 
 func loadTestCases[T any](path string) []*T {
 	fp, err := os.Open(path)

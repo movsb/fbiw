@@ -362,7 +362,6 @@ type Value struct {
 	Number int64
 	String string
 	Color  Color
-	Bool   bool
 	Type   _ValueType
 }
 
@@ -386,6 +385,9 @@ func (v Value) IsRem() bool {
 }
 func (v Value) IsBool() bool {
 	return v.Type == VTBool
+}
+func (v Value) Bool() bool {
+	return v.Number != 0
 }
 func (v Value) IsColor() bool {
 	return v.Type == VTColor
@@ -465,8 +467,8 @@ func (v Value) PaddingLeft() int {
 }
 func BoolValue(v bool) Value {
 	return Value{
-		Type: VTBool,
-		Bool: v,
+		Type:   VTBool,
+		Number: Iif[int64](v, 1, 0),
 	}
 }
 

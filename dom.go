@@ -977,8 +977,8 @@ func (doc *Document) LoadFaces(box Box) []*FontFace {
 		computed = box.GetComputedStyles()
 		family   = computed.FontFamily.String
 		size     = computed.FontSize.Number
-		bold     = computed.FontBold.Bool
-		italic   = computed.FontItalic.Bool
+		bold     = computed.FontBold.Bool()
+		italic   = computed.FontItalic.Bool()
 	)
 
 	for _, name := range ParseFontFamily(family) {

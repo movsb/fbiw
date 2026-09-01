@@ -376,7 +376,7 @@ func (b *BaseBox) VerticalInsets() int {
 // 行为不受此约束。
 func (b *BaseBox) Calc(availWidth, availHeight int, constraints Constraints) {
 	// 兼容
-	if b := b.computedStyles.Display; b.IsBool() && !b.Bool {
+	if b := b.computedStyles.Display; b.IsBool() && !b.Bool() {
 		return
 	}
 
@@ -461,7 +461,7 @@ func displaying(b Box) bool {
 		return true
 	}
 	if d.IsBool() {
-		return d.Bool
+		return d.Bool()
 	}
 	return true
 }
@@ -504,7 +504,7 @@ func blockCalc(b *BaseBox, availWidth, availHeight int, constraints Constraints)
 		if spacer, ok := child.(*Spacer); ok && spacer.computedStyles.Height.Empty() {
 			zeroSpacers = append(zeroSpacers, spacer)
 			contentHeight += spacer.VerticalInsets()
-		} else if child.Base().computedStyles.Spacer.Bool {
+		} else if child.Base().computedStyles.Spacer.Bool() {
 			zeroSpacers = append(zeroSpacers, child)
 			contentHeight += child.Base().VerticalInsets()
 		} else {
@@ -623,7 +623,7 @@ func inlineCalc(b *BaseBox, availWidth, availHeight int, constraints Constraints
 		if spacer, ok := child.(*Spacer); ok && spacer.computedStyles.Width.Empty() {
 			zeroSpacers = append(zeroSpacers, spacer)
 			contentWidth += spacer.HorizontalInsets()
-		} else if child.Base().computedStyles.Spacer.Bool {
+		} else if child.Base().computedStyles.Spacer.Bool() {
 			zeroSpacers = append(zeroSpacers, child)
 			contentWidth += child.Base().HorizontalInsets()
 		} else {
@@ -2022,7 +2022,7 @@ func (b *Scroll) adjust() {
 			child := b.children[r*b.cols+c].(*_ScrollChild)
 			display := child.dataIndex() <= b.count-1
 			displayValue := child.computedStyles.Display
-			if displayValue.Empty() || displayValue.Bool != display {
+			if displayValue.Empty() || displayValue.Bool() != display {
 				// TODO 可以不用重新排版
 				child.SetProp(`display`, fmt.Sprint(display))
 			}
