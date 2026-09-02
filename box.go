@@ -1401,6 +1401,12 @@ type Image struct {
 
 	src string
 
+	// 如果在异步加载的过程中修改了src（比如虚拟滚动重新绑定的时候），
+	// 则异步结果其实是不再有效的，应该作废。但是后面还可能会使用到，
+	// 所以暂时不取消异步加载（也即不使用Context提前结束加载过程，让其继续缓存着），
+	// 所以引入版本号，版本号变化意味着数据不再有效。
+	loadVersion uint32
+
 	status _ImageLoadingStatus
 
 	// 异步加载成功后写在这里。
@@ -1429,7 +1435,12 @@ func (b *Image) SetProp(key string, val string) error {
 			return nil
 		}
 		b.src = val
+		// 令所有为旧 src 启动的异步加载失效。不能只在回调里比较
+		// src，因为 src 可能经历 A -> B -> A，此时第一次 A 的回调
+		// 仍然已经过期。
+		b.loadVersion++
 		b.status = imageLoadStatusNone
+		b.decodedImage = DecodedImage{}
 		b.err = nil
 		if old := b.tmpFile; old != nil {
 			old.cleanup.Stop()
@@ -1499,12 +1510,20 @@ func (b *Image) Calc(availWidth, availHeight int, constraints Constraints) {
 			return
 		}
 
-		b.document.loadImageAsync(b.src, 0, 0,
+		src, version := b.src, b.loadVersion
+		b.status = imageLoadStatusDecoding
+		b.document.loadImageAsync(src, 0, 0,
 			ImageDecodeOptions{TrimTransparentBorder: true},
 			func(img DecodedImage, err error) {
+				// src属于防御性校验，用来防止在包内直接修改却忘记同步递增版本号。
+				// 理论上不应该判断（版本号变化src一定变化）。
+				if b.loadVersion != version || b.src != src {
+					return
+				}
 				if err != nil {
 					b.err = err
 					b.status = imageLoadStatusFailed
+					b.document.RequestLayout()
 					return
 				}
 				b.decodedImage = img
@@ -1512,7 +1531,6 @@ func (b *Image) Calc(availWidth, availHeight int, constraints Constraints) {
 				b.document.RequestLayout()
 			},
 		)
-		b.status = imageLoadStatusDecoding
 		return
 	case imageLoadStatusDecoding:
 		break
@@ -1570,12 +1588,18 @@ func (b *Image) Calc(availWidth, availHeight int, constraints Constraints) {
 			return
 		}
 
-		b.document.loadImageAsync(b.src, fittingWidth, fittingHeight,
+		src, version := b.src, b.loadVersion
+		b.status = imageLoadStatusScaling
+		b.document.loadImageAsync(src, fittingWidth, fittingHeight,
 			ImageDecodeOptions{TrimTransparentBorder: true},
 			func(di DecodedImage, err error) {
+				if b.loadVersion != version || b.src != src {
+					return
+				}
 				if err != nil {
 					b.status = imageLoadStatusFailed
 					b.err = err
+					b.document.RequestPaint()
 					return
 				}
 				b.decodedImage = di
@@ -1583,8 +1607,6 @@ func (b *Image) Calc(availWidth, availHeight int, constraints Constraints) {
 				b.document.RequestPaint()
 			},
 		)
-
-		b.status = imageLoadStatusScaling
 		return
 	case imageLoadStatusScaled:
 		if b.layoutBox.Width == 0 {
