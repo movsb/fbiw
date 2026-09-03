@@ -370,7 +370,7 @@ Go 布局接口中的尺寸偏好含义如下：
 - `stretch` 只拉伸未指定交叉轴尺寸的元素；显式尺寸（包括 0 和百分比）保持不变。
 - 文本作为一个 Flex item，可在分配后的宽度内多行断行；这不代表 Flex items 自身支持换行。
 - 未实现 `flex-shrink`、`flex-basis`、`flex` shorthand、`flex-wrap`、反向排列、`order`、baseline 和 min/max 尺寸。空间不足时保持基础尺寸并溢出，grow 不会分配负尺寸。
-- `<spacer>` 和 `spacer` 属性不会在 Flex 中自动启用增长，需要显式设置 `flex-grow`。新 `gap` 样式仅用于 Flex，不改变 Block/Inline 或 Scroll 原有槽位 `gap` 属性的行为。
+- `<spacer>` 和 `spacer` 属性不会在 Flex 中自动启用增长，需要显式设置 `flex-grow`。`gap` 是 Flex 和 Scroll 共用的非继承样式，分别表示子元素间距和行列槽位间距；Block/Inline 暂不使用它。Scroll 同时支持 `<scroll gap="4">` 和 `scroll { gap: 4; }`，内联属性优先，动态修改会触发重新布局。
 - Scroll 等自带内部布局的专用组件可作为 Flex item，但不会因 `display="flex"` 改成通用 Flex 容器。
 
 ## 系统覆盖层和安全区域

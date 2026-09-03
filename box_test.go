@@ -690,7 +690,7 @@ func TestScrollMaxRowsHeight(t *testing.T) {
 			scroll := NewScroll(nil)
 			scroll.rows = 3
 			scroll.cols = 2
-			scroll.gap = 5
+			scroll.computedStyles.SetGap(5)
 			scroll.rowHeight = 20
 			scroll.shrinkRows = true
 			scroll.count = tt.count
@@ -745,7 +745,7 @@ func TestScrollRowsKeepsFixedHeight(t *testing.T) {
 	scroll := NewScroll(nil)
 	scroll.rows = 3
 	scroll.cols = 1
-	scroll.gap = 5
+	scroll.computedStyles.SetGap(5)
 	scroll.count = 1
 
 	scroll.Calc(100, 100, Constraints{PrefersMaxHeight: true})
@@ -755,7 +755,9 @@ func TestScrollRowsKeepsFixedHeight(t *testing.T) {
 }
 
 func TestScrollMaxRowsUsesFullHeightAsLimit(t *testing.T) {
-	scroll := NewScroll(nil)
+	doc := _NewDocument(100, 100, nil, nil, nil)
+	scroll := NewScroll(doc)
+	doc.root = scroll
 	if err := scroll.SetProp(`max-rows`, `3`); err != nil {
 		t.Fatal(err)
 	}
@@ -767,6 +769,68 @@ func TestScrollMaxRowsUsesFullHeightAsLimit(t *testing.T) {
 	scroll.Calc(100, 100, Constraints{PrefersMaxHeight: true})
 	if got, want := scroll.layoutBox.Height, 30; got != want {
 		t.Errorf(`height = %d, want %d`, got, want)
+	}
+}
+
+func TestScrollGapUsesStyles(t *testing.T) {
+	for _, attr := range []string{``, `gap="6"`} {
+		t.Run(attr, func(t *testing.T) {
+			doc := newFlexTestDocument(t, `<style>scroll { gap: 4; } scroll.wide { gap: 8; }</style><block><scroll id="list" rows="2" cols="2" width="100" height="100" `+attr+`></scroll></block>`, 100, 100)
+			scroll := doc.GetBoxByID[*Scroll](`list`)
+			scroll._setItems(4, func() (Box, any) {
+				box := NewBlock(doc)
+				box._EventTarget.box = box
+				return box, nil
+			}, func(any, int) {})
+			check := func(gap int) {
+				t.Helper()
+				doc.layout()
+				if got := scroll.GetComputedStyles().Gap; got != gap {
+					t.Fatalf("computed gap = %d, want %d", got, gap)
+				}
+				size := (100 - gap) / 2
+				for i, child := range scroll.Children() {
+					want := Rect{(i % 2) * (size + gap), (i / 2) * (size + gap), size, size}
+					if got := child.GetLayoutBox(); got != want {
+						t.Fatalf("slot %d: got %+v, want %+v", i, got, want)
+					}
+					if child.GetComputedStyles().Gap != 0 || child.Children()[0].GetComputedStyles().Gap != 0 {
+						t.Fatal("gap inherited by scroll contents")
+					}
+				}
+			}
+			initial := 4
+			if attr != `` {
+				initial = 6
+			}
+			check(initial)
+			doc.layoutDirty = false
+			scroll.ClassAdd(`wide`)
+			if !doc.layoutDirty {
+				t.Fatal("class change did not invalidate layout")
+			}
+			if attr == `` {
+				check(8)
+			} else {
+				check(6)
+			} // 内联属性优先于 CSS。
+			for _, gap := range []int{12, 0} {
+				doc.layoutDirty = false
+				if err := scroll.SetProp(`gap`, strconv.Itoa(gap)); err != nil {
+					t.Fatal(err)
+				}
+				if !doc.layoutDirty {
+					t.Fatal("gap change did not invalidate layout")
+				}
+				check(gap)
+			}
+			for _, invalid := range []string{`-1`, `1.5`, `bad`} {
+				if err := scroll.SetProp(`gap`, invalid); err == nil {
+					t.Fatalf("accepted invalid gap %q", invalid)
+				}
+				check(0)
+			}
+		})
 	}
 }
 

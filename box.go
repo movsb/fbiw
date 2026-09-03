@@ -1982,9 +1982,6 @@ func (b *Image) Draw(canvas *Canvas) {
 type Scroll struct {
 	BaseBox
 
-	// 行与行、列与列之间的间隙。
-	gap int
-
 	// 如果指定了，则列表项的高度由此决定。
 	// 如果没指定，则会平均分。
 	rowHeight int
@@ -2040,12 +2037,14 @@ func NewScroll(doc *Document) *Scroll {
 // TODO 取消重复计算，大小不变的情况下只需要计算一次。
 func (b *Scroll) Calc(availWidth, availHeight int, constraints Constraints) {
 	size := b.resolveDimensions(constraints)
+	// 行列间距统一来自样式，支持 CSS 层叠和动态属性更新。
+	gap := max(0, b.computedStyles.Gap)
 	var (
 		boxMaxWidth  = Iif(size.Width.IsNumber(), int(size.Width.Number()), availWidth)
 		boxMaxHeight = Iif(size.Height.IsNumber(), int(size.Height.Number()), availHeight)
 
-		contentAvailWidth  = boxMaxWidth - (b.HorizontalInsets() + (b.cols-1)*b.gap)
-		contentAvailHeight = boxMaxHeight - (b.VerticalInsets() + (b.rows-1)*b.gap)
+		contentAvailWidth  = boxMaxWidth - (b.HorizontalInsets() + (b.cols-1)*gap)
+		contentAvailHeight = boxMaxHeight - (b.VerticalInsets() + (b.rows-1)*gap)
 
 		offsetX = b.InsetLeft()
 		offsetY = b.InsetTop()
@@ -2088,10 +2087,10 @@ func (b *Scroll) Calc(availWidth, availHeight int, constraints Constraints) {
 			// 需要换行了
 			if (i+1)%b.cols == 0 {
 				offsetX = b.InsetLeft()
-				offsetY += b.gap
+				offsetY += gap
 				offsetY += avgHeight
 			} else {
-				offsetX += b.gap
+				offsetX += gap
 				offsetX += avgWidth
 			}
 		}
@@ -2100,13 +2099,13 @@ func (b *Scroll) Calc(availWidth, availHeight int, constraints Constraints) {
 	visibleCols := min(b.cols, activeCount)
 	actualWidth := b.HorizontalInsets()
 	if visibleCols > 0 {
-		actualWidth += visibleCols*avgWidth + (visibleCols-1)*b.gap
+		actualWidth += visibleCols*avgWidth + (visibleCols-1)*gap
 	}
 	b.layoutBox.Width = resolveSize(size.Width, availWidth, constraints.PrefersMaxWidth, min(availWidth, actualWidth))
 	if b.shrinkRows && !constraints.FixedHeight.IsNumber() {
 		visibleRows := min(b.rows, divideRoundUp(b.count, b.cols))
 		visibleGaps := max(visibleRows-1, 0)
-		b.layoutBox.Height = b.VerticalInsets() + visibleRows*avgHeight + visibleGaps*b.gap
+		b.layoutBox.Height = b.VerticalInsets() + visibleRows*avgHeight + visibleGaps*gap
 	} else {
 		b.layoutBox.Height = resolveSize(size.Height, availHeight, constraints.PrefersMaxHeight, offsetY+b.InsetBottom())
 	}
@@ -2215,9 +2214,6 @@ func (b *Scroll) SetProp(key, value string) error {
 		return nil
 	case `cols`:
 		b.cols = Must1(strconv.Atoi(value))
-		return nil
-	case `gap`:
-		b.gap = Must1(strconv.Atoi(value))
 		return nil
 	default:
 		return b.BaseBox.SetProp(key, value)
