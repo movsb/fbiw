@@ -337,48 +337,42 @@ func (e Easing) apply(t float64) float64 {
 	}
 }
 
-// TweenOptions 描述一次数值补间。From、To 必须是有限数值，
-// Duration 不能为负；零时长在下一帧直接更新为 To。
-type TweenOptions struct {
-	From, To float64
+// AnimationOptions 描述一次从 0 到 1 的时间进度动画。
+// Duration 不能为负；零时长在下一帧直接更新为 1。
+type AnimationOptions struct {
 	Duration time.Duration
 	Easing   Easing
 
-	// OnUpdate 接收当前值，不能为空。布局和重绘仍由调用者按需请求。
-	OnUpdate func(value float64)
+	// OnUpdate 接收当前进度，不能为空。布局和重绘仍由调用者按需请求。
+	OnUpdate func(progress float64)
 	// OnComplete 只在自然完成时调用一次，在最后一次 OnUpdate 之后执行。
 	// 主动取消、关闭文档或退出 App 都不会触发它。
 	OnComplete func()
 }
 
-// value 只计算当前时刻的值，不修改样式，也不参与帧调度。
-func (o TweenOptions) value(elapsed time.Duration) (value float64, complete bool) {
+// progress 只计算当前时刻的进度，不修改样式，也不参与帧调度。
+func (o AnimationOptions) progress(elapsed time.Duration) (progress float64, complete bool) {
 	if elapsed >= o.Duration {
-		return o.To, true
+		return 1, true
 	}
 	if elapsed <= 0 {
-		return o.From, false
+		return 0, false
 	}
-	p := o.Easing.apply(float64(elapsed) / float64(o.Duration))
-	// 使用加权和，避免有限但符号相反的端点相减后溢出。
-	return (1-p)*o.From + p*o.To, false
+	return o.Easing.apply(float64(elapsed) / float64(o.Duration)), false
 }
 
-// Tween 从调用时开始计时，通过统一帧时钟更新数值，返回可重复调用的取消函数。
-// 不会同步调用 OnUpdate，也不保证首帧恰好为 From；需要立即显示起点时由调用者设置。
+// Animate 从调用时开始计时，通过统一帧时钟更新 0 到 1 的进度，
+// 返回可重复调用的取消函数。不会同步调用 OnUpdate，也不保证首帧恰好为 0；
+// 需要立即显示起点时由调用者设置。
 //
 // 注册、取消和回调均在 UI 主线程执行。后台暂停回调但不暂停时间，
-// 恢复时直接追上当前进度。完成时精确交付 To，不补发错过的中间帧。
-// 同一属性的新动画不会自动替换旧动画；调用者应先取消旧动画，
-// 再以当前显示值为 From 创建新动画。
-func (doc *Document) Tween(options TweenOptions) (cancel func()) {
-	if options.OnUpdate == nil || options.Duration < 0 || options.Easing > EaseInOut ||
-		math.IsNaN(options.From) || math.IsInf(options.From, 0) ||
-		math.IsNaN(options.To) || math.IsInf(options.To, 0) {
-		panic("Tween: 无效的回调、时长、缓动或端点。")
+// 恢复时直接追上当前进度。完成时精确交付 1，不补发错过的中间帧。
+func (doc *Document) Animate(options AnimationOptions) (cancel func()) {
+	if options.OnUpdate == nil || options.Duration < 0 || options.Easing > EaseInOut {
+		panic("Animate: 无效的回调、时长或缓动。")
 	}
 	if doc.app.ctx.Err() != nil || doc.app.animation.closed {
-		panic("Tween: 文档绑定的动画时钟已停止。")
+		panic("Animate: 文档绑定的动画时钟已停止。")
 	}
 	clock := doc.app.animation
 	start := clock.now()
@@ -392,8 +386,8 @@ func (doc *Document) Tween(options TweenOptions) (cancel func()) {
 	timeline := doc.timeline
 	var animation *_TimelineAnimation
 	animation, cancel = timeline.add(func(now time.Time) bool {
-		value, complete := options.value(now.Sub(start))
-		options.OnUpdate(value)
+		progress, complete := options.progress(now.Sub(start))
+		options.OnUpdate(progress)
 		// 更新回调可能取消自身或关闭文档，此时不再触发完成回调。
 		if animation.tick == nil || !timeline.live() {
 			return true
@@ -407,4 +401,37 @@ func (doc *Document) Tween(options TweenOptions) (cancel func()) {
 		return complete
 	})
 	return cancel
+}
+
+// TweenOptions 描述一次数值补间。From、To 必须是有限数值。
+type TweenOptions struct {
+	From, To   float64
+	Duration   time.Duration
+	Easing     Easing
+	OnUpdate   func(value float64)
+	OnComplete func()
+}
+
+// value 只根据进度插值，不修改样式，也不参与帧调度。
+func (o TweenOptions) value(progress float64) float64 {
+	// 使用加权和，避免有限但符号相反的端点相减后溢出。
+	return (1-progress)*o.From + progress*o.To
+}
+
+// Tween 使用 Animate 提供的时间进度，在 From 与 To 之间进行数值插值。
+// 同一属性的新动画不会自动替换旧动画；调用者应先取消旧动画，
+// 再以当前显示值为 From 创建新动画。
+func (doc *Document) Tween(options TweenOptions) func() {
+	if options.OnUpdate == nil || math.IsNaN(options.From) || math.IsInf(options.From, 0) ||
+		math.IsNaN(options.To) || math.IsInf(options.To, 0) {
+		panic("Tween: 无效的回调或端点。")
+	}
+	return doc.Animate(AnimationOptions{
+		Duration: options.Duration,
+		Easing:   options.Easing,
+		OnUpdate: func(progress float64) {
+			options.OnUpdate(options.value(progress))
+		},
+		OnComplete: options.OnComplete,
+	})
 }

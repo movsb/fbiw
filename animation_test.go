@@ -410,31 +410,71 @@ func TestTweenValues(t *testing.T) {
 	}{
 		{EaseLinear, 0.25}, {EaseIn, 0.0625}, {EaseOut, 0.4375}, {EaseInOut, 0.125},
 	} {
-		o := TweenOptions{From: 0, To: 1, Duration: time.Second, Easing: tc.easing}
-		if got, done := o.value(250 * time.Millisecond); got != tc.want || done {
+		o := AnimationOptions{Duration: time.Second, Easing: tc.easing}
+		if got, done := o.progress(250 * time.Millisecond); got != tc.want || done {
 			t.Fatalf("缓动 %d: 得到 %v/%v，期望 %v/false", tc.easing, got, done, tc.want)
 		}
 		previous := 0.0
 		for i := 0; i <= 100; i++ {
-			v, _ := o.value(time.Duration(i) * time.Second / 100)
+			v, _ := o.progress(time.Duration(i) * time.Second / 100)
 			if v < previous || v < 0 || v > 1 {
 				t.Fatal("缓动不单调或越界")
 			}
 			previous = v
 		}
-		if v, done := o.value(-time.Second); v != 0 || done {
+		if v, done := o.progress(-time.Second); v != 0 || done {
 			t.Fatal("起点不正确")
 		}
-		if v, done := o.value(2 * time.Second); v != 1 || !done {
+		if v, done := o.progress(2 * time.Second); v != 1 || !done {
 			t.Fatal("终点不正确")
 		}
 	}
 	for _, ends := range [][2]float64{{20, -20}, {4, 4}, {-math.MaxFloat64, math.MaxFloat64}} {
-		o := TweenOptions{From: ends[0], To: ends[1], Duration: time.Second}
-		v, done := o.value(time.Second / 2)
-		if v != ends[0]/2+ends[1]/2 || done {
+		o := TweenOptions{From: ends[0], To: ends[1]}
+		v := o.value(0.5)
+		if v != ends[0]/2+ends[1]/2 {
 			t.Fatal("反向、相同或极大端点插值错误")
 		}
+	}
+}
+
+func TestAnimateProgress(t *testing.T) {
+	app, doc, f := newAnimationTestApp(t)
+	var progress []float64
+	completed := 0
+	doc.Animate(AnimationOptions{
+		Duration:   time.Second,
+		Easing:     EaseIn,
+		OnUpdate:   func(value float64) { progress = append(progress, value) },
+		OnComplete: func() { completed++ },
+	})
+	f.now = f.now.Add(500 * time.Millisecond)
+	animationStep(app)
+	f.now = f.now.Add(500 * time.Millisecond)
+	animationStep(app)
+	if !slices.Equal(progress, []float64{0.25, 1}) || completed != 1 {
+		t.Fatalf("进度或完成回调不正确：%v, %d", progress, completed)
+	}
+}
+
+func TestAnimateInvalidOptions(t *testing.T) {
+	_, doc, _ := newAnimationTestApp(t)
+	valid := AnimationOptions{Duration: time.Second, OnUpdate: func(float64) {}}
+	for _, edit := range []func(*AnimationOptions){
+		func(o *AnimationOptions) { o.OnUpdate = nil },
+		func(o *AnimationOptions) { o.Duration = -1 },
+		func(o *AnimationOptions) { o.Easing = Easing(255) },
+	} {
+		func() {
+			defer func() {
+				if recover() == nil {
+					t.Error("无效参数应被拒绝")
+				}
+			}()
+			o := valid
+			edit(&o)
+			doc.Animate(o)
+		}()
 	}
 }
 

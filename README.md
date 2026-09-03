@@ -816,7 +816,7 @@ cancelFrame = doc.RequestAnimationFrame(frame)
 `time.Time`（保留单调时钟读数），然后统一检查布局和绘制需求。实际帧率取决于
 绘制耗时及平台后端；卡顿只跳到当前时间，不补发历史帧。回调本身不会自动重绘。
 
-注册、取消和回调均属于 UI 主线程；其他 goroutine 请通过 `App.Async` 投递。
+注册、取消和回调均属于 UI 主线程；其他 goroutine 请通过 `Document.Async` 投递。
 回调内注册的请求最早下一帧执行；取消也能阻止本帧中尚未开始的回调。
 nil 回调、未绑定或已关闭文档的请求会 panic。
 
@@ -825,9 +825,26 @@ nil 回调、未绑定或已关闭文档的请求会 panic。
 时间仍继续流逝；恢复后收到当前时间。无可运行请求时，动画时钟不产生周期唤醒
 （不改变 macOS 原有事件轮询方式）。关闭文档自动取消其请求，App 退出时清理全部请求。
 
-## 数值补间（Tween）
+## 进度动画与数值补间
 
-`Document.Tween` 在统一帧时钟上，将数值从 `From` 逐步更新到 `To`：
+`Document.Animate` 提供经过缓动的 `0..1` 时间进度，适合在一次回调中更新颜色、
+位置等一个或多个值：
+
+```go
+cancelAnimation := doc.Animate(fbiw.AnimationOptions{
+    Duration: 300 * time.Millisecond,
+    Easing:   fbiw.EaseOut,
+    OnUpdate: func(progress float64) {
+        // 使用 progress 插值所需状态，并按需请求布局或重绘。
+        doc.RequestPaint()
+    },
+})
+
+// cancelAnimation()
+```
+
+`Animate` 只负责时间和进度，不规定被更新的值类型。`Document.Tween` 是它上面的
+数值插值封装，将数值从 `From` 逐步更新到 `To`：
 
 ```go
 progress := doc.GetBoxByID[*fbiw.ProgressBar]("download")
@@ -865,9 +882,9 @@ cancelTween := doc.Tween(fbiw.TweenOptions{
 
 ### 文档 Timeline
 
-每个使用 Tween 的文档会按需创建一个内部 Timeline，统一管理活动动画：
+每个使用 Animate 或 Tween 的文档会按需创建一个内部 Timeline，统一管理活动动画：
 
-- 同一文档的所有 Tween 共享一个帧请求，按文档内的注册顺序推进。
+- 同一文档的所有动画共享一个帧请求，按文档内的注册顺序推进。
 - 完成或取消的动画会被移除；没有活动动画时停止续订，后续可以复用该 Timeline。
 - 帧回调中新增的动画最早下一帧执行，即使它所属的 Timeline 在本帧还未执行。
 - 关闭文档会清理整个 Timeline；App 退出时也会清理后台文档的活动动画。
