@@ -816,6 +816,15 @@ GOEXPERIMENT=simd go run ./demo/safe
 
 示例期望存在 `demo/regular.ttf`。该字体文件当前未包含在仓库中，运行前需要自行放置一个可用的 OpenType/TrueType 字体，并命名为 `regular.ttf`。
 
+Flex 交互示例（使用 `<flex>`，不使用 `display` 切换布局）：
+
+```bash
+cd demo/flex
+GOEXPERIMENT=simd go run .
+```
+
+它从 `../regular.ttf` 加载字体，展示横向 grow 分配、竖向 1:2 分配、主轴/交叉轴对齐和文本自动折行。左右调整中间元素的 grow（1～5），上下切换主轴对齐，A 切换交叉轴对齐，B 隐藏/显示橙色元素。在 macOS 上对应 A/D、W/S、K、J 键。
+
 ## 测试
 
 运行全部测试：

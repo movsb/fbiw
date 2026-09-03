@@ -1,0 +1,71 @@
+<document>
+<title>Flex</title>
+<style>
+document {
+	color: #eef1f6;
+	font-size: 22;
+}
+#page {
+	flex-direction: column;
+	padding: 24;
+	gap: 14;
+	background-color: #17191f;
+}
+.muted { color: #aeb4c0; font-size: 20; }
+.card { background-color: #232731; padding: 16; }
+.blue { background-color: #3358d4; }
+.green { background-color: #26865f; }
+.orange { background-color: #a85d22; }
+.tile { align: both; }
+#grow-row > block { width: 0; height: 60; }
+#column-demo > block { height: 0; }
+#alignment { background-color: #17191f; }
+#alignment > block { width: 90; }
+#alignment-label { font-size: 20; color: #b9c9ff; }
+</style>
+
+<!-- display 只控制显示/隐藏；布局由 flex/block 等盒子类型决定。 -->
+<flex id="page">
+	<text font-size="36">Flex 布局实验</text>
+	<text class="muted">左右：调整 grow　上下：切换主轴对齐　A：交叉轴对齐</text>
+
+	<flex class="card" flex-direction="column" gap="8" height="128">
+		<text>横排：基础宽度为 0，按 grow 权重分配空间</text>
+		<flex id="grow-row" gap="12" height="60">
+			<block class="tile blue" flex-grow="1"><text>grow = 1</text></block>
+			<block id="grow-middle" class="tile green" flex-grow="2"><text id="weight">grow = 2</text></block>
+			<block class="tile orange" flex-grow="1"><text>grow = 1</text></block>
+		</flex>
+	</flex>
+
+	<flex gap="16" height="292">
+		<flex class="card" flex-direction="column" gap="10" width="260">
+			<text>竖排：高度按 1:2 分配</text>
+			<flex id="column-demo" flex-direction="column" gap="10" height="0" flex-grow="1">
+				<block class="tile blue" flex-grow="1"><text>grow = 1</text></block>
+				<block class="tile green" flex-grow="2"><text>grow = 2</text></block>
+			</flex>
+		</flex>
+		<flex class="card" flex-direction="column" gap="10" width="0" flex-grow="1">
+			<text>主轴对齐 / 交叉轴对齐</text>
+			<text id="alignment-label">space-between / center</text>
+			<flex id="alignment" height="132" gap="12" justify-content="space-between" align-items="center">
+				<!-- 不指定高度，切换到 stretch 时可以看到拉伸效果。 -->
+				<block class="tile blue" padding="8"><text>A</text></block>
+				<block class="tile green" padding="20 8"><text>B</text></block>
+				<block id="alignment-last" class="tile orange" padding="32 8"><text>C</text></block>
+			</flex>
+			<text id="visibility-label" class="muted">B：隐藏橙色元素</text>
+		</flex>
+	</flex>
+
+	<flex class="card" flex-direction="column" gap="8" height="128">
+		<text>文本占剩余宽度：width = 0 + flex-grow = 1</text>
+		<flex gap="16" align-items="center" height="60">
+			<text width="0" flex-grow="1" font-size="20">这段文字会在分配后的剩余宽度内自动折行。右侧元素保持固定宽度，文本不会先占满整行再把它挤出去。</text>
+			<block class="tile blue" width="160" height="52"><text>固定 160</text></block>
+		</flex>
+	</flex>
+	<text class="muted">当前为单行 Flex：不支持 shrink 或 wrap；隐藏元素不占间距。</text>
+</flex>
+</document>

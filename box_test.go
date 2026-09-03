@@ -12,6 +12,7 @@ import (
 	"github.com/goccy/go-yaml"
 	"golang.org/x/image/font"
 	"golang.org/x/image/font/basicfont"
+	"golang.org/x/image/font/gofont/goregular"
 	"golang.org/x/image/math/fixed"
 )
 
@@ -29,6 +30,61 @@ func newFlexTestDocument(t *testing.T, body string, width, height int) *Document
 	}
 	doc.layout()
 	return doc
+}
+
+func TestFlexDemoLayout(t *testing.T) {
+	fm := NewFontManager()
+	defer fm.Close()
+	if err := fm.AddFont(fstest.MapFS{`regular.ttf`: &fstest.MapFile{Data: goregular.TTF}}, `regular.ttf`, `system`, false, false); err != nil {
+		t.Fatal(err)
+	}
+	doc := _NewDocument(1024, 768, os.DirFS(`demo/flex`), fm, nil)
+	if err := doc.load(`main.html`); err != nil {
+		t.Fatal(err)
+	}
+	check := func() {
+		t.Helper()
+		doc.layout()
+		walkBox(doc.root, func(box Box) bool {
+			if !displaying(box) {
+				return false
+			}
+			r := box.GetLayoutBox()
+			if r.Width < 0 || r.Height < 0 {
+				t.Errorf("negative size for %s#%s: %+v", box.Base().Tag, box.Base().ID, r)
+			}
+			if parent := box.Parent(); parent != nil {
+				p := parent.GetLayoutBox()
+				if r.X < 0 || r.Y < 0 || r.X+r.Width > p.Width || r.Y+r.Height > p.Height {
+					t.Errorf("%s#%s overflows: %+v inside %+v", box.Base().Tag, box.Base().ID, r, p)
+				}
+			}
+			return true
+		})
+		doc.paint(NewCanvas(1024, 768))
+	}
+	check()
+	set := func(id, name, value string) {
+		t.Helper()
+		if err := doc.GetBoxByID[Box](id).SetProp(name, value); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, grow := range []string{`1`, `5`, `2`} {
+		set(`grow-middle`, `flex-grow`, grow)
+		check()
+	}
+	for _, justify := range []string{`start`, `center`, `end`, `space-between`, `space-around`, `space-evenly`} {
+		set(`alignment`, `justify-content`, justify)
+		for _, align := range []string{`start`, `center`, `end`, `stretch`} {
+			set(`alignment`, `align-items`, align)
+			check()
+		}
+	}
+	set(`alignment-last`, `display`, `false`)
+	check()
+	set(`alignment-last`, `display`, `true`)
+	check()
 }
 
 func TestFlexLayout(t *testing.T) {
