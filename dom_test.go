@@ -87,6 +87,98 @@ func pendingCallbackCount(app *App) int {
 	return len(app.pending)
 }
 
+func newAsyncTestDocument() (*App, *Document) {
+	app := newDesktopTestApp()
+	doc := &Document{}
+	doc.bindApp(app)
+	return app, doc
+}
+
+func TestDocumentAsyncRunsOnCurrentLifecycle(t *testing.T) {
+	app, doc := newAsyncTestDocument()
+	called := 0
+	doc.Async(func() { called++ })
+	if pendingCallbackCount(app) != 1 {
+		t.Fatal("Document.Async 没有投递到 App")
+	}
+	runPendingCallbacks(app)
+	if called != 1 {
+		t.Fatal("有效生命周期中的回调没有执行")
+	}
+}
+
+func TestDocumentAsyncIgnoresInvalidLifecycle(t *testing.T) {
+	for _, mode := range []string{"提交前未绑定", "提交后关闭", "前一回调关闭", "App退出"} {
+		t.Run(mode, func(t *testing.T) {
+			app, doc := newAsyncTestDocument()
+			called := 0
+			if mode == "提交前未绑定" {
+				doc.unbindApp()
+			}
+			if mode == "前一回调关闭" {
+				doc.Async(func() { doc.Close() })
+			}
+			doc.Async(func() { called++ })
+			switch mode {
+			case "提交后关闭":
+				doc.Close()
+			case "App退出":
+				app.Quit()
+			}
+			runPendingCallbacks(app)
+			if called != 0 {
+				t.Fatal("失效生命周期中的回调仍然执行")
+			}
+		})
+	}
+}
+
+func TestDocumentAsyncCanBeSubmittedFromGoroutine(t *testing.T) {
+	app, doc := newAsyncTestDocument()
+	const count = 100
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for range count {
+			doc.Async(func() {})
+		}
+	}()
+	<-done
+	if pendingCallbackCount(app) != count {
+		t.Fatalf("后台投递数量 = %d，期望 %d", pendingCallbackCount(app), count)
+	}
+	doc.Close()
+	runPendingCallbacks(app)
+}
+
+func TestDocumentAsyncHelpersRespectLifecycle(t *testing.T) {
+	app, doc := newAsyncTestDocument()
+	doc.RequestLayoutAsync()
+	doc.RequestPaintAsync()
+	doc.Close()
+	runPendingCallbacks(app)
+	if doc.layoutDirty || doc.paintDirty {
+		t.Fatal("关闭后仍执行了异步布局或重绘请求")
+	}
+
+	// 未绑定时直接忽略，不产生无法执行的 App 回调。
+	doc.RequestLayoutAsync()
+	doc.RequestPaintAsync()
+	if pendingCallbackCount(app) != 0 {
+		t.Fatal("未绑定文档仍然投递了异步请求")
+	}
+}
+
+func TestDocumentAsyncRejectsNilCallback(t *testing.T) {
+	_, doc := newAsyncTestDocument()
+	defer func() {
+		if recover() == nil {
+			t.Fatal("nil 回调没有 panic")
+		}
+	}()
+	doc.Async(nil)
+}
+
 func TestSetTimeoutSupportsMillisecondsAndDuration(t *testing.T) {
 	app := newDesktopTestApp()
 	doc := &Document{app: app}

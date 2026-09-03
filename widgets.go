@@ -128,6 +128,8 @@ var (
 	toggleKnobColor     = ColorFromRGBA(255, 255, 255, 255)
 )
 
+const toggleAnimationDuration = 250 * time.Millisecond
+
 // ToggleChangeEvent 在 Toggle 的选中状态发生变化后派发。
 var ToggleChangeEvent = RegisterEventType()
 
@@ -262,9 +264,9 @@ func (b *Toggle) animateKnob() {
 		target = 1
 	}
 	doc := b.document
-	app := doc.app
-	// 初次显示、脱离 App 或生命周期已结束时，直接显示目标状态。
-	if !b.painted || app == nil || app.ctx.Err() != nil || app.animation.closed || b.knobProgress == target {
+	// 初次显示直接呈现目标状态；是否挂载及相应的降级行为
+	// 统一由 Document.Tween 负责，组件不读取文档或时钟状态。
+	if !b.painted || b.knobProgress == target {
 		b.knobProgress = target
 		doc.RequestPaint()
 		return
@@ -272,7 +274,7 @@ func (b *Toggle) animateKnob() {
 	b.cancelTween = doc.Tween(TweenOptions{
 		From:     b.knobProgress,
 		To:       target,
-		Duration: 250 * time.Millisecond,
+		Duration: toggleAnimationDuration,
 		Easing:   EaseOut,
 		OnUpdate: func(value float64) {
 			b.knobProgress = value

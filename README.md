@@ -230,13 +230,13 @@ toggle.Activate()
 `StopPropagation` 时，可以改用底层的 `Listen` 和
 `fbiw.ToggleChangeEvent`。
 
-Toggle 首次显示时直接呈现当前状态。显示过后切换状态，滑块会在 150ms 内以
+Toggle 首次显示时直接呈现当前状态。显示过后切换状态，滑块会在 250ms 内以
 `EaseOut` 平滑移动；快速反复切换会取消旧动画，从当前显示位置转向新目标。
 `checked`、对应类名、轨道颜色和 `OnChange` 立即更新，不等待动画结束。
 `SetProp("checked", ...)` 同样更新动效，但仍不派发状态事件。
 
 滑块动画每帧只请求重绘；切换 `checked` 类名本身仍可能因 CSS 规则触发布局。
-动画期间尺寸变化会按新的滑动距离绘制。未绑定 App 或尚未首次绘制时直接更新位置；
+动画期间尺寸变化会按新的滑动距离绘制。尚未首次绘制时直接更新位置；
 后台和 Detach 沿用 Timeline 的暂停回调、时间继续策略，关闭文档自动取消动画。
 
 `progress` 只绘制轨道和完成部分，进度使用 `[0,1]` 范围内的浮点数：
@@ -889,7 +889,24 @@ app.Async(func() {
 })
 ```
 
-仅需重绘时调用 `RequestPaint`，尺寸或结构变化时调用 `RequestLayout`。对应的 `RequestPaintAsync` 和 `RequestLayoutAsync` 可以直接从其他 goroutine 调用。
+文档相关任务优先使用 `Document.Async`。它会绑定提交时的文档生命周期：
+
+```go
+go func() {
+    result := loadData()
+    doc.Async(func() {
+        // 文档仍然有效时，才会在 UI 主线程执行。
+        render(result)
+    })
+}()
+```
+
+文档在提交前未绑定、App 已退出，或者回调执行前已关闭或解绑时，回调会被忽略。
+判断发生在 UI 回调真正执行前，而不是后台任务完成时。`Document.Async` 可以从其他
+goroutine 调用，nil 回调会 panic。通用且不属于某个文档的任务继续使用 `App.Async`。
+
+仅需重绘时调用 `RequestPaint`，尺寸或结构变化时调用 `RequestLayout`。对应的
+`RequestPaintAsync` 和 `RequestLayoutAsync` 复用生命周期绑定的投递，文档失效后自动忽略。
 
 ## 平台按键
 

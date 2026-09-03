@@ -598,7 +598,7 @@ func TestTweenSharedFrameStartAndChaining(t *testing.T) {
 }
 
 func TestTweenInvalidOptions(t *testing.T) {
-	_, doc, _ := newAnimationTestApp(t)
+	app, doc, _ := newAnimationTestApp(t)
 	valid := TweenOptions{To: 1, Duration: time.Second, OnUpdate: func(float64) {}}
 	for _, edit := range []func(*TweenOptions){
 		func(o *TweenOptions) { o.OnUpdate = nil },
@@ -618,16 +618,17 @@ func TestTweenInvalidOptions(t *testing.T) {
 			doc.Tween(o)
 		}()
 	}
-	for _, closed := range []*Document{{}, doc} {
-		closed.Close()
+	for _, stopped := range []*Document{doc, {app: app}} {
+		app.Quit()
 		func() {
 			defer func() {
 				if recover() == nil {
-					t.Error("未绑定或已关闭的文档应被拒绝")
+					t.Error("已停止的动画时钟应被拒绝")
 				}
 			}()
-			closed.Tween(valid)
+			stopped.Tween(valid)
 		}()
+		app.animation.close()
 	}
 }
 

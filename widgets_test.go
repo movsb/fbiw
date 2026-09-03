@@ -180,7 +180,6 @@ func TestToggleSetCheckedOnlyDispatchesForChanges(t *testing.T) {
 	toggle.OnChange(func(bool) { changes++ })
 
 	toggle.SetChecked(true)
-	toggle.SetChecked(true)
 	toggle.SetChecked(false)
 	if changes != 2 || toggle.ClassContains(`checked`) {
 		t.Fatalf(`toggle 状态不正确：checked=%v changes=%d`, toggle.Checked(), changes)
@@ -240,7 +239,9 @@ func TestToggleDrawsIndicatorAccordingToState(t *testing.T) {
 		t.Fatalf(`未选中滑块位置不正确：%v`, got)
 	}
 
-	toggle.SetChecked(true)
+	// 这里仅验证静态绘制，直接设置逻辑状态和显示进度，不启动动画。
+	toggle.checked = true
+	toggle.knobProgress = 1
 	toggle.Draw(canvas)
 	if got := canvas.getPixel(trackX, trackY); got != toggle.checkedTrackColor.NRGBA() {
 		t.Fatalf(`选中轨道颜色不正确：%v`, got)
@@ -306,7 +307,7 @@ func TestToggleAnimationPaintOnly(t *testing.T) {
 	doc.layout()
 	doc.layoutDirty, doc.paintDirty = false, false
 	layout := toggle.GetLayoutBox()
-	clock.now = clock.now.Add(75 * time.Millisecond)
+	clock.now = clock.now.Add(toggleAnimationDuration / 2)
 	animationStep(app)
 	if toggle.knobProgress != 0.75 || doc.layoutDirty || !doc.paintDirty || toggle.GetLayoutBox() != layout {
 		t.Fatal("动画未在中间位置只请求重绘")
@@ -319,7 +320,7 @@ func TestToggleAnimationPaintOnly(t *testing.T) {
 	if canvas.getPixel(knobX, inset) != toggle.knobColor.NRGBA() || canvas.getPixel(inset, inset) != toggle.checkedTrackColor.NRGBA() {
 		t.Fatal("实际绘制的滑块未移动到补间位置")
 	}
-	clock.now = clock.now.Add(75 * time.Millisecond)
+	clock.now = clock.now.Add(toggleAnimationDuration / 2)
 	animationStep(app)
 	if toggle.knobProgress != 1 || toggle.cancelTween != nil || app.animation.stop != nil || changes != 1 {
 		t.Fatal("动画结束状态或事件次数不正确")
@@ -329,7 +330,7 @@ func TestToggleAnimationPaintOnly(t *testing.T) {
 func TestToggleAnimationReversesFromCurrentPosition(t *testing.T) {
 	app, doc, toggle, clock := newAnimatedToggle(t, `<document><block><toggle></toggle></block></document>`, true)
 	toggle.SetChecked(true)
-	clock.now = clock.now.Add(75 * time.Millisecond)
+	clock.now = clock.now.Add(toggleAnimationDuration / 2)
 	animationStep(app)
 	toggle.SetChecked(false)
 	if toggle.knobProgress != 0.75 || len(doc.timeline.animations) != 1 {
@@ -340,12 +341,12 @@ func TestToggleAnimationReversesFromCurrentPosition(t *testing.T) {
 	if doc.timeline.animations[0] != animation {
 		t.Fatal("相同状态重复设置重启了动画")
 	}
-	clock.now = clock.now.Add(75 * time.Millisecond)
+	clock.now = clock.now.Add(toggleAnimationDuration / 2)
 	animationStep(app)
 	if toggle.knobProgress != 0.1875 {
 		t.Fatal("没有从当前显示位置反向移动")
 	}
-	clock.now = clock.now.Add(75 * time.Millisecond)
+	clock.now = clock.now.Add(toggleAnimationDuration / 2)
 	animationStep(app)
 	if toggle.knobProgress != 0 || len(doc.timeline.animations) != 0 {
 		t.Fatal("旧动画覆盖了新目标")

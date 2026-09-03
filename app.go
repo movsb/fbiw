@@ -173,7 +173,7 @@ func (app *App) _New(fsys fs.FS, name string, desktop _AppNewDocDesktop, docRef 
 	)
 
 	// safe-area要求的，暂时提前到这里。
-	doc.app = app
+	doc.bindApp(app)
 
 	if err := doc.load(name); err != nil {
 		panic(err)
@@ -227,7 +227,7 @@ func (app *App) _CloseDocument(doc *Document) {
 	app.animation.cancelDocument(doc)
 	if app.overlay == doc {
 		app.SetOverlay(nil)
-		doc.app = nil
+		doc.unbindApp()
 		return
 	}
 	// if app.switcherDocument == doc {
@@ -239,7 +239,7 @@ func (app *App) _CloseDocument(doc *Document) {
 
 	// multiple close ? overlay & switcher?
 	if doc.desktop == nil {
-		doc.app = nil
+		doc.unbindApp()
 		return
 	}
 
@@ -334,9 +334,12 @@ func (app *App) wakeUp() {
 
 // 用于其它线程创建一个将来会在主线程中调用的回调函数。
 //
-// 方便用于在非主线程中安全更新UI操作。
-// 调用会立即返回，不会阻塞。
-// 每次回调都会额外触发检测是否有绘制更新。
+// 特别注意：回调只被保证在主线程中调用，但是如果Async是被文档调用，
+// 回调被调用时文档不一定还“活着”（有可能已经被关闭了），如果此时操作
+// UI界面，很有可能炸掉。所以：此函数应该非常小心地被调用。
+//
+// 文档（Document）那边提供了一个相同签名的方法，但是它会将回调绑定到
+// 文档的生命周期上。即：回调时如果文档已关闭等，则回调函数不会被调用。
 func (app *App) Async(callback func()) {
 	app.lock.Lock()
 	app.pending = append(app.pending, callback)
@@ -589,7 +592,7 @@ func (d *Desktop) remove(doc *Document) {
 	d.documents = slices.DeleteFunc(d.documents, func(d *Document) bool {
 		return d == doc
 	})
-	doc.app = nil
+	doc.unbindApp()
 	doc.desktop = nil
 }
 func (d *Desktop) top() *Document {

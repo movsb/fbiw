@@ -377,8 +377,8 @@ func (doc *Document) Tween(options TweenOptions) (cancel func()) {
 		math.IsNaN(options.To) || math.IsInf(options.To, 0) {
 		panic("Tween: 无效的回调、时长、缓动或端点。")
 	}
-	if doc.app == nil || doc.app.ctx.Err() != nil || doc.app.animation.closed {
-		panic("Tween: 文档未绑定到运行中的动画时钟。")
+	if doc.app.ctx.Err() != nil || doc.app.animation.closed {
+		panic("Tween: 文档绑定的动画时钟已停止。")
 	}
 	clock := doc.app.animation
 	start := clock.now()

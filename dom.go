@@ -30,6 +30,8 @@ type Document struct {
 	// 为 app 框架服务的数据。
 	app     *App
 	desktop *Desktop
+	// asyncApp 专供可从其他 goroutine 调用的生命周期 API 使用。
+	asyncApp atomic.Pointer[App]
 
 	// 同一文档的 Tween 共享 Timeline，由它统一申请帧并推进动画。
 	timeline *_Timeline
@@ -77,6 +79,18 @@ type Document struct {
 	// 文档内自定义的模板。
 	// 用于创建内部元素的时候直接复用。
 	templates map[string]string
+}
+
+// bindApp 和 unbindApp 只能由 UI 主线程调用。
+func (doc *Document) bindApp(app *App) {
+	doc.app = app
+	doc.asyncApp.Store(app)
+}
+
+func (doc *Document) unbindApp() {
+	// 先使后台回调失效，再清理仅供 UI 主线程使用的字段。
+	doc.asyncApp.Store(nil)
+	doc.app = nil
 }
 
 func _NewDocument(
@@ -505,42 +519,47 @@ func (doc *Document) RequestPaint() {
 	}
 }
 
-// 作用同 RequestLayout，但是可以在线程中调用。
-//
-// 必须在文档绑定App框架后可用。
+// 作用同 RequestLayout，但是可以从其他 goroutine 调用。
+// 回调执行前文档已经失效时自动忽略。
 func (doc *Document) RequestLayoutAsync() {
-	if doc.app == nil {
-		log.Panicln(`Document.RequestLayoutAsync 未绑定 App`)
-	}
-	doc.app.Async(func() {
-		doc.RequestLayout()
-	})
+	doc.Async(func() { doc.RequestLayout() })
 }
 
-// 作用同 RequestPaint，但是可以在线程中调用。
-//
-// 必须在文档绑定App框架后可用。
+// 作用同 RequestPaint，但是可以从其他 goroutine 调用。
+// 回调执行前文档已经失效时自动忽略。
 func (doc *Document) RequestPaintAsync() {
-	if doc.app == nil {
-		log.Panicln(`Document.RequestPaintAsync 未绑定 App`)
+	doc.Async(func() { doc.RequestPaint() })
+}
+
+// 用于其它线程创建一个将来会在主线程中调用的回调函数。
+//
+// 方便用于在非主线程中安全更新UI操作。 调用会立即返回，不会阻塞。 每次回调都会额外触发检测是否有绘制更新。
+//
+// Async 将回调投递到 UI 主线程，并绑定到文档提交时的生命周期。
+// 未绑定、App 已退出，或回调执行前文档被关闭、解绑时，回调会被忽略。
+// callback 不能为空。
+//
+// 特别注意：App.Async 结束时并不保证文档还有效，但是本函数会检测，如果
+// 回调发生时文档已关闭，则回调不会被调用。
+func (doc *Document) Async(callback func()) {
+	if callback == nil {
+		panic(`Document.Async 回调不能为空。`)
 	}
-	doc.app.Async(func() {
-		doc.RequestPaint()
+	app := doc.asyncApp.Load()
+	if app == nil || app.ctx.Err() != nil {
+		return
+	}
+	app.Async(func() {
+		if doc.asyncApp.Load() != app || app.ctx.Err() != nil {
+			return
+		}
+		callback()
 	})
 }
 
-// 包装 app.Async 给自定义组件吗？那边没有 app。
-func (doc *Document) Async(callback func()) {
-	if doc.app == nil {
-		log.Panicln(`Document.RequestPaintAsync 未绑定 App`)
-	}
-	doc.app.Async(callback)
-}
-
-// 返回文档关联的App。
-// 可能为空？
+// App 返回当前绑定的 App；未绑定时返回 nil。可以从其他 goroutine 调用。
 func (doc *Document) App() *App {
-	return doc.app
+	return doc.asyncApp.Load()
 }
 
 // 绑定到文档的定时器。
@@ -1062,7 +1081,7 @@ func (doc *Document) loadImageSync(src string, width, height int, options ImageD
 func (doc *Document) loadImageAsync(src string, width, height int, options ImageDecodeOptions, callback func(DecodedImage, error)) {
 	go func() {
 		img, err := doc._loadImage(src, width, height, false, options)
-		doc.app.Async(func() {
+		doc.Async(func() {
 			callback(img, err)
 		})
 	}()
