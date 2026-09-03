@@ -778,6 +778,46 @@ app := fbiw.NewApp(
 )
 ```
 
+## 动画帧时钟
+
+`Document.RequestAnimationFrame(func(now time.Time))` 请求一次动画帧回调，
+返回可重复调用的取消函数。持续动画需要在回调中再次申请：
+
+```go
+var cancelFrame func()
+var started time.Time
+var frame func(time.Time)
+frame = func(now time.Time) {
+    if started.IsZero() {
+        started = now
+    }
+    elapsed := now.Sub(started)
+    // 根据 elapsed 更新组件状态；需要时调用 RequestPaint/RequestLayout。
+    if elapsed < time.Second {
+        cancelFrame = doc.RequestAnimationFrame(frame)
+    }
+}
+cancelFrame = doc.RequestAnimationFrame(frame)
+
+// 在需要提前停止时调用（UI 主线程）：
+// cancelFrame()
+```
+
+所有文档共享 App 的 60 FPS 目标时钟，同一帧回调按注册顺序执行，获得相同的
+`time.Time`（保留单调时钟读数），然后统一检查布局和绘制需求。实际帧率取决于
+绘制耗时及平台后端；卡顿只跳到当前时间，不补发历史帧。回调本身不会自动重绘。
+
+注册、取消和回调均属于 UI 主线程；其他 goroutine 请通过 `App.Async` 投递。
+回调内注册的请求最早下一帧执行；取消也能阻止本帧中尚未开始的回调。
+nil 回调、未绑定或已关闭文档的请求会 panic。
+
+前台 Desktop 的所有文档与当前挂载的 Overlay 可以执行回调，不做遮挡或元素级
+可见性判断。后台桌面、未挂载 Overlay 和 App Detach 期间保留请求但暂停回调，
+时间仍继续流逝；恢复后收到当前时间。无可运行请求时，动画时钟不产生周期唤醒
+（不改变 macOS 原有事件轮询方式）。关闭文档自动取消其请求，App 退出时清理全部请求。
+
+当前只提供帧调度，不包含 Tween、缓动或 CSS 动画。
+
 ## 异步更新
 
 UI 修改应在主事件线程执行。从其他 goroutine 更新界面时，可使用：

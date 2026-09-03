@@ -51,11 +51,12 @@ type App struct {
 	pending []func()
 	unblock chan struct{}
 
-	display *Display
-	canvas  *Canvas
-	fpsCalc _FPSCounter
-	images  *ImageManager
-	fonts   *FontManager
+	display   *Display
+	canvas    *Canvas
+	fpsCalc   _FPSCounter
+	animation _AnimationClock
+	images    *ImageManager
+	fonts     *FontManager
 
 	// 桌面列表。
 	// 桌面由文档构成。
@@ -129,6 +130,7 @@ func (app *App) Close() {
 	defer app.display.Close()
 	defer app.images.Close()
 	defer app.fonts.Close()
+	defer app.animation.close()
 	app.cancel()
 }
 
@@ -215,6 +217,7 @@ func (app *App) isActiveDesktop(d *Desktop) bool {
 }
 
 func (app *App) _CloseDocument(doc *Document) {
+	app.cancelDocumentAnimation(doc)
 	if app.overlay == doc {
 		app.SetOverlay(nil)
 		doc.app = nil
@@ -272,6 +275,7 @@ func (app *App) _CloseDocument(doc *Document) {
 // 文档dirty不要调用这个，因为文档不一定属于前台桌面，不一定需要更新。
 func (app *App) Dirty() {
 	app.dirty = true
+	app.reconcileAnimation()
 	app.wakeUp()
 }
 
@@ -432,6 +436,7 @@ func (app *App) AddFont(family string, bold, italic bool, fsys fs.FS, path strin
 // Attach和Detach必须成对调用。
 func (app *App) Detach() {
 	app.detached++
+	app.reconcileAnimation()
 }
 
 func (app *App) DetachAsync() {
@@ -483,6 +488,13 @@ func (f *_FPSCounter) Frame() {
 
 // 真正执行检测是否需要重新布局或重绘的地方。
 func (app *App) sync() {
+	defer app.reconcileAnimation()
+	app.runAnimationFrame()
+
+	if app.ctx.Err() != nil {
+		return
+	}
+
 	if app.detached > 0 {
 		return
 	}
