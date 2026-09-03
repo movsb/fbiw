@@ -79,6 +79,10 @@ type Box interface {
 type Constraints struct {
 	PrefersMaxWidth  bool
 	PrefersMaxHeight bool
+
+	// 百分比参考父容器的完整内容区，不是兄弟元素占用后的剩余空间。
+	ParentContentWidth  int
+	ParentContentHeight int
 }
 
 var _ Box = (*BaseBox)(nil)
@@ -112,7 +116,7 @@ type BaseBox struct {
 
 	// 来自内联样式的值和样式计算的最终结果。
 	inlineStyles Styles
-	// 注意，样式计算结束后，computedStyles不应该再被修改（除presetWidth百分比计算）。
+	// 样式计算结束后只读；布局阶段不得改写百分比等样式值。
 	computedStyles Styles
 
 	// 排版后的位置。
@@ -309,22 +313,23 @@ func (b *BaseBox) classChanged() {
 	}
 }
 
-// 如果宽度指定了百分比，其百分比是相对于父元素的，不能等到其它元素占用（并减去）后再计算。
-//
-// Width 已由百分比样式显式设置，这里只替换计算值，属性位保持不变。
-func (b *BaseBox) presetSize(parentTotalAvailWidth, parentTotalAvailHeight int) {
-	if b.computedStyles.Width.IsPercentage() {
-		// 百分比暂时优先级更高，所以如果窗口大小变了。b.Width会怎样？
-		// 因为百分比才是真实的初始化，Width原本是没有的。
-		w := int(float32(b.computedStyles.Width.Number()) / 100 * float32(parentTotalAvailWidth))
-		// 这里比较特殊：把计算值写回参考值中了。
-		// 正常来说，这个在排版（非样式计算）过程中是只读的，真正的值应该写到 layoutBox。
-		// 但是由于每次计算这个值都会因为百分比变化，没有因为单次排版而被固定，所以看起来没有问题？
-		b.computedStyles.SetWidth(NumberLength(w))
+// 本次布局解析后的宽高，不缓存、不回写样式。
+// 保留 Length 的未指定状态，以区分 auto 与显式的 0。
+type resolvedDimensions struct {
+	Width, Height Length
+}
+
+func resolveLayoutLength(value Length, reference int) Length {
+	if value.IsPercentage() {
+		return NumberLength(int64(max(0, reference)) * value.Number() / 100)
 	}
-	if b.computedStyles.Height.IsPercentage() {
-		h := int(float32(b.computedStyles.Height.Number()) / 100 * float32(parentTotalAvailHeight))
-		b.computedStyles.SetHeight(NumberLength(h))
+	return value
+}
+
+func (b *BaseBox) resolveDimensions(constraints Constraints) resolvedDimensions {
+	return resolvedDimensions{
+		Width:  resolveLayoutLength(b.computedStyles.Width, constraints.ParentContentWidth),
+		Height: resolveLayoutLength(b.computedStyles.Height, constraints.ParentContentHeight),
 	}
 }
 
@@ -476,11 +481,12 @@ func NewBlock(doc *Document) *Block {
 }
 
 func blockCalc(b *BaseBox, availWidth, availHeight int, constraints Constraints) {
+	size := b.resolveDimensions(constraints)
 	computed := &b.computedStyles
 
 	// 根据自身大小及可用空间大小取最佳值。
-	boxMaxWidth := Iif(computed.Width.IsNumber(), int(computed.Width.Number()), availWidth)
-	boxMaxHeight := Iif(computed.Height.IsNumber(), int(computed.Height.Number()), availHeight)
+	boxMaxWidth := Iif(size.Width.IsNumber(), int(size.Width.Number()), availWidth)
+	boxMaxHeight := Iif(size.Height.IsNumber(), int(size.Height.Number()), availHeight)
 
 	// 内容区域可用的大小。
 	contentAvailWidth := boxMaxWidth - b.HorizontalInsets()
@@ -509,10 +515,11 @@ func blockCalc(b *BaseBox, availWidth, availHeight int, constraints Constraints)
 			if text, ok := child.(*Text); ok {
 				text.SegmentBlock(contentAvailWidth, contentAvailHeight-contentHeight)
 			} else {
-				child.Base().presetSize(contentAvailWidth, contentAvailHeight)
 				child.Calc(contentAvailWidth, contentAvailHeight-contentHeight, Constraints{
-					PrefersMaxWidth:  constraints.PrefersMaxWidth,
-					PrefersMaxHeight: false,
+					ParentContentWidth:  max(0, contentAvailWidth),
+					ParentContentHeight: max(0, contentAvailHeight),
+					PrefersMaxWidth:     constraints.PrefersMaxWidth,
+					PrefersMaxHeight:    false,
 				})
 			}
 			contentHeight += child.Base().layoutBox.Height
@@ -528,8 +535,10 @@ func blockCalc(b *BaseBox, availWidth, availHeight int, constraints Constraints)
 			// 如果是非spacer元素，则需要重新排版
 			if _, ok := spacer.(*Spacer); !ok {
 				spacer.Calc(contentAvailWidth, height, Constraints{
-					PrefersMaxWidth:  true,
-					PrefersMaxHeight: true,
+					ParentContentWidth:  max(0, contentAvailWidth),
+					ParentContentHeight: max(0, contentAvailHeight),
+					PrefersMaxWidth:     true,
+					PrefersMaxHeight:    true,
 				})
 			} else {
 				spacer.Base().layoutBox.Width = contentAvailWidth
@@ -549,8 +558,8 @@ func blockCalc(b *BaseBox, availWidth, availHeight int, constraints Constraints)
 	// }
 
 	// 此时已经可以确定容器本身的大小了。
-	b.layoutBox.Width = resolveSize(computed.Width, availWidth, constraints.PrefersMaxWidth, min(availWidth, b.HorizontalInsets()+contentMaxWidth))
-	b.layoutBox.Height = resolveSize(computed.Height, availHeight, constraints.PrefersMaxHeight, b.VerticalInsets()+contentHeight)
+	b.layoutBox.Width = resolveSize(size.Width, availWidth, constraints.PrefersMaxWidth, min(availWidth, b.HorizontalInsets()+contentMaxWidth))
+	b.layoutBox.Height = resolveSize(size.Height, availHeight, constraints.PrefersMaxHeight, b.VerticalInsets()+contentHeight)
 
 	// 最后再重新对齐子元素
 
@@ -594,11 +603,12 @@ func NewInline(doc *Document) *Inline {
 }
 
 func inlineCalc(b *BaseBox, availWidth, availHeight int, constraints Constraints) {
+	size := b.resolveDimensions(constraints)
 	computed := &b.computedStyles
 
 	// 根据自身大小及可用空间大小取最佳值。
-	boxMaxWidth := Iif(computed.Width.IsNumber(), int(computed.Width.Number()), availWidth)
-	boxMaxHeight := Iif(computed.Height.IsNumber(), int(computed.Height.Number()), availHeight)
+	boxMaxWidth := Iif(size.Width.IsNumber(), int(size.Width.Number()), availWidth)
+	boxMaxHeight := Iif(size.Height.IsNumber(), int(size.Height.Number()), availHeight)
 
 	// 内容区域可用的大小。
 	contentAvailWidth := boxMaxWidth - b.HorizontalInsets()
@@ -630,10 +640,11 @@ func inlineCalc(b *BaseBox, availWidth, availHeight int, constraints Constraints
 				text.clearStates()
 				text.SegmentInline(contentAvailWidth-contentWidth, contentAvailHeight)
 			} else {
-				child.Base().presetSize(contentAvailWidth, contentAvailHeight)
 				child.Calc(contentAvailWidth-contentWidth, contentAvailHeight, Constraints{
-					PrefersMaxWidth:  false,
-					PrefersMaxHeight: false,
+					ParentContentWidth:  max(0, contentAvailWidth),
+					ParentContentHeight: max(0, contentAvailHeight),
+					PrefersMaxWidth:     false,
+					PrefersMaxHeight:    false,
 				})
 			}
 
@@ -645,7 +656,7 @@ func inlineCalc(b *BaseBox, availWidth, availHeight int, constraints Constraints
 	}
 
 	// 指定了高度，且内容实际没有高度高，则扩展到指定高度。
-	if hv := b.computedStyles.Height; hv.IsNumber() && int(hv.Number())-b.VerticalInsets() > contentMaxHeight {
+	if hv := size.Height; hv.IsNumber() && int(hv.Number())-b.VerticalInsets() > contentMaxHeight {
 		contentMaxHeight = int(hv.Number()) - b.VerticalInsets()
 	}
 
@@ -663,8 +674,10 @@ func inlineCalc(b *BaseBox, availWidth, availHeight int, constraints Constraints
 			// 如果是非spacer元素，则需要重新排版
 			if _, ok := spacer.(*Spacer); !ok {
 				spacer.Calc(width, contentMaxHeight, Constraints{
-					PrefersMaxWidth:  true,
-					PrefersMaxHeight: true,
+					ParentContentWidth:  max(0, contentAvailWidth),
+					ParentContentHeight: max(0, contentAvailHeight),
+					PrefersMaxWidth:     true,
+					PrefersMaxHeight:    true,
 				})
 			} else {
 				spacer.Base().layoutBox.Width = width
@@ -673,8 +686,8 @@ func inlineCalc(b *BaseBox, availWidth, availHeight int, constraints Constraints
 	}
 
 	// 此时已经可以确定容器本身的大小了。
-	b.layoutBox.Width = resolveSize(computed.Width, availWidth, constraints.PrefersMaxWidth, min(availWidth, contentWidth+b.HorizontalInsets()))
-	b.layoutBox.Height = resolveSize(computed.Height, availHeight, constraints.PrefersMaxHeight, min(availHeight, contentMaxHeight+b.VerticalInsets()))
+	b.layoutBox.Width = resolveSize(size.Width, availWidth, constraints.PrefersMaxWidth, min(availWidth, contentWidth+b.HorizontalInsets()))
+	b.layoutBox.Height = resolveSize(size.Height, availHeight, constraints.PrefersMaxHeight, min(availHeight, contentMaxHeight+b.VerticalInsets()))
 
 	// 最后再重新对齐子元素。
 	offsetX := b.InsetLeft()
@@ -747,11 +760,11 @@ func (b *Stack) SetProp(key string, value string) error {
 }
 
 func (b *Stack) Calc(availWidth, availHeight int, constrains Constraints) {
-	computed := &b.computedStyles
+	size := b.resolveDimensions(constrains)
 
 	// 根据自身大小及可用空间大小取最佳值。
-	boxMaxWidth := Iif(computed.Width.IsNumber(), int(computed.Width.Number()), availWidth)
-	boxMaxHeight := Iif(computed.Height.IsNumber(), int(computed.Height.Number()), availHeight)
+	boxMaxWidth := Iif(size.Width.IsNumber(), int(size.Width.Number()), availWidth)
+	boxMaxHeight := Iif(size.Height.IsNumber(), int(size.Height.Number()), availHeight)
 
 	// 内容区域可用的大小。
 	contentAvailWidth := boxMaxWidth - b.HorizontalInsets()
@@ -786,10 +799,11 @@ func (b *Stack) Calc(availWidth, availHeight int, constrains Constraints) {
 		if text, ok := child.(*Text); ok {
 			text.SegmentBlock(contentAvailWidth, contentAvailHeight)
 		} else {
-			child.Base().presetSize(contentAvailWidth, contentAvailHeight)
 			child.Calc(contentAvailWidth, contentAvailHeight, Constraints{
-				PrefersMaxWidth:  b.fill,
-				PrefersMaxHeight: b.fill,
+				ParentContentWidth:  max(0, contentAvailWidth),
+				ParentContentHeight: max(0, contentAvailHeight),
+				PrefersMaxWidth:     b.fill,
+				PrefersMaxHeight:    b.fill,
 			})
 		}
 		contentMaxHeight = max(contentMaxHeight, child.Base().layoutBox.Height)
@@ -826,13 +840,13 @@ func (b *Stack) Calc(availWidth, availHeight int, constrains Constraints) {
 	}
 
 	b.layoutBox.Width = Iif(
-		computed.Width.IsNumber(),
-		int(computed.Width.Number()),
+		size.Width.IsNumber(),
+		int(size.Width.Number()),
 		Iif(constrains.PrefersMaxWidth, availWidth, contentAvailWidth),
 	)
 	b.layoutBox.Height = Iif(
-		computed.Height.IsNumber(),
-		int(computed.Height.Number()),
+		size.Height.IsNumber(),
+		int(size.Height.Number()),
 		Iif(constrains.PrefersMaxHeight, availHeight, contentMaxHeight),
 	)
 }
@@ -1487,12 +1501,13 @@ func (b *Image) SetImage(img image.Image) {
 }
 
 func (b *Image) Calc(availWidth, availHeight int, constraints Constraints) {
+	size := b.resolveDimensions(constraints)
 	b.layoutBox.Width = Iif(constraints.PrefersMaxWidth, availWidth, 0)
 	b.layoutBox.Height = Iif(constraints.PrefersMaxHeight, availHeight, 0)
 
-	if !b.computedStyles.Width.Empty() && !b.computedStyles.Height.Empty() {
-		b.layoutBox.Width = int(b.computedStyles.Width.Number())
-		b.layoutBox.Height = int(b.computedStyles.Height.Number())
+	if !size.Width.Empty() && !size.Height.Empty() {
+		b.layoutBox.Width = int(size.Width.Number())
+		b.layoutBox.Height = int(size.Height.Number())
 	}
 
 	if b.src == `` {
@@ -1710,10 +1725,10 @@ func NewScroll(doc *Document) *Scroll {
 
 // TODO 取消重复计算，大小不变的情况下只需要计算一次。
 func (b *Scroll) Calc(availWidth, availHeight int, constraints Constraints) {
+	size := b.resolveDimensions(constraints)
 	var (
-		computed     = &b.computedStyles
-		boxMaxWidth  = Iif(computed.Width.IsNumber(), int(computed.Width.Number()), availWidth)
-		boxMaxHeight = Iif(computed.Height.IsNumber(), int(computed.Height.Number()), availHeight)
+		boxMaxWidth  = Iif(size.Width.IsNumber(), int(size.Width.Number()), availWidth)
+		boxMaxHeight = Iif(size.Height.IsNumber(), int(size.Height.Number()), availHeight)
 
 		contentAvailWidth  = boxMaxWidth - (b.HorizontalInsets() + (b.cols-1)*b.gap)
 		contentAvailHeight = boxMaxHeight - (b.VerticalInsets() + (b.rows-1)*b.gap)
@@ -1740,7 +1755,7 @@ func (b *Scroll) Calc(availWidth, availHeight int, constraints Constraints) {
 
 	// 指定宽度或父布局要求占满时，槽位平均分配全部可用宽度。
 	// 否则先测量 item 的自然宽度，再以最宽 item 作为等宽槽位宽度。
-	fillWidth := computed.Width.IsNumber() || constraints.PrefersMaxWidth
+	fillWidth := size.Width.IsNumber() || constraints.PrefersMaxWidth
 	if !fillWidth {
 		avgWidth = 0
 		maxSlotWidth := average(contentAvailWidth, b.cols)
@@ -1773,13 +1788,13 @@ func (b *Scroll) Calc(availWidth, availHeight int, constraints Constraints) {
 	if visibleCols > 0 {
 		actualWidth += visibleCols*avgWidth + (visibleCols-1)*b.gap
 	}
-	b.layoutBox.Width = resolveSize(computed.Width, availWidth, constraints.PrefersMaxWidth, min(availWidth, actualWidth))
+	b.layoutBox.Width = resolveSize(size.Width, availWidth, constraints.PrefersMaxWidth, min(availWidth, actualWidth))
 	if b.shrinkRows {
 		visibleRows := min(b.rows, divideRoundUp(b.count, b.cols))
 		visibleGaps := max(visibleRows-1, 0)
 		b.layoutBox.Height = b.VerticalInsets() + visibleRows*avgHeight + visibleGaps*b.gap
 	} else {
-		b.layoutBox.Height = resolveSize(b.computedStyles.Height, availHeight, constraints.PrefersMaxHeight, offsetY+b.InsetBottom())
+		b.layoutBox.Height = resolveSize(size.Height, availHeight, constraints.PrefersMaxHeight, offsetY+b.InsetBottom())
 	}
 
 	// 可能还未初始化。
@@ -1862,8 +1877,10 @@ func (b *_ScrollChild) forceCalc(x, y int, contentAvailWidth, avgHeight int, pre
 	base.layoutBox.Height = childContentAvailHeight
 
 	child.Calc(childContentAvailWidth, childContentAvailHeight, Constraints{
-		PrefersMaxWidth:  prefersMaxWidth,
-		PrefersMaxHeight: true,
+		ParentContentWidth:  max(0, childContentAvailWidth),
+		ParentContentHeight: max(0, childContentAvailHeight),
+		PrefersMaxWidth:     prefersMaxWidth,
+		PrefersMaxHeight:    true,
 	})
 	child.Base().layoutBox.X = b.InsetLeft()
 	child.Base().layoutBox.Y = b.InsetTop()

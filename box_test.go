@@ -15,6 +15,140 @@ import (
 	"golang.org/x/image/math/fixed"
 )
 
+func TestResolveLayoutLength(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		value     Length
+		reference int
+		want      Length
+	}{
+		{"unset", Length{}, 200, Length{}},
+		{"zero", NumberLength(0), 200, NumberLength(0)},
+		{"pixels", NumberLength(17), 200, NumberLength(17)},
+		{"percentage", PercentageLength(50), 200, NumberLength(100)},
+		{"round down", PercentageLength(33), 101, NumberLength(33)},
+		{"zero reference", PercentageLength(50), 0, NumberLength(0)},
+		{"negative reference", PercentageLength(50), -10, NumberLength(0)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := resolveLayoutLength(tc.value, tc.reference); got != tc.want {
+				t.Fatalf("got %+v, want %+v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestPercentageDimensionsRelayout(t *testing.T) {
+	containers := map[string]func(*Document) Box{
+		"block":  func(d *Document) Box { return NewBlock(d) },
+		"inline": func(d *Document) Box { return NewInline(d) },
+		"stack":  func(d *Document) Box { return NewStack(d) },
+	}
+	children := map[string]func(*Document) Box{
+		"block":    containers["block"],
+		"inline":   containers["inline"],
+		"stack":    containers["stack"],
+		"image":    func(d *Document) Box { return NewImage(d) },
+		"scroll":   func(d *Document) Box { return NewScroll(d) },
+		"toggle":   func(d *Document) Box { return NewToggle(d) },
+		"progress": func(d *Document) Box { return NewProgressBar(d) },
+		"select":   func(d *Document) Box { return NewSelectBox(d) },
+	}
+	for parentName, newParent := range containers {
+		for childName, newChild := range children {
+			t.Run(parentName+"/"+childName, func(t *testing.T) {
+				doc := _NewDocument(200, 120, nil, nil, nil)
+				parent := newParent(doc)
+				doc.root = parent
+				parent.Base().computedStyles.SetPadding(PaddingValue(10, 10, 10, 10))
+				parent.Base().computedStyles.SetBorderWidth(2)
+				first := NewBlock(doc)
+				first.computedStyles.SetWidth(NumberLength(80))
+				first.computedStyles.SetHeight(NumberLength(20))
+				child := newChild(doc)
+				child.Base().computedStyles.SetWidth(PercentageLength(50))
+				child.Base().computedStyles.SetHeight(PercentageLength(50))
+				before := child.Base().computedStyles
+				parent.Base().children = []Box{first, child}
+				// 不重新计算样式，覆盖扩大、缩小和同尺寸重复布局。
+				for _, dims := range [][2]int{{200, 120}, {320, 200}, {200, 120}, {200, 120}} {
+					doc.width, doc.height = dims[0], dims[1]
+					doc.layout()
+					got := child.GetLayoutBox()
+					// 百分比基于完整内容区，扣除 padding/border，但不扣除 first。
+					wantW, wantH := (dims[0]-24)/2, (dims[1]-24)/2
+					if got.Width != wantW || got.Height != wantH {
+						t.Fatalf("document %v: got %+v, want size %dx%d", dims, got, wantW, wantH)
+					}
+					if !reflect.DeepEqual(child.Base().computedStyles, before) {
+						t.Fatal("layout mutated computed styles")
+					}
+				}
+			})
+		}
+	}
+}
+
+func TestRootAndNestedPercentageDimensions(t *testing.T) {
+	doc := _NewDocument(200, 120, nil, nil, nil)
+	root := NewBlock(doc)
+	child := NewBlock(doc)
+	doc.root = root
+	root.children = []Box{child}
+	for _, box := range []*Block{root, child} {
+		box.computedStyles.SetWidth(PercentageLength(50))
+		box.computedStyles.SetHeight(PercentageLength(50))
+	}
+	for _, dims := range [][2]int{{200, 120}, {400, 240}} {
+		doc.width, doc.height = dims[0], dims[1]
+		doc.layout()
+		for i, box := range []*Block{root, child} {
+			divisor := 2 << i
+			if got := box.GetLayoutBox(); got.Width != dims[0]/divisor || got.Height != dims[1]/divisor {
+				t.Fatalf("level %d: got %+v", i, got)
+			}
+			if !box.computedStyles.Width.IsPercentage() || !box.computedStyles.Height.IsPercentage() {
+				t.Fatal("percentage was lost")
+			}
+		}
+	}
+}
+
+func TestPercentageDimensionsForFlexibleChild(t *testing.T) {
+	for _, parent := range []Box{NewBlock(nil), NewInline(nil)} {
+		t.Run(parent.Base().Tag, func(t *testing.T) {
+			child := NewBlock(nil)
+			child.computedStyles.SetSpacer(true)
+			child.computedStyles.SetWidth(PercentageLength(50))
+			child.computedStyles.SetHeight(PercentageLength(50))
+			parent.Base().children = []Box{child}
+			for _, dims := range [][2]int{{200, 120}, {400, 240}} {
+				parent.Calc(dims[0], dims[1], Constraints{
+					PrefersMaxWidth: true, PrefersMaxHeight: true,
+				})
+				if got := child.GetLayoutBox(); got.Width != dims[0]/2 || got.Height != dims[1]/2 {
+					t.Fatalf("got %+v, want half of %v", got, dims)
+				}
+			}
+		})
+	}
+}
+
+func TestScrollSlotPercentageDimensions(t *testing.T) {
+	slot := _NewScrollChild(nil)
+	slot.computedStyles.SetPadding(PaddingValue(2, 2, 2, 2))
+	child := NewBlock(nil)
+	child.computedStyles.SetWidth(PercentageLength(50))
+	child.computedStyles.SetHeight(PercentageLength(50))
+	slot.children = []Box{child}
+	for _, dims := range [][2]int{{200, 120}, {400, 240}} {
+		slot.forceCalc(0, 0, dims[0], dims[1], true)
+		if got := child.GetLayoutBox(); got.Width != (dims[0]-4)/2 || got.Height != (dims[1]-4)/2 {
+			t.Fatalf("got %+v, want half of slot content area %v", got, dims)
+		}
+	}
+}
+
 func TestQuery(t *testing.T) {
 	type _Test struct {
 		Selector string

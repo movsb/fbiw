@@ -177,15 +177,16 @@ func (b *Toggle) intrinsicSize() (width, height int) {
 
 // Calc 使用开关图形作为未指定尺寸时的固有尺寸。
 func (b *Toggle) Calc(availWidth, availHeight int, constraints Constraints) {
+	size := b.resolveDimensions(constraints)
 	intrinsicWidth, intrinsicHeight := b.intrinsicSize()
 	b.layoutBox.Width = resolveSize(
-		b.computedStyles.Width,
+		size.Width,
 		availWidth,
 		false,
 		min(availWidth, intrinsicWidth+b.HorizontalInsets()),
 	)
 	b.layoutBox.Height = resolveSize(
-		b.computedStyles.Height,
+		size.Height,
 		availHeight,
 		false,
 		min(availHeight, intrinsicHeight+b.VerticalInsets()),
@@ -315,15 +316,16 @@ func (b *ProgressBar) intrinsicSize() (width, height int) {
 
 // Calc 使用进度条图形作为未指定尺寸时的固有尺寸。
 func (b *ProgressBar) Calc(availWidth, availHeight int, constraints Constraints) {
+	size := b.resolveDimensions(constraints)
 	intrinsicWidth, intrinsicHeight := b.intrinsicSize()
 	b.layoutBox.Width = resolveSize(
-		b.computedStyles.Width,
+		size.Width,
 		availWidth,
 		false,
 		min(availWidth, intrinsicWidth+b.HorizontalInsets()),
 	)
 	b.layoutBox.Height = resolveSize(
-		b.computedStyles.Height,
+		size.Height,
 		availHeight,
 		false,
 		min(availHeight, intrinsicHeight+b.VerticalInsets()),
@@ -456,15 +458,16 @@ func (b *SelectBox) intrinsicSize() (width, height int) {
 }
 
 func (b *SelectBox) Calc(availWidth, availHeight int, constraints Constraints) {
+	size := b.resolveDimensions(constraints)
 	intrinsicWidth, intrinsicHeight := b.intrinsicSize()
 	b.layoutBox.Width = resolveSize(
-		b.computedStyles.Width,
+		size.Width,
 		availWidth,
 		false,
 		min(availWidth, intrinsicWidth+b.HorizontalInsets()),
 	)
 	b.layoutBox.Height = resolveSize(
-		b.computedStyles.Height,
+		size.Height,
 		availHeight,
 		false,
 		min(availHeight, intrinsicHeight+b.VerticalInsets()),

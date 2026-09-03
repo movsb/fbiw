@@ -974,8 +974,10 @@ func (doc *Document) style(box Box, descendents bool) error {
 // TODO 把计算方式从元素自身拆解到这里来。
 func (doc *Document) layout() {
 	doc.root.Calc(doc.width, doc.height, Constraints{
-		PrefersMaxWidth:  true,
-		PrefersMaxHeight: true,
+		ParentContentWidth:  doc.width,
+		ParentContentHeight: doc.height,
+		PrefersMaxWidth:     true,
+		PrefersMaxHeight:    true,
 	})
 }
 
