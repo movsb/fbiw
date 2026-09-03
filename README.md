@@ -536,7 +536,7 @@ view.title.SetText("新的标题")
 
 字段可以是单个 Box、具体组件指针或切片。名为 `root` 且类型为 `fbiw.Box` 的字段会绑定文档根元素。
 
-`Unmarshal` 可用于动态创建一段组件树：
+`Document.Unmarshal` 可用于动态创建一段组件树：
 
 ```go
 type Item struct {
@@ -544,7 +544,7 @@ type Item struct {
     text *fbiw.Text `css:"text"`
 }
 
-item := fbiw.Unmarshal[Item](doc, `
+item := doc.Unmarshal[Item](`
     <block background-color="tan">
         <text></text>
     </block>
@@ -589,6 +589,10 @@ doc.ListenOptions(fbiw.StickDownEvent, func(event *fbiw.Event) {
 `Scroll` 只创建 `rows × cols` 个可视组件，并在滚动时复用这些组件：
 
 ```html
+<template id="item">
+    <block><text></text></block>
+</template>
+
 <scroll
     id="scroll"
     rows="2"
@@ -609,7 +613,7 @@ type Item struct {
 scroll.SetItems(
     100,
     func() (fbiw.Box, *Item) {
-        item := fbiw.Unmarshal[Item](doc, `<block><text></text></block>`)
+        item := doc.Instantiate[Item]("item")
         return item.root, item
     },
     func(item *Item, index int) {

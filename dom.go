@@ -45,6 +45,7 @@ type Document struct {
 
 	// 文档初始可用尺寸。
 	width, height int
+
 	// 默认样式总是用于初始化拷贝，所以不需要用指针，方便拷贝并覆盖。
 	defaultStyles Styles
 	// 文档内 <style> 元素提供的样式
@@ -69,6 +70,10 @@ type Document struct {
 	// 文档拥有的定时器。关闭文档时统一取消，避免回调访问已经卸载的文档。
 	timersMu sync.Mutex
 	timers   map[*_DocumentTimer]struct{}
+
+	// 文档内自定义的模板。
+	// 用于创建内部元素的时候直接复用。
+	templates map[string]string
 }
 
 func _NewDocument(
@@ -115,9 +120,10 @@ func (doc *Document) load(name string) error {
 	doc.title = parsed.title
 	doc.root = parsed.root
 	doc.styleSheet = parsed.style
+	doc.templates = parsed.templates
 
 	// 计算文档默认样式。
-	docBox := _DocBox{BaseBox: BaseBox{Tag: `document`}}
+	docBox := _DocBox{Tag: `document`}
 	if err := doc.style(&docBox, false); err != nil {
 		return err
 	}
@@ -143,6 +149,8 @@ type _ParsedDocumentData struct {
 	title string
 	root  Box
 	style *Sheet
+
+	templates map[string]string
 }
 
 // html parser 的问题：
@@ -179,6 +187,7 @@ func parseDocument(owner *Document, content io.Reader) (*_ParsedDocumentData, er
 		titleNode *html.Node
 		styleNode *html.Node
 		bodyNode  *html.Node
+		templates []*html.Node
 	)
 	for child := range first.ChildNodes() {
 		switch child.Type {
@@ -198,6 +207,8 @@ func parseDocument(owner *Document, content io.Reader) (*_ParsedDocumentData, er
 					return nil, fmt.Errorf(`根元素下重复节点`)
 				}
 				bodyNode = child
+			} else if child.DataAtom == atom.Template {
+				templates = append(templates, child)
 			} else {
 				return nil, fmt.Errorf(`根元素下不认识的节点：%s`, child.Data)
 			}
@@ -250,10 +261,65 @@ func parseDocument(owner *Document, content io.Reader) (*_ParsedDocumentData, er
 		return nil, fmt.Errorf(`文档内容节点解析失败：%w`, err)
 	}
 
-	return &_ParsedDocumentData{title: title, style: sheet, root: box}, nil
+	var templateStrings map[string]string
+
+	for t := range slices.Values(templates) {
+		var id string
+		if !slices.ContainsFunc(t.Attr, func(attr html.Attribute) bool {
+			if attr.Key == `id` {
+				id = strings.TrimSpace(attr.Val)
+			}
+			return attr.Key == `id`
+		}) {
+			return nil, fmt.Errorf(`模板元素必须要有ID以便引用。`)
+		}
+		if id == `` {
+			return nil, fmt.Errorf(`模板必须要有非空ID。`)
+		}
+
+		var first *html.Node
+		for cc := t.FirstChild; cc != nil; cc = cc.NextSibling {
+			switch cc.Type {
+			case html.ElementNode:
+				if first == nil {
+					first = cc
+					continue
+				}
+				return nil, fmt.Errorf(`模板只能有一个元素节点。`)
+			case html.TextNode:
+				if strings.TrimSpace(cc.Data) != `` {
+					return nil, fmt.Errorf(`模板根节点下不能有文本内容。`)
+				}
+			}
+		}
+		if first == nil {
+			return nil, fmt.Errorf(`模板没有任何元素节点。`)
+		}
+
+		buf := bytes.NewBuffer(nil)
+		if err := html.Render(buf, first); err != nil {
+			return nil, fmt.Errorf(`渲染失败: %w`, err)
+		}
+
+		if templateStrings == nil {
+			templateStrings = map[string]string{}
+		}
+		if _, ok := templateStrings[id]; ok {
+			return nil, fmt.Errorf(`模板ID重复: %s`, id)
+		}
+
+		templateStrings[id] = buf.String()
+	}
+
+	return &_ParsedDocumentData{
+		title:     title,
+		style:     sheet,
+		root:      box,
+		templates: templateStrings,
+	}, nil
 }
 
-// 反序列化content(html)到指定结构体中。
+// Instantiate 根据指定 ID 创建模板实例并绑定到结构体。
 //
 //   - 如果有一个 `root fbiw.Box` 元素，用来保存根节点。
 //
@@ -263,22 +329,65 @@ func parseDocument(owner *Document, content io.Reader) (*_ParsedDocumentData, er
 //     名字不需要是已导出的字段（即不需要大写字母开头）。
 //
 // 返回指针类型。
-//
-// owner 只是设置给此盒子及其子元素，暂时好像没有其它用途。
-func Unmarshal[T any, Content string | []byte](owner *Document, content Content) *T {
-	buf := bytes.NewBuffer(nil)
-	buf.WriteString(`<document>`)
-	buf.Write([]byte(content))
-	buf.WriteString(`</document>`)
+func (doc *Document) Instantiate[T any](id string) *T {
+	t, ok := doc.templates[id]
+	if !ok {
+		panic(fmt.Sprintf(`找不到此模板: doc_name: %s, doc_title: %s, template: %s`, doc.name, doc.title, id))
+	}
+	return unmarshal[T](doc, t)
+}
 
-	parsed, err := parseDocument(owner, buf)
+// Unmarshal 将单个 HTML 组件树转换并绑定到结构体。
+// 模板组件优先使用 [Document.Instantiate]。
+func (doc *Document) Unmarshal[T any, Content string | []byte](content Content) *T {
+	return unmarshal[T](doc, content)
+}
+
+func unmarshal[T any, Content string | []byte](owner *Document, content Content) *T {
+	box, err := parseBox(owner, bytes.NewReader([]byte(content)))
 	if err != nil {
 		panic(err)
 	}
 
 	var t T
-	Bind(&t, parsed.root)
+	Bind(&t, box)
 	return &t
+}
+
+// 解析单个组件树。根元素可以是任意受支持的盒子类型。
+func parseBox(owner *Document, content io.Reader) (Box, error) {
+	context := &html.Node{Type: html.ElementNode, DataAtom: atom.Div, Data: `div`}
+	nodes, err := html.ParseFragment(content, context)
+	if err != nil {
+		return nil, fmt.Errorf(`组件解析失败：%w`, err)
+	}
+
+	var root *html.Node
+	for _, node := range nodes {
+		switch node.Type {
+		case html.ElementNode:
+			if root != nil {
+				return nil, fmt.Errorf(`组件只能有一个根元素`)
+			}
+			root = node
+		case html.TextNode:
+			if strings.TrimSpace(node.Data) != `` {
+				return nil, fmt.Errorf(`组件根节点外不能有文本内容`)
+			}
+		case html.CommentNode:
+		default:
+			return nil, fmt.Errorf(`组件根节点外存在不支持的内容`)
+		}
+	}
+	if root == nil {
+		return nil, fmt.Errorf(`找不到组件的根元素`)
+	}
+
+	box, err := (_NodeTransformer{owner}).Transform(root)
+	if err != nil {
+		return nil, fmt.Errorf(`组件节点解析失败：%w`, err)
+	}
+	return box, nil
 }
 
 // 根据to结构体中的css tags从box中查找对应的盒子并设置到to中。

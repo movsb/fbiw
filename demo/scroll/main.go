@@ -28,7 +28,7 @@ func main() {
 
 	scroll.SetItems(7,
 		func() (fbiw.Box, *_Item) {
-			item := fbiw.Unmarshal[_Item](doc, `<block background-color="tan"><text></text></block>`)
+			item := doc.Instantiate[_Item](`item`)
 			return item.root, item
 		},
 		func(item *_Item, index int) {

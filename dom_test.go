@@ -1,9 +1,60 @@
 package fbiw
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
+
+func TestParseBoxSupportsAnyBoxRoot(t *testing.T) {
+	doc := &Document{}
+	box, err := parseBox(doc, strings.NewReader(`<text>hello</text>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := box.(*Text); !ok {
+		t.Fatalf(`根元素类型 = %T，期望 *Text`, box)
+	}
+}
+
+func TestParseBoxRejectsInvalidFragmentRoots(t *testing.T) {
+	tests := []string{
+		``,
+		`text only`,
+		`<block></block><text></text>`,
+	}
+	for _, content := range tests {
+		if _, err := parseBox(&Document{}, strings.NewReader(content)); err == nil {
+			t.Errorf(`parseBox(%q) 没有返回错误`, content)
+		}
+	}
+}
+
+func TestDocumentTemplateValidation(t *testing.T) {
+	tests := []string{
+		`<template><block></block></template>`,
+		`<template id=" "><block></block></template>`,
+		`<template id="item"><block></block></template><template id="item"><text></text></template>`,
+		`<template id="item">text<block></block></template>`,
+	}
+	for _, template := range tests {
+		content := `<document>` + template + `<block></block></document>`
+		if _, err := parseDocument(&Document{}, strings.NewReader(content)); err == nil {
+			t.Errorf(`parseDocument(%q) 没有返回错误`, content)
+		}
+	}
+}
+
+func TestInstantiateTemplateWithTextRoot(t *testing.T) {
+	doc := &Document{templates: map[string]string{`label`: `<text>hello</text>`}}
+	type view struct {
+		root Box
+	}
+	instance := doc.Instantiate[view](`label`)
+	if _, ok := instance.root.(*Text); !ok {
+		t.Fatalf(`模板根元素类型 = %T，期望 *Text`, instance.root)
+	}
+}
 
 func waitPendingCallback(t *testing.T, app *App) {
 	t.Helper()

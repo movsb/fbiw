@@ -34,7 +34,7 @@ func main() {
 	app := fbiw.NewApp()
 	defer app.Close()
 
-	app.AddFont(`system`, false, false, os.DirFS(`.`), `regular.ttf`)
+	app.AddFont(`system`, false, false, os.DirFS(`..`), `regular.ttf`)
 
 	doc := app.NewDesktop(embedded, `main.html`)
 
@@ -46,11 +46,7 @@ func main() {
 	scroll := doc.QuerySelector[*fbiw.Scroll](`scroll`)
 	scroll.SetItems(len(items),
 		func() (fbiw.Box, *_ItemView) {
-			item := fbiw.Unmarshal[_ItemView](doc, `
-	<block padding="0 10" align=middle>
-		<text></text>
-	</block>
-	`)
+			item := doc.Instantiate[_ItemView](`item`)
 			return item.root, item
 		},
 		func(item *_ItemView, index int) {

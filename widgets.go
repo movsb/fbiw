@@ -587,7 +587,7 @@ func (b *SelectBox) Open() {
 
 	items := slices.Clone(b.items)
 	b.popupView.list.SetItems(len(items), func() (Box, *_SelectItemView) {
-		view := Unmarshal[_SelectItemView](doc, `<block class="item"><text></text></block>`)
+		view := doc.Unmarshal[_SelectItemView](`<block class="item"><text></text></block>`)
 		return view.root, view
 	}, func(view *_SelectItemView, index int) {
 		view.text.SetText(items[index])
