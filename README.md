@@ -232,7 +232,7 @@ toggle.Activate()
 
 Toggle 首次显示时直接呈现当前状态。显示过后切换状态，滑块会在 250ms 内以
 `EaseOut` 平滑移动；快速反复切换会取消旧动画，从当前显示位置转向新目标。
-`checked`、对应类名、轨道颜色和 `OnChange` 立即更新，不等待动画结束。
+`checked`、对应类名和 `OnChange` 立即更新，不等待滑块位置与轨道颜色动画结束。
 `SetProp("checked", ...)` 同样更新动效，但仍不派发状态事件。
 
 滑块动画每帧只请求重绘；切换 `checked` 类名本身仍可能因 CSS 规则触发布局。
@@ -255,13 +255,17 @@ progress := doc.GetBoxByID[*fbiw.ProgressBar]("download")
 err := progress.SetValue(float64(completed) / float64(total))
 ```
 
+`Value` 和 `SetValue` 操作逻辑进度；设置新值后，显示进度会在 250ms 内以
+`EaseOut` 从当前位置追到目标。连续更新会取消旧动画并从当前显示位置继续，
+动画帧只请求重绘。首次绘制前直接显示目标值；后台、Detach 和文档关闭行为
+与其他 Timeline 动画一致。
+
 标题、两端数值和百分比文字由外部元素提供。两端文字可以和 Progress
 一起放在 `block` 中，中间覆盖的百分比可以使用 `stack` 将文字叠在
 Progress 上方。默认尺寸为 `8em × 0.5em`，也可以通过 CSS 覆盖尺寸、
 padding、背景和边框。
 
-首版仅支持确定进度，不支持未知进度的循环动画；该模式将在统一动画系统
-可用后实现。
+目前仅支持确定进度，不支持未知进度的循环动画。
 
 `select` 用于从预定义项目中选择一项。它会显示当前值或 placeholder，
 激活后按 A 打开居中的列表；方向键移动高亮，A 提交，B 取消：

@@ -442,6 +442,67 @@ func TestProgressValue(t *testing.T) {
 	}
 }
 
+func newAnimatedProgress(t *testing.T, markup string, paint bool) (*App, *Document, *ProgressBar, *fakeAnimationTime) {
+	t.Helper()
+	app, placeholder, clock := newAnimationTestApp(t)
+	doc, progress := newProgressDocument(t, markup)
+	desktop := placeholder.desktop
+	desktop.remove(placeholder)
+	doc.app = app
+	desktop.add(doc)
+	doc.layout()
+	if paint {
+		layout := progress.GetLayoutBox()
+		progress.Draw(NewCanvas(layout.Width, layout.Height))
+	}
+	return app, doc, progress, clock
+}
+
+func TestProgressAnimation(t *testing.T) {
+	app, doc, progress, clock := newAnimatedProgress(t,
+		`<document><block><progress value="0.2"></progress></block></document>`, true)
+	if err := progress.SetValue(0.8); err != nil {
+		t.Fatal(err)
+	}
+	if progress.Value() != 0.8 || progress.displayValue != 0.2 {
+		t.Fatal("逻辑值没有立即更新，或显示值发生跳变")
+	}
+	doc.layoutDirty, doc.paintDirty = false, false
+	clock.now = clock.now.Add(progressAnimationDuration / 2)
+	animationStep(app)
+	if progress.displayValue != 0.65 || doc.layoutDirty || !doc.paintDirty {
+		t.Fatalf("进度动画没有只请求重绘：%v", progress.displayValue)
+	}
+
+	if err := progress.SetValue(0.4); err != nil {
+		t.Fatal(err)
+	}
+	if len(doc.timeline.animations) != 1 {
+		t.Fatal("改变目标后旧动画没有取消")
+	}
+	clock.now = clock.now.Add(progressAnimationDuration / 2)
+	animationStep(app)
+	if progress.displayValue != 0.4625 {
+		t.Fatalf("没有从当前显示值转向新目标：%v", progress.displayValue)
+	}
+	clock.now = clock.now.Add(progressAnimationDuration / 2)
+	animationStep(app)
+	if progress.displayValue != 0.4 || progress.cancelAnimation != nil || app.animation.stop != nil {
+		t.Fatal("进度动画没有正确结束")
+	}
+}
+
+func TestProgressAnimationBeforeFirstPaint(t *testing.T) {
+	app, _, progress, _ := newAnimatedProgress(t,
+		`<document><block><progress value="0.2"></progress></block></document>`, false)
+	if err := progress.SetValue(0.8); err != nil {
+		t.Fatal(err)
+	}
+	if progress.displayValue != 0.8 || progress.cancelAnimation != nil || len(app.animation.requests) != 0 {
+		t.Fatal("首次绘制前不应启动动画")
+	}
+}
+
 func TestProgressRejectsInvalidValues(t *testing.T) {
 	_, progress := newProgressDocument(t, `<document><block><progress value="0.4"></progress></block></document>`)
 	for _, value := range []float64{-0.01, 1.01, math.NaN(), math.Inf(1), math.Inf(-1)} {
@@ -483,9 +544,8 @@ func TestProgressDrawsValue(t *testing.T) {
 		t.Fatalf(`0%% 轨道颜色不正确：%v`, got)
 	}
 
-	if err := progress.SetValue(0.25); err != nil {
-		t.Fatal(err)
-	}
+	// 这里只验证静态绘制，直接设置逻辑值和显示值，不启动动画。
+	progress.value, progress.displayValue = 0.25, 0.25
 	progress.Draw(canvas)
 	if got := canvas.getPixel(2, 0); got != progress.valueColor.NRGBA() {
 		t.Fatalf(`25%% 完成区域宽度不足：%v`, got)
@@ -494,9 +554,7 @@ func TestProgressDrawsValue(t *testing.T) {
 		t.Fatalf(`25%% 完成区域宽度过大：%v`, got)
 	}
 
-	if err := progress.SetValue(1); err != nil {
-		t.Fatal(err)
-	}
+	progress.value, progress.displayValue = 1, 1
 	progress.Draw(canvas)
 	if got := canvas.getPixel(9, 3); got != progress.valueColor.NRGBA() {
 		t.Fatalf(`100%% 没有铺满内容区：%v`, got)

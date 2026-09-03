@@ -129,6 +129,7 @@ var (
 )
 
 const toggleAnimationDuration = 250 * time.Millisecond
+const progressAnimationDuration = 250 * time.Millisecond
 
 // ToggleChangeEvent 在 Toggle 的选中状态发生变化后派发。
 var ToggleChangeEvent = RegisterEventType()
@@ -329,9 +330,12 @@ var (
 type ProgressBar struct {
 	BaseBox
 
-	value      float64
-	trackColor Color
-	valueColor Color
+	value           float64
+	displayValue    float64
+	trackColor      Color
+	valueColor      Color
+	painted         bool
+	cancelAnimation func()
 }
 
 func init() {
@@ -373,6 +377,7 @@ func (b *ProgressBar) Calc(availWidth, availHeight int, constraints Constraints)
 // Draw 先绘制完整轨道，再从左向右绘制已完成部分。
 func (b *ProgressBar) Draw(canvas *Canvas) {
 	b.BaseBox.draw(canvas, false)
+	b.painted = true
 
 	x := b.InsetLeft()
 	y := b.InsetTop()
@@ -383,7 +388,7 @@ func (b *ProgressBar) Draw(canvas *Canvas) {
 	}
 
 	canvas.FillRect(x, y, width, height, b.trackColor)
-	valueWidth := int(math.Round(float64(width) * b.value))
+	valueWidth := int(math.Round(float64(width) * b.displayValue))
 	valueWidth = min(width, max(0, valueWidth))
 	if valueWidth > 0 {
 		canvas.FillRect(x, y, valueWidth, height, b.valueColor)
@@ -405,6 +410,25 @@ func (b *ProgressBar) SetValue(value float64) error {
 		return nil
 	}
 	b.value = value
+	if b.cancelAnimation != nil {
+		b.cancelAnimation()
+		b.cancelAnimation = nil
+	}
+	if !b.painted || b.displayValue == value {
+		b.displayValue = value
+		b.document.RequestPaint()
+		return nil
+	}
+	valueAt := NumberAnimator(b.displayValue, value)
+	b.cancelAnimation = b.document.Animate(AnimationOptions{
+		Duration: progressAnimationDuration,
+		Easing:   EaseOut,
+		OnUpdate: func(progress float64) {
+			b.displayValue = valueAt(progress)
+			b.document.RequestPaint()
+		},
+		OnComplete: func() { b.cancelAnimation = nil },
+	})
 	b.document.RequestPaint()
 	return nil
 }

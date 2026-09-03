@@ -4,6 +4,7 @@ import (
 	"embed"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/movsb/fbiw"
 )
@@ -28,8 +29,8 @@ func main() {
 	download := progresses[0]
 	downloadValue := doc.GetBoxByID[*fbiw.Text](`download-value`)
 	step := 35
-	cancelTimer := doc.SetInterval(60, func() {
-		step++
+	cancelTimer := doc.SetInterval(time.Second, func() {
+		step += 10
 		if step > 100 {
 			step = 0
 		}
