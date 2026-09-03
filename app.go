@@ -54,7 +54,7 @@ type App struct {
 	display   *Display
 	canvas    *Canvas
 	fpsCalc   _FPSCounter
-	animation _AnimationClock
+	animation *_AnimationClock
 	images    *ImageManager
 	fonts     *FontManager
 
@@ -119,6 +119,7 @@ func NewApp(options ...Option) *App {
 	ctx, cancel := context.WithCancel(app.ctx)
 	app.ctx = ctx
 	app.cancel = cancel
+	app.animation = newAnimationClock(app.ctx, app.animationRunnable, app.wakeUp)
 
 	// 未初始化任何内容，也不应该使用它。
 	app._EventTarget.box = &BaseBox{}
@@ -216,8 +217,14 @@ func (app *App) isActiveDesktop(d *Desktop) bool {
 	return false
 }
 
+// 判断文档的动画是否应该执行，时钟本身不解释桌面和覆盖层状态。
+func (app *App) animationRunnable(doc *Document) bool {
+	return doc != nil && doc.app == app && app.detached == 0 &&
+		(doc == app.overlay || doc.desktop != nil && app.isActiveDesktop(doc.desktop))
+}
+
 func (app *App) _CloseDocument(doc *Document) {
-	app.cancelDocumentAnimation(doc)
+	app.animation.cancelDocument(doc)
 	if app.overlay == doc {
 		app.SetOverlay(nil)
 		doc.app = nil
@@ -275,7 +282,7 @@ func (app *App) _CloseDocument(doc *Document) {
 // 文档dirty不要调用这个，因为文档不一定属于前台桌面，不一定需要更新。
 func (app *App) Dirty() {
 	app.dirty = true
-	app.reconcileAnimation()
+	app.animation.updateTimer()
 	app.wakeUp()
 }
 
@@ -436,7 +443,7 @@ func (app *App) AddFont(family string, bold, italic bool, fsys fs.FS, path strin
 // Attach和Detach必须成对调用。
 func (app *App) Detach() {
 	app.detached++
-	app.reconcileAnimation()
+	app.animation.updateTimer()
 }
 
 func (app *App) DetachAsync() {
@@ -488,8 +495,8 @@ func (f *_FPSCounter) Frame() {
 
 // 真正执行检测是否需要重新布局或重绘的地方。
 func (app *App) sync() {
-	defer app.reconcileAnimation()
-	app.runAnimationFrame()
+	defer app.animation.updateTimer()
+	app.animation.tick()
 
 	if app.ctx.Err() != nil {
 		return

@@ -1,6 +1,7 @@
 package fbiw
 
 import (
+	"context"
 	"sync/atomic"
 	"time"
 )
@@ -15,6 +16,11 @@ type _AnimationRequest struct {
 // 所有状态都由 UI 主线程管理。定时器回调只检查原子的取消标记，
 // 并发送可合并的唤醒通知，不访问 UI 状态。
 type _AnimationClock struct {
+	// 调用方提供生命周期、文档的可运行性判断和唤醒入口。
+	ctx      context.Context
+	runnable func(*Document) bool
+	wake     func()
+
 	requests []*_AnimationRequest
 	now      func() time.Time
 	after    func(time.Duration, func()) func()
@@ -25,45 +31,32 @@ type _AnimationClock struct {
 	running  bool
 }
 
-// RequestAnimationFrame 请求在下一次布局和绘制前执行一次回调。
-// 持续动画需要在回调中再次申请。同一帧的所有回调收到相同的时间戳。
-//
-// 注册和取消必须在主线程执行；其他线程应通过 App.Async 投递。
-// 取消可重复调用，关闭文档会取消其全部请求。文档切到后台或 App Detach 时
-// 暂停回调，但时间继续流逝。回调改变显示状态后，需要显式请求布局或重绘。
-func (doc *Document) RequestAnimationFrame(callback func(now time.Time)) (cancel func()) {
-	if callback == nil || doc.app == nil || doc.app.ctx.Err() != nil {
-		panic("RequestAnimationFrame: 无效回调、文档。")
-	}
-
-	app := doc.app
-	c := &app.animation
-	if c.closed {
-		panic("RequestAnimationFrame: 时钟已停摆。")
-	}
-
-	if c.now == nil {
-		c.now = time.Now
-	}
-	if c.after == nil {
-		c.after = func(d time.Duration, f func()) func() {
+func newAnimationClock(ctx context.Context, runnable func(*Document) bool, wake func()) *_AnimationClock {
+	return &_AnimationClock{
+		ctx:      ctx,
+		runnable: runnable,
+		wake:     wake,
+		now:      time.Now,
+		after: func(d time.Duration, f func()) func() {
 			t := time.AfterFunc(d, f)
 			return func() { t.Stop() }
-		}
-	}
-	r := &_AnimationRequest{doc: doc, callback: callback}
-	c.requests = append(c.requests, r)
-	app.reconcileAnimation()
-	return func() {
-		r.doc, r.callback = nil, nil
-		app.reconcileAnimation()
+		},
 	}
 }
 
-// 判断文档的动画是否应该执行。
-func (app *App) animationRunnable(doc *Document) bool {
-	return doc != nil && doc.app == app && app.detached == 0 &&
-		(doc == app.overlay || doc.desktop != nil && app.isActiveDesktop(doc.desktop))
+// 注册一次帧回调，返回可重复调用的取消函数。
+func (c *_AnimationClock) request(doc *Document, callback func(time.Time)) func() {
+	if c.closed {
+		panic("动画时钟已停摆。")
+	}
+
+	r := &_AnimationRequest{doc: doc, callback: callback}
+	c.requests = append(c.requests, r)
+	c.updateTimer()
+	return func() {
+		r.doc, r.callback = nil, nil
+		c.updateTimer()
+	}
 }
 
 // 把动画时钟当前安排的定时唤醒撤掉。
@@ -79,7 +72,7 @@ func (c *_AnimationClock) disarm() {
 		c.stop()
 		c.stop = nil
 	}
-	// // 清空这次唤醒的截止时间
+	// 清空这次唤醒的截止时间。
 	c.deadline = time.Time{}
 }
 
@@ -93,22 +86,20 @@ func (c *_AnimationClock) close() {
 	c.requests = nil
 }
 
-func (app *App) cancelDocumentAnimation(doc *Document) {
-	for _, r := range app.animation.requests {
+// 取消文档的所有请求，包括已进入当前帧快照但尚未执行的请求。
+func (c *_AnimationClock) cancelDocument(doc *Document) {
+	for _, r := range c.requests {
 		if r.doc == doc {
 			r.doc, r.callback = nil, nil
 		}
 	}
-	app.reconcileAnimation()
+	c.updateTimer()
 }
 
 // 根据当前状态，决定动画定时器该启动、保留还是停止。
-// updateAnimationTimer
-func (app *App) reconcileAnimation() {
-	c := &app.animation
-
-	// App 已退出 → 关闭动画时钟。
-	if app.ctx.Err() != nil {
+func (c *_AnimationClock) updateTimer() {
+	// 生命周期已结束 → 关闭动画时钟。
+	if c.ctx.Err() != nil {
 		c.close()
 		return
 	}
@@ -124,7 +115,7 @@ func (app *App) reconcileAnimation() {
 	for _, r := range c.requests {
 		if r.callback != nil {
 			kept = append(kept, r)
-			active = active || app.animationRunnable(r.doc)
+			active = active || c.runnable(r.doc)
 		}
 	}
 	clear(c.requests[len(kept):])
@@ -150,7 +141,7 @@ func (app *App) reconcileAnimation() {
 	var canceled atomic.Bool
 	stop := c.after(max(0, c.deadline.Sub(now)), func() {
 		if !canceled.Load() {
-			app.wakeUp()
+			c.wake()
 		}
 	})
 	c.stop = func() {
@@ -159,9 +150,10 @@ func (app *App) reconcileAnimation() {
 	}
 }
 
-func (app *App) runAnimationFrame() {
-	app.reconcileAnimation()
-	c := &app.animation
+// 执行到期帧。下一次定时安排由绘制结束后的 updateTimer 负责，
+// 避免把绘制耗时叠加到帧间隔，也不补发错过的历史帧。
+func (c *_AnimationClock) tick() {
+	c.updateTimer()
 	if c.closed || c.stop == nil || c.running {
 		return
 	}
@@ -173,15 +165,15 @@ func (app *App) runAnimationFrame() {
 	c.last = now
 	c.running = true
 	defer func() { c.running = false }()
-	// 执行期间仍将请求保留在时钟中，保证关闭文档时，
+	// 执行期间仍将请求保留在时钟中，保证按文档取消请求时，
 	// 已进入本帧快照但尚未执行的回调也能被取消。
 	batch := append([]*_AnimationRequest(nil), c.requests...)
 	for _, r := range batch {
-		if app.ctx.Err() != nil {
+		if c.ctx.Err() != nil {
 			c.close()
 			return
 		}
-		if r.callback == nil || !app.animationRunnable(r.doc) {
+		if r.callback == nil || !c.runnable(r.doc) {
 			continue
 		}
 		callback := r.callback

@@ -92,6 +92,19 @@ func _NewDocument(
 	return doc
 }
 
+// RequestAnimationFrame 请求在下一次布局和绘制前执行一次回调。
+// 持续动画需要在回调中再次申请。同一帧的所有回调收到相同的时间戳。
+//
+// 注册和取消必须在主线程执行；其他线程应通过 App.Async 投递。
+// 取消可重复调用，关闭文档会取消其全部请求。文档切到后台或 App Detach 时
+// 暂停回调，但时间继续流逝。回调改变显示状态后，需要显式请求布局或重绘。
+func (doc *Document) RequestAnimationFrame(callback func(now time.Time)) (cancel func()) {
+	if callback == nil || doc.app == nil || doc.app.ctx.Err() != nil {
+		panic("RequestAnimationFrame: 无效回调、文档。")
+	}
+	return doc.app.animation.request(doc, callback)
+}
+
 func (doc *Document) Close() {
 	doc.cancelTimers()
 	if doc.app != nil {

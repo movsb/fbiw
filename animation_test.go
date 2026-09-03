@@ -1,15 +1,89 @@
 package fbiw
 
 import (
+	"context"
 	"slices"
 	"testing"
 	"time"
 )
 
+// 不创建 App，直接验证时钟通过注入的入口完成调度和生命周期管理。
+func TestAnimationClockWithoutApp(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	doc := &Document{}
+	visible, wakes, calls := false, 0, 0
+	c := newAnimationClock(ctx, func(owner *Document) bool {
+		if owner != doc {
+			t.Fatal("时钟传递了错误的文档")
+		}
+		return visible
+	}, func() { wakes++ })
+	defer c.close()
+	now := time.Now()
+	c.now = func() time.Time { return now }
+	var fire func()
+	c.after = func(_ time.Duration, callback func()) func() {
+		fire = callback
+		return func() {}
+	}
+	c.request(doc, func(stamp time.Time) {
+		if stamp != now {
+			t.Fatal("帧时间戳不一致")
+		}
+		calls++
+	})
+	if fire != nil {
+		t.Fatal("不可运行的请求启动了定时器")
+	}
+	visible = true
+	c.updateTimer()
+	if fire == nil {
+		t.Fatal("可运行的请求未启动定时器")
+	}
+	now = now.Add(animationFrameInterval)
+	fire()
+	if wakes != 1 || calls != 0 {
+		t.Fatal("定时器应只调用唤醒入口")
+	}
+	c.tick()
+	c.updateTimer()
+	if calls != 1 || len(c.requests) != 0 || c.stop != nil {
+		t.Fatal("一次性请求未正确执行并清理")
+	}
+	c.request(doc, func(time.Time) { t.Fatal("已取消的生命周期仍执行回调") })
+	cancel()
+	c.tick()
+	if !c.closed || len(c.requests) != 0 || c.stop != nil {
+		t.Fatal("生命周期结束后未关闭时钟")
+	}
+}
+
 type fakeAnimationTimer struct {
 	due     time.Time
 	fire    func()
 	stopped bool
+}
+
+func TestAnimationClockDocumentOwnership(t *testing.T) {
+	for _, doc := range []*Document{{}, nil} {
+		c := newAnimationClock(context.Background(), func(*Document) bool { return true }, func() {})
+		now := time.Now()
+		c.now = func() time.Time { return now }
+		c.after = func(time.Duration, func()) func() { return func() {} }
+		other := &Document{}
+		calls := 0
+		c.request(other, func(time.Time) { c.cancelDocument(doc); calls++ })
+		c.request(doc, func(time.Time) { t.Fatal("按文档取消未阻止快照中的回调") })
+		c.request(other, func(time.Time) { calls++ })
+		now = now.Add(animationFrameInterval)
+		c.tick()
+		c.updateTimer()
+		if calls != 2 || len(c.requests) != 0 {
+			t.Fatal("按文档取消影响了其他文档，或未释放请求")
+		}
+		c.close()
+	}
 }
 
 type fakeAnimationTime struct {
@@ -35,8 +109,8 @@ func newAnimationTestApp(t *testing.T) (*App, *Document, *fakeAnimationTime) {
 }
 
 func animationStep(app *App) {
-	app.runAnimationFrame()
-	app.reconcileAnimation()
+	app.animation.tick()
+	app.animation.updateTimer()
 }
 
 func TestAnimationFrameBatch(t *testing.T) {
@@ -165,7 +239,7 @@ func TestAnimationOverlayAndMidFrameSwitch(t *testing.T) {
 	app.SetOverlay(overlay)
 	doc.RequestAnimationFrame(func(time.Time) { app.SetOverlay(replacement) })
 	// 将覆盖层的请求重新注册到切换回调之后，验证执行前会重新检查是否可运行。
-	app.cancelDocumentAnimation(overlay)
+	app.animation.cancelDocument(overlay)
 	overlay.RequestAnimationFrame(func(time.Time) { calls++ })
 	f.now = f.now.Add(animationFrameInterval)
 	animationStep(app)

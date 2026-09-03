@@ -13,6 +13,7 @@ func newDesktopTestApp() *App {
 		unblock: make(chan struct{}, 1),
 	}
 	app._EventTarget.box = &BaseBox{}
+	app.animation = newAnimationClock(app.ctx, app.animationRunnable, app.wakeUp)
 	return app
 }
 
