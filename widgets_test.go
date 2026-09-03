@@ -317,12 +317,13 @@ func TestToggleAnimationPaintOnly(t *testing.T) {
 	inset := min(layout.Width, layout.Height) / 10
 	knobSize := layout.Height - inset*2
 	knobX := inset + int(math.Round(float64(layout.Width-inset*2-knobSize)*0.75))
-	if canvas.getPixel(knobX, inset) != toggle.knobColor.NRGBA() || canvas.getPixel(inset, inset) != toggle.checkedTrackColor.NRGBA() {
-		t.Fatal("实际绘制的滑块未移动到补间位置")
+	wantTrack := ColorAnimator(toggle.trackColor, toggle.checkedTrackColor)(0.75).NRGBA()
+	if canvas.getPixel(knobX, inset) != toggle.knobColor.NRGBA() || canvas.getPixel(inset, inset) != wantTrack {
+		t.Fatal("实际绘制的滑块或轨道颜色不在补间位置")
 	}
 	clock.now = clock.now.Add(toggleAnimationDuration / 2)
 	animationStep(app)
-	if toggle.knobProgress != 1 || toggle.cancelTween != nil || app.animation.stop != nil || changes != 1 {
+	if toggle.knobProgress != 1 || toggle.cancelAnimation != nil || app.animation.stop != nil || changes != 1 {
 		t.Fatal("动画结束状态或事件次数不正确")
 	}
 }
@@ -363,7 +364,7 @@ func TestToggleAnimationReentrantChange(t *testing.T) {
 		}
 	})
 	toggle.SetChecked(true)
-	if toggle.Checked() || toggle.knobProgress != 0 || toggle.cancelTween != nil || len(app.animation.requests) != 0 || !slices.Equal(states, []bool{true, false}) {
+	if toggle.Checked() || toggle.knobProgress != 0 || toggle.cancelAnimation != nil || len(app.animation.requests) != 0 || !slices.Equal(states, []bool{true, false}) {
 		t.Fatal("状态事件中反向切换后仍残留旧动画")
 	}
 }
@@ -398,7 +399,7 @@ func TestToggleAnimationAttributeAndLifecycle(t *testing.T) {
 	if err := toggle.SetProp("checked", "true"); err != nil {
 		t.Fatal(err)
 	}
-	if toggle.cancelTween != nil {
+	if toggle.cancelAnimation != nil {
 		t.Fatal("关闭后的状态设置仍保留动画")
 	}
 }

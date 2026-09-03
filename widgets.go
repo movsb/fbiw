@@ -150,9 +150,9 @@ type Toggle struct {
 	knobColor         Color
 
 	// 逻辑状态立即改变，滑块使用独立的显示进度。
-	knobProgress float64
-	painted      bool
-	cancelTween  func()
+	knobProgress    float64
+	painted         bool
+	cancelAnimation func()
 }
 
 func init() {
@@ -218,10 +218,7 @@ func (b *Toggle) Draw(canvas *Canvas) {
 	}
 	b.painted = true
 
-	trackColor := b.trackColor
-	if b.checked {
-		trackColor = b.checkedTrackColor
-	}
+	trackColor := ColorAnimator(b.trackColor, b.checkedTrackColor)(b.knobProgress)
 	canvas.FillRect(trackX, trackY, trackWidth, trackHeight, trackColor)
 
 	knobSize := min(trackHeight-inset*2, trackWidth-inset*2)
@@ -255,9 +252,9 @@ func (b *Toggle) setChecked(checked, dispatch bool) {
 // 从当前显示位置转向新目标；先安排动画再派发状态事件，
 // 使 OnChange 中再次切换状态时，可以正确取消本次动画。
 func (b *Toggle) animateKnob() {
-	if b.cancelTween != nil {
-		b.cancelTween()
-		b.cancelTween = nil
+	if b.cancelAnimation != nil {
+		b.cancelAnimation()
+		b.cancelAnimation = nil
 	}
 	target := 0.0
 	if b.checked {
@@ -265,22 +262,22 @@ func (b *Toggle) animateKnob() {
 	}
 	doc := b.document
 	// 初次显示直接呈现目标状态；是否挂载及相应的降级行为
-	// 统一由 Document.Tween 负责，组件不读取文档或时钟状态。
+	// 统一由 Document.Animate 负责，组件不读取文档或时钟状态。
 	if !b.painted || b.knobProgress == target {
 		b.knobProgress = target
 		doc.RequestPaint()
 		return
 	}
-	b.cancelTween = doc.Tween(TweenOptions{
-		From:     b.knobProgress,
-		To:       target,
+	from := b.knobProgress
+	position := NumberAnimator(from, target)
+	b.cancelAnimation = doc.Animate(AnimationOptions{
 		Duration: toggleAnimationDuration,
 		Easing:   EaseOut,
-		OnUpdate: func(value float64) {
-			b.knobProgress = value
+		OnUpdate: func(progress float64) {
+			b.knobProgress = position(progress)
 			doc.RequestPaint()
 		},
-		OnComplete: func() { b.cancelTween = nil },
+		OnComplete: func() { b.cancelAnimation = nil },
 	})
 	doc.RequestPaint()
 }

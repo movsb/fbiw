@@ -403,7 +403,7 @@ func TestAnimationSyncPaintBatch(t *testing.T) {
 	}
 }
 
-func TestTweenValues(t *testing.T) {
+func TestAnimationProgressValues(t *testing.T) {
 	for _, tc := range []struct {
 		easing Easing
 		want   float64
@@ -427,13 +427,6 @@ func TestTweenValues(t *testing.T) {
 		}
 		if v, done := o.progress(2 * time.Second); v != 1 || !done {
 			t.Fatal("终点不正确")
-		}
-	}
-	for _, ends := range [][2]float64{{20, -20}, {4, 4}, {-math.MaxFloat64, math.MaxFloat64}} {
-		o := TweenOptions{From: ends[0], To: ends[1]}
-		v := o.value(0.5)
-		if v != ends[0]/2+ends[1]/2 {
-			t.Fatal("反向、相同或极大端点插值错误")
 		}
 	}
 }
@@ -478,13 +471,66 @@ func TestAnimateInvalidOptions(t *testing.T) {
 	}
 }
 
-func TestTweenFramesAndCompletion(t *testing.T) {
+func TestNumberAnimator(t *testing.T) {
+	for _, ends := range [][2]float64{{20, -20}, {4, 4}, {-math.MaxFloat64, math.MaxFloat64}} {
+		animate := NumberAnimator(ends[0], ends[1])
+		if value := animate(0.5); value != ends[0]/2+ends[1]/2 {
+			t.Fatal("反向、相同或极大端点插值错误")
+		}
+		if animate(-1) != ends[0] || animate(2) != ends[1] {
+			t.Fatal("数值插值没有截到端点")
+		}
+	}
+	for _, test := range []func(){
+		func() { NumberAnimator(math.NaN(), 1) },
+		func() { NumberAnimator(0, math.Inf(1)) },
+		func() { NumberAnimator(0, 1)(math.NaN()) },
+	} {
+		func() {
+			defer func() {
+				if recover() == nil {
+					t.Error("无效数值或进度应被拒绝")
+				}
+			}()
+			test()
+		}()
+	}
+}
+
+func TestColorAnimator(t *testing.T) {
+	from := ColorFromRGBA(10, 20, 30, 40)
+	to := ColorFromRGBA(110, 220, 130, 240)
+	animate := ColorAnimator(from, to)
+	if got := animate(0.25); got != ColorFromRGBA(35, 70, 55, 90) {
+		t.Fatalf("颜色插值不正确：%08x", got)
+	}
+	if animate(-1) != from || animate(2) != to {
+		t.Fatal("颜色插值没有截到端点")
+	}
+	for _, test := range []func(){
+		func() { ColorAnimator(ColorNone, to) },
+		func() { ColorAnimator(from, ColorClear) },
+		func() { ColorAnimator(from, to)(math.NaN()) },
+	} {
+		func() {
+			defer func() {
+				if recover() == nil {
+					t.Error("特殊颜色或无效进度应被拒绝")
+				}
+			}()
+			test()
+		}()
+	}
+}
+
+func TestAnimateFramesAndCompletion(t *testing.T) {
 	app, doc, f := newAnimationTestApp(t)
 	var values []float64
 	var events []string
-	cancel := doc.Tween(TweenOptions{
-		From: 10, To: 30, Duration: time.Second,
-		OnUpdate:   func(v float64) { values = append(values, v); events = append(events, "更新") },
+	valueAt := NumberAnimator(10, 30)
+	cancel := doc.Animate(AnimationOptions{
+		Duration:   time.Second,
+		OnUpdate:   func(progress float64) { values = append(values, valueAt(progress)); events = append(events, "更新") },
 		OnComplete: func() { events = append(events, "完成") },
 	})
 	if len(values) != 0 {
@@ -506,17 +552,18 @@ func TestTweenFramesAndCompletion(t *testing.T) {
 		t.Fatal("完成后仍有活动请求")
 	}
 	if doc.dirty() || app.dirty {
-		t.Fatal("Tween 不应自动请求重绘")
+		t.Fatal("Animate 不应自动请求重绘")
 	}
 }
 
-func TestTweenZeroDuration(t *testing.T) {
+func TestAnimateZeroDuration(t *testing.T) {
 	app, doc, f := newAnimationTestApp(t)
 	calls, completions := 0, 0
-	doc.Tween(TweenOptions{From: 2, To: 7,
-		OnUpdate: func(v float64) {
+	valueAt := NumberAnimator(2, 7)
+	doc.Animate(AnimationOptions{
+		OnUpdate: func(progress float64) {
 			calls++
-			if v != 7 {
+			if valueAt(progress) != 7 {
 				t.Fatal("零时长未交付终点")
 			}
 		},
@@ -532,7 +579,7 @@ func TestTweenZeroDuration(t *testing.T) {
 	}
 }
 
-func TestTweenCancelAndLifecycle(t *testing.T) {
+func TestAnimateCancelAndLifecycle(t *testing.T) {
 	for _, action := range []string{"取消", "关闭文档", "退出App"} {
 		for _, when := range []string{"首帧前", "更新中", "终点更新中"} {
 			t.Run(action+when, func(t *testing.T) {
@@ -550,7 +597,7 @@ func TestTweenCancelAndLifecycle(t *testing.T) {
 					}
 				}
 				calls := 0
-				cancel = doc.Tween(TweenOptions{To: 1, Duration: time.Second,
+				cancel = doc.Animate(AnimationOptions{Duration: time.Second,
 					OnUpdate:   func(float64) { calls++; stop() },
 					OnComplete: func() { t.Fatal("取消或关闭后仍调用完成回调") },
 				})
@@ -577,13 +624,13 @@ func TestTweenCancelAndLifecycle(t *testing.T) {
 	}
 }
 
-func TestTweenBackgroundTime(t *testing.T) {
+func TestAnimateBackgroundTime(t *testing.T) {
 	app, doc, f := newAnimationTestApp(t)
 	background := &Desktop{app: app}
 	app.desktops.PushBack(background)
 	other := addDesktopTestDocument(app, background)
 	calls, completions := 0, 0
-	other.Tween(TweenOptions{To: 1, Duration: time.Second,
+	other.Animate(AnimationOptions{Duration: time.Second,
 		OnUpdate: func(v float64) {
 			calls++
 			if v != 1 {
@@ -593,7 +640,7 @@ func TestTweenBackgroundTime(t *testing.T) {
 		OnComplete: func() { completions++ },
 	})
 	if app.animation.stop != nil {
-		t.Fatal("后台 Tween 产生周期唤醒")
+		t.Fatal("后台 Animate 产生周期唤醒")
 	}
 	f.now = f.now.Add(2 * time.Second)
 	app.SwitchTo(other.desktop)
@@ -605,15 +652,15 @@ func TestTweenBackgroundTime(t *testing.T) {
 	app.SwitchTo(doc.desktop)
 }
 
-func TestTweenSharedFrameStartAndChaining(t *testing.T) {
+func TestAnimateSharedFrameStartAndChaining(t *testing.T) {
 	app, doc, f := newAnimationTestApp(t)
 	var got []float64
 	doc.RequestAnimationFrame(func(now time.Time) {
 		f.now = now.Add(100 * time.Millisecond) // 模拟帧内已有回调耗时。
-		doc.Tween(TweenOptions{To: 1, Duration: time.Second,
+		doc.Animate(AnimationOptions{Duration: time.Second,
 			OnUpdate: func(v float64) { got = append(got, v) },
 			OnComplete: func() {
-				doc.Tween(TweenOptions{From: 1, To: 2, OnUpdate: func(v float64) { got = append(got, v) }})
+				doc.Animate(AnimationOptions{OnUpdate: func(v float64) { got = append(got, v) }})
 			},
 		})
 	})
@@ -632,32 +679,14 @@ func TestTweenSharedFrameStartAndChaining(t *testing.T) {
 	}
 	f.now = f.now.Add(animationFrameInterval)
 	animationStep(app)
-	if !slices.Equal(got, []float64{0.5, 1, 2}) {
+	if !slices.Equal(got, []float64{0.5, 1, 1}) {
 		t.Fatal("完成回调创建的动画未延到下一帧")
 	}
 }
 
-func TestTweenInvalidOptions(t *testing.T) {
+func TestAnimateStopped(t *testing.T) {
 	app, doc, _ := newAnimationTestApp(t)
-	valid := TweenOptions{To: 1, Duration: time.Second, OnUpdate: func(float64) {}}
-	for _, edit := range []func(*TweenOptions){
-		func(o *TweenOptions) { o.OnUpdate = nil },
-		func(o *TweenOptions) { o.Duration = -1 },
-		func(o *TweenOptions) { o.Easing = Easing(255) },
-		func(o *TweenOptions) { o.From = math.NaN() },
-		func(o *TweenOptions) { o.To = math.Inf(1) },
-	} {
-		func() {
-			defer func() {
-				if recover() == nil {
-					t.Error("无效参数应被拒绝")
-				}
-			}()
-			o := valid
-			edit(&o)
-			doc.Tween(o)
-		}()
-	}
+	valid := AnimationOptions{Duration: time.Second, OnUpdate: func(float64) {}}
 	for _, stopped := range []*Document{doc, {app: app}} {
 		app.Quit()
 		func() {
@@ -666,7 +695,7 @@ func TestTweenInvalidOptions(t *testing.T) {
 					t.Error("已停止的动画时钟应被拒绝")
 				}
 			}()
-			stopped.Tween(valid)
+			stopped.Animate(valid)
 		}()
 		app.animation.close()
 	}
@@ -681,7 +710,7 @@ func TestTimelineSharesFramePerDocument(t *testing.T) {
 		if i >= 2 {
 			owner = other
 		}
-		owner.Tween(TweenOptions{To: 1, Duration: time.Second,
+		owner.Animate(AnimationOptions{Duration: time.Second,
 			OnUpdate: func(v float64) {
 				if v != 0.5 {
 					t.Fatal("同帧进度不一致")
@@ -704,11 +733,11 @@ func TestTimelineCancelAndReuse(t *testing.T) {
 	app, doc, f := newAnimationTestApp(t)
 	var stopSecond func()
 	var order []int
-	stopFirst := doc.Tween(TweenOptions{To: 1, OnUpdate: func(float64) {
+	stopFirst := doc.Animate(AnimationOptions{OnUpdate: func(float64) {
 		order = append(order, 1)
 		stopSecond()
 	}})
-	stopSecond = doc.Tween(TweenOptions{To: 1, OnUpdate: func(float64) { t.Fatal("同帧取消未生效") }})
+	stopSecond = doc.Animate(AnimationOptions{OnUpdate: func(float64) { t.Fatal("同帧取消未生效") }})
 	timeline := doc.timeline
 	f.now = f.now.Add(animationFrameInterval)
 	animationStep(app)
@@ -717,13 +746,13 @@ func TestTimelineCancelAndReuse(t *testing.T) {
 	if timeline.closed || len(timeline.animations) != 0 || len(app.animation.requests) != 0 {
 		t.Fatal("空闲 Timeline 未正确清理，或被永久关闭")
 	}
-	stop := doc.Tween(TweenOptions{To: 1, OnUpdate: func(float64) { t.Fatal("首帧前取消未生效") }})
+	stop := doc.Animate(AnimationOptions{OnUpdate: func(float64) { t.Fatal("首帧前取消未生效") }})
 	stop()
 	stop()
 	if timeline != doc.timeline || timeline.pending != nil || app.animation.stop != nil {
 		t.Fatal("空闲 Timeline 无法复用或取消最后一个动画后仍在续订")
 	}
-	doc.Tween(TweenOptions{To: 1, OnUpdate: func(float64) { order = append(order, 3) }})
+	doc.Animate(AnimationOptions{OnUpdate: func(float64) { order = append(order, 3) }})
 	f.now = f.now.Add(animationFrameInterval)
 	animationStep(app)
 	if !slices.Equal(order, []int{1, 3}) {
@@ -734,20 +763,20 @@ func TestTimelineCancelAndReuse(t *testing.T) {
 func TestTimelineDefersAdditionsBeforeItsFrame(t *testing.T) {
 	app, doc, f := newAnimationTestApp(t)
 	var order []int
-	// 手写帧回调先执行，在已有 Timeline 的本帧快照之前新增 Tween。
+	// 手写帧回调先执行，在已有 Timeline 的本帧快照之前新增 Animate。
 	doc.RequestAnimationFrame(func(time.Time) {
-		doc.Tween(TweenOptions{To: 1, OnUpdate: func(float64) { order = append(order, 2) }})
+		doc.Animate(AnimationOptions{OnUpdate: func(float64) { order = append(order, 2) }})
 	})
-	doc.Tween(TweenOptions{To: 1, OnUpdate: func(float64) { order = append(order, 1) }})
+	doc.Animate(AnimationOptions{OnUpdate: func(float64) { order = append(order, 1) }})
 	f.now = f.now.Add(animationFrameInterval)
 	animationStep(app)
 	if !slices.Equal(order, []int{1}) {
-		t.Fatal("帧内新增 Tween 被已有 Timeline 提前执行")
+		t.Fatal("帧内新增 Animate 被已有 Timeline 提前执行")
 	}
 	f.now = f.now.Add(animationFrameInterval)
 	animationStep(app)
 	if !slices.Equal(order, []int{1, 2}) {
-		t.Fatal("新 Tween 未在下一帧执行")
+		t.Fatal("新 Animate 未在下一帧执行")
 	}
 }
 
@@ -759,14 +788,14 @@ func TestTimelinePausesDuringBatch(t *testing.T) {
 			app.desktops.PushBack(background)
 			addDesktopTestDocument(app, background)
 			calls := 0
-			doc.Tween(TweenOptions{To: 1, OnUpdate: func(float64) {
+			doc.Animate(AnimationOptions{OnUpdate: func(float64) {
 				if mode == "Detach" {
 					app.Detach()
 				} else {
 					app.SwitchTo(background)
 				}
 			}})
-			doc.Tween(TweenOptions{To: 1, Duration: time.Second, OnUpdate: func(v float64) {
+			doc.Animate(AnimationOptions{Duration: time.Second, OnUpdate: func(v float64) {
 				calls++
 				if v != 1 {
 					t.Fatal("恢复后未计入后台时间")
@@ -801,13 +830,13 @@ func TestTimelineCloseReleasesCallbacks(t *testing.T) {
 			app.desktops.PushBack(background)
 			other := addDesktopTestDocument(app, background)
 			if mode == "更新中关闭" {
-				doc.Tween(TweenOptions{To: 1, OnUpdate: func(float64) { doc.Close() }})
+				doc.Animate(AnimationOptions{OnUpdate: func(float64) { doc.Close() }})
 			}
-			opts := TweenOptions{To: 1, OnUpdate: func(float64) { t.Fatal("关闭后仍更新") },
+			opts := AnimationOptions{OnUpdate: func(float64) { t.Fatal("关闭后仍更新") },
 				OnComplete: func() { t.Fatal("关闭后仍触发完成回调") },
 			}
-			stop := doc.Tween(opts)
-			other.Tween(opts)
+			stop := doc.Animate(opts)
+			other.Animate(opts)
 			entries := append([]*_TimelineAnimation(nil), doc.timeline.animations...)
 			switch mode {
 			case "文档关闭":

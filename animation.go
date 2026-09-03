@@ -337,6 +337,55 @@ func (e Easing) apply(t float64) float64 {
 	}
 }
 
+// NumberAnimator 创建一个数值插值器。From、To 必须是有限数值。
+// 返回的函数接收 0 到 1 的进度；范围外的进度会截到端点。
+func NumberAnimator(from, to float64) func(progress float64) float64 {
+	if math.IsNaN(from) || math.IsInf(from, 0) || math.IsNaN(to) || math.IsInf(to, 0) {
+		panic("NumberAnimator: 无效的端点。")
+	}
+	return func(progress float64) float64 {
+		if math.IsNaN(progress) {
+			panic("NumberAnimator: 无效的进度。")
+		}
+		if progress <= 0 {
+			return from
+		}
+		if progress >= 1 {
+			return to
+		}
+		// 使用加权和，避免有限但符号相反的端点相减后溢出。
+		return (1-progress)*from + progress*to
+	}
+}
+
+// ColorAnimator 创建一个普通颜色插值器。各通道直接在 sRGB 数值空间计算。
+// ColorNone 和 ColorClear 带有绘制语义，不能作为端点。
+func ColorAnimator(from, to Color) func(progress float64) Color {
+	if from.IsNone() || from.IsClear() || to.IsNone() || to.IsClear() {
+		panic("ColorAnimator: 无效的颜色。")
+	}
+	return func(progress float64) Color {
+		if math.IsNaN(progress) {
+			panic("ColorAnimator: 无效的进度。")
+		}
+		if progress <= 0 {
+			return from
+		}
+		if progress >= 1 {
+			return to
+		}
+		channel := func(a, b uint8) uint8 {
+			return uint8(math.Round((1-progress)*float64(a) + progress*float64(b)))
+		}
+		return ColorFromRGBA(
+			channel(from.R(), to.R()),
+			channel(from.G(), to.G()),
+			channel(from.B(), to.B()),
+			channel(from.A(), to.A()),
+		)
+	}
+}
+
 // AnimationOptions 描述一次从 0 到 1 的时间进度动画。
 // Duration 不能为负；零时长在下一帧直接更新为 1。
 type AnimationOptions struct {
@@ -401,37 +450,4 @@ func (doc *Document) Animate(options AnimationOptions) (cancel func()) {
 		return complete
 	})
 	return cancel
-}
-
-// TweenOptions 描述一次数值补间。From、To 必须是有限数值。
-type TweenOptions struct {
-	From, To   float64
-	Duration   time.Duration
-	Easing     Easing
-	OnUpdate   func(value float64)
-	OnComplete func()
-}
-
-// value 只根据进度插值，不修改样式，也不参与帧调度。
-func (o TweenOptions) value(progress float64) float64 {
-	// 使用加权和，避免有限但符号相反的端点相减后溢出。
-	return (1-progress)*o.From + progress*o.To
-}
-
-// Tween 使用 Animate 提供的时间进度，在 From 与 To 之间进行数值插值。
-// 同一属性的新动画不会自动替换旧动画；调用者应先取消旧动画，
-// 再以当前显示值为 From 创建新动画。
-func (doc *Document) Tween(options TweenOptions) func() {
-	if options.OnUpdate == nil || math.IsNaN(options.From) || math.IsInf(options.From, 0) ||
-		math.IsNaN(options.To) || math.IsInf(options.To, 0) {
-		panic("Tween: 无效的回调或端点。")
-	}
-	return doc.Animate(AnimationOptions{
-		Duration: options.Duration,
-		Easing:   options.Easing,
-		OnUpdate: func(progress float64) {
-			options.OnUpdate(options.value(progress))
-		},
-		OnComplete: options.OnComplete,
-	})
 }

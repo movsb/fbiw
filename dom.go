@@ -33,7 +33,7 @@ type Document struct {
 	// asyncApp 专供可从其他 goroutine 调用的生命周期 API 使用。
 	asyncApp atomic.Pointer[App]
 
-	// 同一文档的 Tween 共享 Timeline，由它统一申请帧并推进动画。
+	// 同一文档的动画共享 Timeline，由它统一申请帧并推进。
 	timeline *_Timeline
 
 	// 资源包。

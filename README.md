@@ -843,21 +843,20 @@ cancelAnimation := doc.Animate(fbiw.AnimationOptions{
 // cancelAnimation()
 ```
 
-`Animate` 只负责时间和进度，不规定被更新的值类型。`Document.Tween` 是它上面的
-数值插值封装，将数值从 `From` 逐步更新到 `To`：
+`Animate` 只负责时间和进度，不规定被更新的值类型。`NumberAnimator` 和
+`ColorAnimator` 根据起止值创建插值函数，因此多个值可以共享一次动画：
 
 ```go
-progress := doc.GetBoxByID[*fbiw.ProgressBar]("download")
-cancelTween := doc.Tween(fbiw.TweenOptions{
-    From:     progress.Value(),
-    To:       1,
+move := fbiw.NumberAnimator(oldX, newX)
+fade := fbiw.ColorAnimator(oldColor, newColor)
+
+cancelAnimation := doc.Animate(fbiw.AnimationOptions{
     Duration: 300 * time.Millisecond,
     Easing:   fbiw.EaseOut,
-    OnUpdate: func(value float64) {
-        // SetValue 会按需请求重绘；这里的插值范围始终位于 [0,1]。
-        if err := progress.SetValue(value); err != nil {
-            panic(err)
-        }
+    OnUpdate: func(progress float64) {
+        x = move(progress)
+        color = fade(progress)
+        doc.RequestPaint()
     },
     OnComplete: func() {
         log.Println("动画完成")
@@ -865,36 +864,40 @@ cancelTween := doc.Tween(fbiw.TweenOptions{
 })
 
 // 需要提前停止时在 UI 主线程调用，可重复调用：
-// cancelTween()
+// cancelAnimation()
 ```
 
+颜色逐 RGBA 通道在 sRGB 数值空间插值。`ColorNone` 和 `ColorClear` 具有特殊
+绘制语义，不能作为颜色插值器的端点。两个插值器都会把范围外的进度截到端点，
+并拒绝 `NaN` 进度。
+
 - 从调用时开始计时，回调不会同步执行；首帧按实际经过时间计算，不保证恰好交付
-  `From`。需要立即显示起点时，应先设置组件状态。帧回调内创建的 Tween 使用本帧统一时间戳作为起点。
+  `From`。需要立即显示起点时，应先设置组件状态。帧回调内创建的 Animate 使用本帧统一时间戳作为起点。
 - 默认 `EaseLinear` 为匀速；`EaseIn`、`EaseOut`、`EaseInOut` 使用二次曲线，
   不等同于 CSS 同名关键字的三次贝塞尔曲线。
-- `OnUpdate` 必填；`From`、`To` 必须是有限数值；时长不能为负。
-  零时长在下一帧直接交付 `To`。相同端点仍按指定时长执行。
-- 自然结束时先精确交付 `To`，再调用可选的 `OnComplete`，且只完成一次。
+- `OnUpdate` 必填，时长不能为负。零时长在下一帧直接交付进度 1。
+- 自然结束时先精确交付进度 1，再调用可选的 `OnComplete`，且只完成一次。
   取消、关闭文档或退出 App 不触发完成回调；在最后一次 `OnUpdate` 中取消也会阻止它。
 - 后台和 Detach 行为沿用帧时钟：暂停回调，不暂停时间，恢复后追上当前进度或直接完成。
-- Tween 不自动修改样式或标记重绘。动画中途改变目标时，先取消旧 Tween，
-  再以当前显示值为 `From` 创建新 Tween，避免跳变和多个动画同时写同一状态。
+- Animate 不自动修改样式或标记重绘。动画中途改变目标时，先取消旧动画，
+  再以当前显示值创建新的插值器，避免跳变。
 
 ### 文档 Timeline
 
-每个使用 Animate 或 Tween 的文档会按需创建一个内部 Timeline，统一管理活动动画：
+每个使用 Animate 的文档会按需创建一个内部 Timeline，统一管理活动动画：
 
 - 同一文档的所有动画共享一个帧请求，按文档内的注册顺序推进。
 - 完成或取消的动画会被移除；没有活动动画时停止续订，后续可以复用该 Timeline。
 - 帧回调中新增的动画最早下一帧执行，即使它所属的 Timeline 在本帧还未执行。
 - 关闭文档会清理整个 Timeline；App 退出时也会清理后台文档的活动动画。
 
-时钟只负责帧调度，Timeline 负责集合与续订，Tween 负责数值推进与完成回调。
-`doc.Tween(...)` 接口不变。直接使用 `RequestAnimationFrame` 的回调仍是独立请求；
-与 Tween 混用时，Tween 按文档成批推进，不保证各个 Tween 与独立帧回调交错的注册顺序。
+时钟只负责帧调度，Timeline 负责集合与续订，Animate 负责时间进度，
+Animator 负责具体值的插值。直接使用 `RequestAnimationFrame`
+的回调仍是独立请求；与这些动画混用时，Timeline 中的动画按文档成批推进，
+不保证它们与独立帧回调交错的注册顺序。
 
-目前不提供 CSS Transition、颜色补间、循环、倍速或倒放；Toggle 已使用数值补间
-实现滑块动效，其他组件尚未自动添加动效。
+目前不提供 CSS Transition、循环、倍速或倒放；Toggle 使用一个进度同时完成
+滑块位置和轨道颜色动画，其他组件尚未自动添加动效。
 
 ## 异步更新
 
