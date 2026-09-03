@@ -10,7 +10,7 @@
 
 - 使用类似 HTML 的文档描述界面；
 - 支持标签、ID、class、后代和直接子元素等 CSS 选择器；
-- 内置纵向、横向、叠层和虚拟列表布局；
+- 内置纵向、横向、单行 Flex、叠层和虚拟列表布局；
 - 支持始终位于文档栈上方的系统覆盖层，以及供文档避让覆盖层的安全区域；
 - 支持颜色、背景图片、边框、内边距、尺寸、字体和对齐等样式；
 - 支持 OpenType 字体、字形缓存和文本分段；
@@ -108,7 +108,7 @@ func main() {
 规则如下：
 
 - `<document>` 下最多有一个 `<style>`；
-- 内容根节点只能有一个，且必须是 `<block>`、`<inline>` 或 `<stack>`；
+- 内容根节点只能有一个，且必须是 `<block>`、`<inline>`、`<stack>` 或 `<flex>`；
 - 普通容器中不能直接放置非空文本，文字必须放在 `<text>` 中；
 - `<b>` 和 `<i>` 只能出现在 `<text>`、`<b>` 或 `<i>` 内；
 - `<img>` 和 `<spacer>` 是无子节点元素；
@@ -120,6 +120,7 @@ func main() {
 | --- | --- |
 | `block` | 子元素纵向排列 |
 | `inline` | 子元素单行横向排列 |
+| `flex` | 子元素单行弹性排列，支持横向或纵向 |
 | `stack` | 子元素叠放在同一位置 |
 | `safe-area` | 根据系统覆盖层占用的四边区域，为内容设置安全内边距 |
 | `scroll` | 固定行列、固定可视槽位的虚拟列表 |
@@ -308,7 +309,7 @@ Go 布局接口中的尺寸偏好含义如下：
 | `PrefersMaxWidth` | 当前节点优先使用父节点提供的全部可用宽度 | 当前节点按内容所需宽度收缩 |
 | `PrefersMaxHeight` | 当前节点优先使用父节点提供的全部可用高度 | 当前节点按内容所需高度收缩 |
 
-`Constraints` 约束的是正在执行 `Calc` 的节点自身，而不是它的子节点排列方向。显式设置的 `width`、`height` 优先于相应的 `PrefersMax*` 尺寸偏好。
+`Constraints` 约束的是正在执行 `Calc` 的节点自身，而不是它的子节点排列方向。尺寸优先级为 `FixedWidth/FixedHeight` > 样式 `width/height` > `PrefersMax*` 尺寸偏好或内容尺寸。`FixedWidth/FixedHeight` 使用 `NumberLength(n)` 表示父布局分配的最终 border-box 尺寸，空值表示不强制；不得将分配结果写回样式。自定义 `Calc` 也应遵守这个约定。
 
 ```html
 <block height="300">
@@ -337,7 +338,40 @@ Go 布局接口中的尺寸偏好含义如下：
 | `middle` | 垂直居中 |
 | `both` | 水平和垂直居中 |
 
-当前布局不是 Flexbox：`inline` 不会自动换行，也没有通用 margin、min/max size、绝对定位或通用 overflow 裁剪。
+`block/inline` 保持原来的布局规则；`inline` 不会自动换行，也没有通用 margin、min/max size、绝对定位或通用 overflow 裁剪。
+
+### 单行 Flex
+
+使用 `<flex>`（Go 构造函数为 `NewFlex(doc)`）即可创建单行弹性布局容器，也可作为文档内容根节点。原来的 `display="flex"` 用法继续保留：在 `block`、`inline`、`stack` 或使用 `BaseBox.Calc` 的容器上设置它，会改用单行弹性布局。这里的 `display` 只描述**内部布局模式**，自身如何参与上一层布局仍由父容器决定，不区分 CSS 的外部 block/inline 角色，也不提供 `inline-flex`。
+
+```html
+<flex width="300" height="80" gap="12" align-items="center">
+    <block width="60" height="40" background-color="#3358d4"></block>
+    <block width="0" height="40" flex-grow="1" background-color="#34c759"></block>
+    <block width="0" height="40" flex-grow="2" background-color="#f5a623"></block>
+</flex>
+```
+
+扣除固定宽度 60 和两个间距 24 后，剩余 216 按 1:2 分配，后两个元素宽度分别为 72、144。
+
+| 属性 | 默认值 | 支持值 |
+| --- | --- | --- |
+| `flex-direction` | `row` | `row`、`column` |
+| `flex-grow` | `0` | 非负有限数值，作用于 Flex 的直接子元素 |
+| `gap` | `0` | 非负整数像素，仅在可见子元素之间留间距 |
+| `justify-content` | `start` | `start`、`end`、`center`、`space-between`、`space-around`、`space-evenly` |
+| `align-items` | `stretch` | `start`、`end`、`center`、`stretch` |
+| `align-self` | `auto` | `auto` 或上述 `align-items` 值；`auto` 采用父容器设置 |
+
+对齐属性同时接受 `flex-start` / `flex-end` 别名。这些属性不继承；`align-self` 和 `flex-grow` 由父 Flex 读取。Flex 容器使用新对齐属性，不使用旧的 `align` 排列子元素。
+
+- `flex-grow` 在基础尺寸上增加空间：基础尺寸来自显式宽高、百分比或内容测量。若想按权重分配全部主轴空间，横排设置 `width="0"`，竖排设置 `height="0"`。
+- 本项目按正权重比例分完剩余空间，即使权重之和小于 1；这是轻量布局规则，不是完整 CSS Flexbox 算法。
+- `stretch` 只拉伸未指定交叉轴尺寸的元素；显式尺寸（包括 0 和百分比）保持不变。
+- 文本作为一个 Flex item，可在分配后的宽度内多行断行；这不代表 Flex items 自身支持换行。
+- 未实现 `flex-shrink`、`flex-basis`、`flex` shorthand、`flex-wrap`、反向排列、`order`、baseline 和 min/max 尺寸。空间不足时保持基础尺寸并溢出，grow 不会分配负尺寸。
+- `<spacer>` 和 `spacer` 属性不会在 Flex 中自动启用增长，需要显式设置 `flex-grow`。新 `gap` 样式仅用于 Flex，不改变 Block/Inline 或 Scroll 原有槽位 `gap` 属性的行为。
+- Scroll 等自带内部布局的专用组件可作为 Flex item，但不会因 `display="flex"` 改成通用 Flex 容器。
 
 ## 系统覆盖层和安全区域
 
@@ -429,6 +463,8 @@ overlay.Close()
 - `spacer`
 - `display`
 - `fill`
+- `flex-direction`、`flex-grow`、`gap`
+- `justify-content`、`align-items`、`align-self`
 
 `width` 和 `height` 可以解析整数或百分比。常规 `Calc` 布局每次根据父容器提供的完整内容区解析百分比，不受前序兄弟元素占用影响，也不会改写计算后的样式；根元素以文档尺寸为参考。文本的独立分段路径和内容自适应父容器的百分比规则仍有限制，参见 [`todo.md`](todo.md)。
 

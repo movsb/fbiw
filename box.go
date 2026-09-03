@@ -24,8 +24,8 @@ import (
 type Box interface {
 	Base() *BaseBox
 	// 根据可用的宽度和高度计算自己实际的宽度和高度。
-	// 如果 computed.{width,height} 有值，则直接用，
-	// 表示被外界固定好了，而且不能覆盖。
+	// 优先采用 constraints.FixedWidth/FixedHeight，其次采用样式宽高。
+	// 固定布局尺寸不能写回 computedStyles。
 	//   - 自己写：并把宽度和高度写到 layoutBox.{width, height}。
 	//   - 父亲写：layoutBox.{x, y}。
 	// 子元素在排版时，它需要知道自己是否应该默认占满父元素（类似html的div），
@@ -33,7 +33,7 @@ type Box interface {
 	Calc(availableWidth, availableHeight int, constraints Constraints)
 	// 根据自身的 layoutBox 直接画。
 	// layoutBox 的 {x,y} 相对于父元素。
-	// 所以除根元素外（因为它是0，0），其它在Draw之前都要调整canvas到offset，
+	// 所以除根元素外（因为它是0，0），其在它Draw之前都要调整canvas到offset，
 	// 即：父元素在遍历子元素Draw的时候记得根据子元素的{x,y}作offset。
 	Draw(canvas *Canvas)
 
@@ -83,6 +83,10 @@ type Constraints struct {
 	// 百分比参考父容器的完整内容区，不是兄弟元素占用后的剩余空间。
 	ParentContentWidth  int
 	ParentContentHeight int
+
+	// 父布局指定的最终 border-box 尺寸。只接受 NumberLength 或空值；
+	// 空值表示不强制，NumberLength(0) 表示明确的零尺寸。
+	FixedWidth, FixedHeight Length
 }
 
 var _ Box = (*BaseBox)(nil)
@@ -326,11 +330,22 @@ func resolveLayoutLength(value Length, reference int) Length {
 	return value
 }
 
+// 解决自己的大小（不一定能成功解决，得看有没有指定）。
+//
+//   - 优先使用限制中固定的尺寸（常由flex box限定）
+//   - 然后使用自身指定的尺寸
 func (b *BaseBox) resolveDimensions(constraints Constraints) resolvedDimensions {
-	return resolvedDimensions{
+	size := resolvedDimensions{
 		Width:  resolveLayoutLength(b.computedStyles.Width, constraints.ParentContentWidth),
 		Height: resolveLayoutLength(b.computedStyles.Height, constraints.ParentContentHeight),
 	}
+	if constraints.FixedWidth.IsNumber() {
+		size.Width = NumberLength(max(0, constraints.FixedWidth.Number()))
+	}
+	if constraints.FixedHeight.IsNumber() {
+		size.Height = NumberLength(max(0, constraints.FixedHeight.Number()))
+	}
+	return size
 }
 
 func (b *BaseBox) paddingTop() int {
@@ -393,6 +408,8 @@ func (b *BaseBox) Calc(availWidth, availHeight int, constraints Constraints) {
 		blockCalc(b, availWidth, availHeight, constraints)
 	} else if b.Tag == `inline` || display == DisplayInline {
 		inlineCalc(b, availWidth, availHeight, constraints)
+	} else if b.Tag == `flex` || display == DisplayFlex {
+		flexCalc(b, availWidth, availHeight, constraints)
 	} else {
 		// 其它自己不实现的通通按inline来。
 		inlineCalc(b, availWidth, availHeight, constraints)
@@ -726,6 +743,273 @@ func inlineCalc(b *BaseBox, availWidth, availHeight int, constraints Constraints
 	}
 }
 
+// 单行弹性布局容器。默认使用 Flex，也可通过 display 指定其它内部布局。
+type Flex struct {
+	BaseBox
+}
+
+func NewFlex(doc *Document) *Flex {
+	return &Flex{BaseBox: NewBaseBox(doc, `flex`)}
+}
+
+// 单行弹性布局：先测量基础尺寸，再分配正的剩余空间，最后对齐。
+// 暂不实现 shrink、basis、wrap；尺寸不足时允许溢出，不产生负的分配尺寸。
+//
+// 可以把它理解为三个问题，按顺序求解：
+//  1. 每个孩子本来需要多大？容器主轴上还剩多少空间？
+//  2. 分配剩余空间后，孩子变成多大？容器交叉轴需要多大？
+//  3. 大小确定后，各个孩子应该放在哪里？
+//
+// 不能只遍历一次：例如横排文本分到了更多宽度，行数可能减少，高度也会变；
+// 而父容器如果高度由内容决定，就必须等文本重新断行后才能确定高度。
+// 当前 Calc 同时做测量和布局，所以这里通过必要时再次调用 Calc 完成这些阶段，
+// 不是引入另一份可修改的样式，也不是通过不断迭代来求收敛。
+func flexCalc(b *BaseBox, availWidth, availHeight int, constraints Constraints) {
+	// 第一阶段：统一坐标轴，准备本轮测量的可用空间。
+	// size 是当前容器自身的尺寸要求（父布局强制值优先，其次为解析后的样式），
+	// 不是孩子的尺寸，也还不是当前容器的最终 layoutBox。
+	size := b.resolveDimensions(constraints)
+	styles := &b.computedStyles
+	column := styles.FlexDirection == `column`
+
+	// 后面的算法只谈 main（主轴，排列方向）和 cross（交叉轴）：
+	//   row：main=宽/X，cross=高/Y；
+	//   column：main=高/Y，cross=宽/X。
+	// axes 在 row 下原样返回，在 column 下交换两个值。交换两次会还原，
+	// 所以既能把 (width,height) 转成 (main,cross)，也能反过来转换；坐标同理。
+	axes := func(width, height int) (int, int) {
+		if column {
+			return height, width
+		}
+		return width, height
+	}
+	mainStyle, crossStyle := size.Width, size.Height
+	preferMain, preferCross := constraints.PrefersMaxWidth, constraints.PrefersMaxHeight
+	if column {
+		mainStyle, crossStyle = size.Height, size.Width
+		preferMain, preferCross = preferCross, preferMain
+	}
+
+	// 这几组变量的区别：
+	//   avail*：父布局提供给当前容器的可用 border-box 空间。
+	//   inset*：当前容器在该轴两侧的 padding + border 总和。
+	//   cap*：用于测量孩子的内容区空间；此时还没有根据内容收缩容器。
+	// resolveSize(..., true, 0) 表示有明确尺寸就用它，否则先采用全部可用空间。
+	// cap 不是严格上限：孩子仍可用显式尺寸超出它。本实现没有 shrink。
+	availMain, availCross := axes(max(0, availWidth), max(0, availHeight))
+	insetMain, insetCross := axes(b.HorizontalInsets(), b.VerticalInsets())
+	capMain := max(0, resolveSize(mainStyle, availMain, true, 0)-insetMain)
+	capCross := max(0, resolveSize(crossStyle, availCross, true, 0)-insetCross)
+	contentWidth, contentHeight := axes(capMain, capCross)
+
+	// 所有孩子的百分比都参考同一个完整内容区，不能扣掉前面兄弟占用的空间。
+	// 这里没有设置 PrefersMax*，让孩子先报告内容/显式尺寸，而不是要求它填满。
+	// 这份百分比参考在本次 flexCalc 内保持不变；后续 Fixed* 是分配结果，
+	// 不能拿分配给单个孩子的空间重新充当百分比参考。
+	// 内容自适应容器中百分比尺寸的循环依赖，目前仍采用这个简化规则处理。
+	childConstraints := Constraints{
+		ParentContentWidth:  contentWidth,
+		ParentContentHeight: contentHeight,
+	}
+	type item struct {
+		box     Box
+		main    int     // 初始为测得的基础尺寸；grow 分配后原地更新为目标主轴尺寸。
+		grow    float64 // 本项分配占剩余空间的权重，0 表示不增长。
+		align   string  // 已合并 align-self / align-items / 默认值的最终对齐方式。
+		stretch bool    // 只有要求 stretch 且未显式指定交叉轴尺寸，才允许拉伸。
+	}
+
+	// 第二阶段：测量所有可见孩子的基础尺寸。
+	// 这里的“基础尺寸”是现有 Calc 在上述可用空间下给出的结果，
+	// 并不是浏览器的 min-content/max-content 或完整 flex-basis 算法。
+	items := make([]item, 0, len(b.children))
+	gap := max(0, styles.Gap)
+	baseMain, maxGrow := 0, 0.0
+	for _, child := range b.children {
+		if !displaying(child) {
+			continue
+		}
+		child.Calc(contentWidth, contentHeight, childConstraints)
+		layout := child.GetLayoutBox()
+		main, _ := axes(layout.Width, layout.Height)
+		main = max(0, main)
+
+		cs := child.GetComputedStyles()
+		grow := cs.FlexGrow
+		// 字符串解析已经校验过；这里还防御直接调用样式 setter 的非法值。
+		if grow < 0 || math.IsNaN(grow) || math.IsInf(grow, 0) {
+			grow = 0
+		}
+		align := cs.AlignSelf
+		// 优先用孩子自己的 align-self；auto 才回退到父容器的 align-items。
+		if align == `` || align == `auto` {
+			align = styles.AlignItems
+		}
+		if align == `` {
+			align = `stretch`
+		}
+		crossLength := cs.Height
+		if column {
+			crossLength = cs.Width
+		}
+		// 判断的是原始样式是否“未指定”，而不是测量结果是否为 0。
+		// height=0 和 height=50% 都是明确要求，不能因为 stretch 将它们覆盖。
+
+		items = append(items, item{
+			child, main, grow, align,
+			align == `stretch` && crossLength.Empty(),
+		})
+		baseMain += main
+		maxGrow = max(maxGrow, grow)
+	}
+	// gap 只出现在相邻可见孩子之间：N 个孩子有 N-1 个 gap，空容器为 0。
+	baseMain += max(0, len(items)-1) * gap
+
+	// 第三阶段：确定容器主轴尺寸，再按 grow 分配正剩余空间。
+	// boxMain 是包括 padding/border 的最终尺寸，contentMain 才能分给孩子。
+	// 明确尺寸优先；否则 preferMain 决定填满还是按内容收缩。
+	// 因而 grow 本身不会让一个内容收缩容器主动扩展到全部可用空间。
+	boxMain := max(0, resolveSize(mainStyle, availMain, preferMain, min(availMain, baseMain+insetMain)))
+	contentMain := max(0, boxMain-insetMain)
+	free := max(0, contentMain-baseMain)
+	// free 只取正数：基础尺寸已经放不下时，不会“负增长”或缩小孩子。
+	// 例如内容宽 100，两个基础宽度 10、20，gap=10，则 free=60；
+	// grow=1、2 时各增加 20、40，最终宽度为 30、60，而不是 1:2 均分 100。
+	//
+	// 先让所有权重除以最大权重，比例不变，但避免多个极大浮点数相加溢出。
+	// 此处把 grow 当相对权重：有正权重就分完 free，不采用 CSS 中权重和小于 1
+	// 时可能只分配部分剩余空间的规则。
+	totalGrow := 0.0
+	if maxGrow > 0 {
+		for _, it := range items {
+			totalGrow += it.grow / maxGrow
+		}
+	}
+	allocated, cumulative := 0, 0.0
+	// 不逐项计算并截断份额，而是计算“到当前项为止累计应分多少”。
+	// 例如 100 像素按三个相等权重分配：累计值为 33、66、100，
+	// 相邻累计值之差就是 33、33、34。这样余下的 1 像素不会丢掉。
+	// allocated 只记录增长部分；it.main 还包含最初的基础尺寸。
+	for i := range items {
+		it := &items[i]
+		if it.grow > 0 && free > 0 {
+			cumulative += it.grow / maxGrow
+			next := min(free, int(float64(free)*(cumulative/totalGrow)))
+			it.main += next - allocated
+			allocated = next
+		}
+	}
+
+	// 第四阶段：将改变后的主轴尺寸交给孩子，重新取得交叉轴尺寸。
+	// 例如 row 中孩子宽度从 14 增到 84，必须让文本重新断行、嵌套容器重新排版，
+	// 不能只修改孩子 layoutBox.Width，否则内部内容仍按旧宽度排列。
+	maxCross := 0
+	for _, it := range items {
+		layout := it.box.GetLayoutBox()
+		measuredMain, _ := axes(layout.Width, layout.Height)
+		// 未改变尺寸时复用测量结果，避免嵌套 Flex 重复遍历整棵子树。
+		if measuredMain != it.main {
+			cc := childConstraints
+			// 固定值比孩子的样式宽高优先，但不改写样式。这里只固定主轴，
+			// 让交叉轴仍能报告内容需要的尺寸，稍后再处理 stretch。
+			if column {
+				cc.FixedHeight = NumberLength(it.main)
+			} else {
+				cc.FixedWidth = NumberLength(it.main)
+			}
+			width, height := axes(it.main, capCross)
+			it.box.Calc(width, height, cc)
+			layout = it.box.GetLayoutBox()
+		}
+		_, cross := axes(layout.Width, layout.Height)
+		maxCross = max(maxCross, cross)
+	}
+
+	// 单行布局的自然交叉轴尺寸是孩子们的最大值，不是它们的总和。
+	// 到此才能决定内容自适应的容器高度（column 时为宽度）。
+	boxCross := max(0, resolveSize(crossStyle, availCross, preferCross, min(availCross, maxCross+insetCross)))
+	contentCross := max(0, boxCross-insetCross)
+	b.layoutBox.Width, b.layoutBox.Height = axes(boxMain, boxCross)
+
+	// 第五阶段：容器交叉轴大小确定后，处理需要 stretch 的孩子。
+	// 必须再次 Calc，让孩子内部内容也看到新的交叉轴尺寸；同时固定两个轴，
+	// 防止拉伸时丢失第三阶段分配好的主轴尺寸。
+	// 此阶段不再反向增大容器，也不重新分配 grow，避免父子尺寸互相追逐。
+	for _, it := range items {
+		if !it.stretch {
+			continue
+		}
+		layout := it.box.GetLayoutBox()
+		_, cross := axes(layout.Width, layout.Height)
+		if cross == contentCross {
+			continue
+		}
+		width, height := axes(it.main, contentCross)
+		cc := childConstraints
+		cc.FixedWidth, cc.FixedHeight = NumberLength(width), NumberLength(height)
+		it.box.Calc(width, height, cc)
+	}
+
+	// 第六阶段：尺寸已确定，只写坐标，不再测量。
+	// remaining 与 free 不同：它是 grow 分配完以后还剩多少空间，可为负数。
+	// 有 grow 时通常为 0；无 grow 时交给 justify-content；为负则表示溢出。
+	remaining := contentMain - baseMain - allocated
+	startMain, startCross := axes(b.InsetLeft(), b.InsetTop())
+	// position 是前面所有孩子的主轴尺寸 + 固定 gap 的累计值；
+	// extra 是 justify-content 额外加入的偏移。两者分开，gap 不会被重复计算。
+	position := 0
+	for i, it := range items {
+		// 仍用累计偏移而不是逐段截断，space-* 的像素误差不会越积越多。
+		// N 个孩子、剩余空间 R，各模式的第 i 项额外偏移为：
+		//   between：R*i/(N-1)，首尾贴边；只有一个孩子时靠起点。
+		//   around：R*(2*i+1)/(2*N)，两端空白为项间空白的一半。
+		//   evenly：R*(i+1)/(N+1)，两端与项间空白相同。
+		// 空容器不会进入循环，因此 around/evenly 没有除零问题。
+		// R<0 时不制造负的“均匀间距”：between 靠起点，around/evenly 居中溢出；
+		// end/center 则保留负偏移，分别让内容向起点侧溢出或两侧居中溢出。
+		extra := 0
+		switch styles.JustifyContent {
+		case `end`, `flex-end`:
+			extra = remaining
+		case `center`:
+			extra = remaining / 2
+		case `space-between`:
+			if len(items) > 1 {
+				extra = max(0, remaining) * i / (len(items) - 1)
+			}
+		case `space-around`:
+			if remaining < 0 {
+				extra = remaining / 2
+			} else {
+				extra = remaining * (2*i + 1) / (2 * len(items))
+			}
+		case `space-evenly`:
+			if remaining < 0 {
+				extra = remaining / 2
+			} else {
+				extra = remaining * (i + 1) / (len(items) + 1)
+			}
+		}
+		layout := &it.box.Base().layoutBox
+		_, cross := axes(layout.Width, layout.Height)
+		crossOffset := 0
+		// 交叉轴对齐是逐个孩子计算；主轴对齐则需要考虑整组孩子。
+		// start/stretch 的偏移均为 0，stretch 的尺寸调整已经在上一阶段完成。
+		// 孩子比容器更大时允许负偏移，保证 end/center 的溢出方向仍然正确。
+		switch it.align {
+		case `end`, `flex-end`:
+			crossOffset = contentCross - cross
+		case `center`:
+			crossOffset = (contentCross - cross) / 2
+		}
+		layout.X, layout.Y = axes(startMain+position+extra, startCross+crossOffset)
+		// 坐标加上父容器左/上 inset，最后从抽象轴转换回实际 X/Y。
+		// 最后一项之后虽然也累加 gap，但后面不再使用 position，不影响尺寸。
+		position += it.main + gap
+	}
+}
+
+// computed > available > actual
 func resolveSize(computed Length, available int, prefersAvailable bool, actual int) int {
 	if computed.IsNumber() {
 		return int(computed.Number())
@@ -760,6 +1044,10 @@ func (b *Stack) SetProp(key string, value string) error {
 }
 
 func (b *Stack) Calc(availWidth, availHeight int, constrains Constraints) {
+	if b.computedStyles.Display == DisplayFlex {
+		flexCalc(&b.BaseBox, availWidth, availHeight, constrains)
+		return
+	}
 	size := b.resolveDimensions(constrains)
 
 	// 根据自身大小及可用空间大小取最佳值。
@@ -1031,23 +1319,32 @@ func (t *Text) expandTextNodes() {
 //
 // TODO 没有缓存计算结果，应避免重复计算。
 func (t *Text) SegmentBlock(availWidth, availHeight int) {
+	t.segmentBlock(availWidth, availHeight, resolvedDimensions{t.computedStyles.Width, t.computedStyles.Height})
+}
+
+// Flex 等父布局可指定文本的最终尺寸，而不修改文本样式。
+func (t *Text) Calc(availWidth, availHeight int, constraints Constraints) {
+	t.segmentBlock(availWidth, availHeight, t.resolveDimensions(constraints))
+}
+
+func (t *Text) segmentBlock(availWidth, availHeight int, size resolvedDimensions) {
 	t.clearStates()
 
 	// availHeight 应该内部没有使用，至少会使用一行行高。
 	// availWidth 即使小于一个字符宽度（包括负数），SegmentInline 也会
 	// 返回 false，避免在没有消费字符的情况下死循环。
-	for t.SegmentInline(availWidth, availHeight) {
+	for t.segmentInline(availWidth, availHeight, size.Width) {
 	}
 
 	// 文本的宽度肯定是限制在可用宽度内的，目前超宽的始终折行。
-	if w := t.computedStyles.Width; w.IsNumber() {
+	if w := size.Width; w.IsNumber() {
 		t.layoutBox.Width = int(w.Number())
 	} else {
 		t.layoutBox.Width = t.textLineMaxWidth + t.HorizontalInsets()
 	}
 
 	// 但是高度就有可能超出盒子的高度了。
-	if h := t.computedStyles.Height; h.IsNumber() {
+	if h := size.Height; h.IsNumber() {
 		t.layoutBox.Height = int(h.Number())
 	} else {
 		// 文本高度随字体变化太麻烦，这里不应该简单取min值。取了min值后如果box高度不够，
@@ -1091,13 +1388,15 @@ func (t *Text) SegmentBlock(availWidth, availHeight int) {
 //
 // TODO 没有缓存计算结果，应避免重复计算。
 func (t *Text) SegmentInline(availWidth, availHeight int) bool {
+	return t.segmentInline(availWidth, availHeight, t.computedStyles.Width)
+}
+
+func (t *Text) segmentInline(availWidth, availHeight int, widthStyle Length) bool {
 	line := _TextLine{}
 	cannotFitFirstCharacter := false
 
-	computed := &t.computedStyles
-
 	// 根据自身大小及可用空间大小取最佳值。
-	boxMaxWidth := Iif(computed.Width.IsNumber(), int(computed.Width.Number()), availWidth)
+	boxMaxWidth := Iif(widthStyle.IsNumber(), int(widthStyle.Number()), availWidth)
 	// boxMaxHeight := Iif(computed.Height.IsNumber(), computed.Height.Number(), availHeight)
 
 	// 内容区域可用的大小。
@@ -1502,11 +1801,26 @@ func (b *Image) SetImage(img image.Image) {
 
 func (b *Image) Calc(availWidth, availHeight int, constraints Constraints) {
 	size := b.resolveDimensions(constraints)
+	// 图片内容的固有尺寸不能覆盖父布局分配的尺寸（包括显式的零）。
+	defer func() {
+		if constraints.FixedWidth.IsNumber() {
+			b.layoutBox.Width = int(size.Width.Number())
+		}
+		if constraints.FixedHeight.IsNumber() {
+			b.layoutBox.Height = int(size.Height.Number())
+		}
+	}()
 	b.layoutBox.Width = Iif(constraints.PrefersMaxWidth, availWidth, 0)
 	b.layoutBox.Height = Iif(constraints.PrefersMaxHeight, availHeight, 0)
 
 	if !size.Width.Empty() && !size.Height.Empty() {
 		b.layoutBox.Width = int(size.Width.Number())
+		b.layoutBox.Height = int(size.Height.Number())
+	}
+	if constraints.FixedWidth.IsNumber() {
+		b.layoutBox.Width = int(size.Width.Number())
+	}
+	if constraints.FixedHeight.IsNumber() {
 		b.layoutBox.Height = int(size.Height.Number())
 	}
 
@@ -1789,7 +2103,7 @@ func (b *Scroll) Calc(availWidth, availHeight int, constraints Constraints) {
 		actualWidth += visibleCols*avgWidth + (visibleCols-1)*b.gap
 	}
 	b.layoutBox.Width = resolveSize(size.Width, availWidth, constraints.PrefersMaxWidth, min(availWidth, actualWidth))
-	if b.shrinkRows {
+	if b.shrinkRows && !constraints.FixedHeight.IsNumber() {
 		visibleRows := min(b.rows, divideRoundUp(b.count, b.cols))
 		visibleGaps := max(visibleRows-1, 0)
 		b.layoutBox.Height = b.VerticalInsets() + visibleRows*avgHeight + visibleGaps*b.gap

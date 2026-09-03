@@ -15,6 +15,202 @@ import (
 	"golang.org/x/image/math/fixed"
 )
 
+func newFlexTestDocument(t *testing.T, body string, width, height int) *Document {
+	t.Helper()
+	fm := NewFontManager()
+	fm.faces[_FontFaceKey{Family: `system`, Size: 32}] = &FontFace{
+		Face: basicfont.Face7x13, cache: map[rune]GlyphValue{},
+	}
+	doc := _NewDocument(width, height, fstest.MapFS{
+		`main.html`: &fstest.MapFile{Data: []byte(`<document>` + body + `</document>`)},
+	}, fm, nil)
+	if err := doc.load(`main.html`); err != nil {
+		t.Fatal(err)
+	}
+	doc.layout()
+	return doc
+}
+
+func TestFlexLayout(t *testing.T) {
+	for _, tc := range []struct {
+		name, html    string
+		width, height int
+		want          map[string]Rect
+	}{
+		{"flex root", `<flex gap="10"><block id="a" width="10" flex-grow="1"></block><block id="b" width="20" flex-grow="2"></block></flex>`, 100, 40,
+			map[string]Rect{"a": {0, 0, 30, 40}, "b": {40, 0, 60, 40}}},
+		{"nested flex tags", `<flex><flex id="a" width="20" flex-grow="1"><block id="inner" width="0" flex-grow="1"></block></flex><block id="b" width="20"></block></flex>`, 100, 40,
+			map[string]Rect{"a": {0, 0, 80, 40}, "inner": {0, 0, 80, 40}, "b": {80, 0, 20, 40}}},
+		{"weighted growth", `<block display="flex" gap="10"><block id="a" width="10" flex-grow="1"></block><block id="b" width="20" flex-grow="2"></block></block>`, 100, 40,
+			map[string]Rect{"a": {0, 0, 30, 40}, "b": {40, 0, 60, 40}}},
+		{"column", `<inline display="flex" flex-direction="column" gap="10"><block id="a" height="10" flex-grow="1"></block><block id="b" height="20" flex-grow="2"></block></inline>`, 80, 100,
+			map[string]Rect{"a": {0, 0, 80, 30}, "b": {0, 40, 80, 60}}},
+		{"rounding", `<block display="flex"><block id="a" width="0" flex-grow="1"></block><block id="b" width="0" flex-grow="1"></block><block id="c" width="0" flex-grow="1"></block></block>`, 100, 40,
+			map[string]Rect{"a": {0, 0, 33, 40}, "b": {33, 0, 33, 40}, "c": {66, 0, 34, 40}}},
+		{"insets", `<block display="flex" padding="5" border-width="1" justify-content="space-between" align-items="center"><block id="a" width="20" height="10"></block><block id="b" width="30" height="20"></block></block>`, 100, 60,
+			map[string]Rect{"a": {6, 25, 20, 10}, "b": {64, 20, 30, 20}}},
+		{"self alignment and explicit zero", `<block display="flex" align-items="end"><block id="a" width="20" height="10" align-self="center"></block><block id="b" width="20" height="10"></block><block id="c" width="20" height="0" align-self="stretch"></block></block>`, 100, 40,
+			map[string]Rect{"a": {0, 15, 20, 10}, "b": {20, 30, 20, 10}, "c": {40, 0, 20, 0}}},
+		{"overflow", `<block display="flex" gap="5"><block id="a" width="30" height="30"></block><block id="b" width="30" height="30"></block></block>`, 40, 20,
+			map[string]Rect{"a": {0, 0, 30, 30}, "b": {35, 0, 30, 30}}},
+		{"hidden children do not add gaps", `<block display="flex" gap="5"><block id="a" width="20"></block><block display="none" width="90" flex-grow="99"></block><block id="b" width="20"></block></block>`, 100, 40,
+			map[string]Rect{"a": {0, 0, 20, 40}, "b": {25, 0, 20, 40}}},
+		{"nested flex", `<block display="flex"><block id="a" display="flex" width="20" flex-grow="1"><block id="inner" width="0" flex-grow="1"></block></block><block id="b" width="20"></block></block>`, 100, 40,
+			map[string]Rect{"a": {0, 0, 80, 40}, "inner": {0, 0, 80, 40}, "b": {80, 0, 20, 40}}},
+		{"stack display override", `<stack display="flex" gap="5"><block id="a" width="20"></block><block id="b" width="20"></block></stack>`, 100, 40,
+			map[string]Rect{"a": {0, 0, 20, 40}, "b": {25, 0, 20, 40}}},
+		{"content sized container", `<block><inline id="outer" display="flex" align-items="start" gap="5"><block id="a" width="20" height="10"></block><block id="b" width="30" height="20"></block></inline></block>`, 100, 40,
+			map[string]Rect{"outer": {0, 0, 100, 20}, "a": {0, 0, 20, 10}, "b": {25, 0, 30, 20}}},
+		{"empty", `<block id="empty" display="flex" justify-content="space-around" gap="20"></block>`, 0, 0,
+			map[string]Rect{"empty": {0, 0, 0, 0}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			doc := newFlexTestDocument(t, tc.html, tc.width, tc.height)
+			for id, want := range tc.want {
+				if got := doc.GetBoxByID[Box](id).GetLayoutBox(); got != want {
+					t.Errorf("%s: got %+v, want %+v", id, got, want)
+				}
+			}
+		})
+	}
+}
+
+func TestFlexBox(t *testing.T) {
+	flex := NewFlex(nil)
+	var box Box = flex
+	child := NewBlock(nil)
+	child.computedStyles.SetWidth(NumberLength(0))
+	child.computedStyles.SetFlexGrow(1)
+	flex.children = []Box{child}
+	box.Calc(100, 40, Constraints{PrefersMaxWidth: true, PrefersMaxHeight: true})
+	if got := child.GetLayoutBox(); got != (Rect{0, 0, 100, 40}) {
+		t.Fatalf("NewFlex layout: %+v", got)
+	}
+
+	doc := newFlexTestDocument(t, `<style>flex { flex-direction: column; gap: 5; }</style><flex id="root"><block id="a" width="20" height="10"></block><block id="b" width="30" height="10"></block></flex>`, 100, 40)
+	root := doc.GetBoxByID[*Flex]("root")
+	if root == nil {
+		t.Fatal("flex tag did not create *Flex")
+	}
+	b := doc.GetBoxByID[Box]("b")
+	if got := b.GetLayoutBox(); got.X != 0 || got.Y != 15 {
+		t.Fatalf("column flex: %+v", got)
+	}
+	if err := root.SetProp("display", "inline"); err != nil {
+		t.Fatal(err)
+	}
+	doc.layout()
+	if got := b.GetLayoutBox(); got.X != 20 || got.Y != 0 {
+		t.Fatalf("display override: %+v", got)
+	}
+	if err := root.SetProp("display", "true"); err != nil {
+		t.Fatal(err)
+	}
+	doc.layout()
+	if got := b.GetLayoutBox(); got.X != 0 || got.Y != 15 {
+		t.Fatalf("restored default flex: %+v", got)
+	}
+}
+
+func TestFlexJustification(t *testing.T) {
+	for _, tc := range []struct {
+		mode          string
+		first, second int
+	}{
+		{"start", 0, 20}, {"end", 60, 80}, {"center", 30, 50},
+		{"space-between", 0, 80}, {"space-around", 15, 65}, {"space-evenly", 20, 60},
+	} {
+		t.Run(tc.mode, func(t *testing.T) {
+			doc := newFlexTestDocument(t, `<block display="flex" justify-content="`+tc.mode+`"><block id="a" width="20"></block><block id="b" width="20"></block></block>`, 100, 40)
+			if a, b := doc.GetBoxByID[Box]("a").GetLayoutBox(), doc.GetBoxByID[Box]("b").GetLayoutBox(); a.X != tc.first || b.X != tc.second {
+				t.Fatalf("positions = %d, %d; want %d, %d", a.X, b.X, tc.first, tc.second)
+			}
+		})
+	}
+}
+
+func TestFlexRelayoutPreservesStyles(t *testing.T) {
+	doc := newFlexTestDocument(t, `<block display="flex" gap="10"><block id="a" width="25%" flex-grow="1"></block><block id="b" width="20"></block></block>`, 100, 40)
+	a := doc.GetBoxByID[Box]("a")
+	before := *a.GetComputedStyles()
+	for _, width := range []int{100, 200, 100, 100} {
+		doc.width = width
+		doc.layout()
+		if got := a.GetLayoutBox().Width; got != width-30 {
+			t.Fatalf("width = %d, want %d", got, width-30)
+		}
+		if !reflect.DeepEqual(*a.GetComputedStyles(), before) {
+			t.Fatal("layout modified styles")
+		}
+	}
+	doc.layoutDirty = false
+	if err := a.SetProp("flex-grow", "0"); err != nil {
+		t.Fatal(err)
+	}
+	if !doc.layoutDirty {
+		t.Fatal("flex-grow change did not invalidate layout")
+	}
+	doc.layout()
+	if got := a.GetLayoutBox().Width; got != 25 {
+		t.Fatalf("width after removing grow = %d", got)
+	}
+}
+
+func TestFlexTextReflowsAtAllocatedWidth(t *testing.T) {
+	doc := newFlexTestDocument(t, `<block display="flex" align-items="start"><text id="text" width="14" flex-grow="1">ABCDEFGHIJKL</text><block width="14"></block></block>`, 98, 100)
+	text := doc.GetBoxByID[*Text]("text")
+	if text.layoutBox.Width != 84 || len(text.textLines) != 1 {
+		t.Fatalf("wide text: box %+v, lines %d", text.layoutBox, len(text.textLines))
+	}
+	doc.width = 42
+	doc.layout()
+	if text.layoutBox.Width != 28 || len(text.textLines) != 3 {
+		t.Fatalf("narrow text: box %+v, lines %d", text.layoutBox, len(text.textLines))
+	}
+	if text.computedStyles.Width != NumberLength(14) {
+		t.Fatal("text width style changed")
+	}
+}
+
+func TestFlexWidgetAllocation(t *testing.T) {
+	for _, tag := range []string{`toggle`, `progress`, `select`, `img`, `scroll`} {
+		t.Run(tag, func(t *testing.T) {
+			doc := newFlexTestDocument(t, `<block display="flex"><`+tag+` id="item" width="10" height="5" padding="0" flex-grow="1"></`+tag+`></block>`, 100, 40)
+			box := doc.GetBoxByID[Box](`item`)
+			if got := box.GetLayoutBox(); got.Width != 100 || got.Height != 5 {
+				t.Fatalf("allocated box: %+v", got)
+			}
+			if got := box.GetComputedStyles().Width; got != NumberLength(10) {
+				t.Fatalf("style changed: %+v", got)
+			}
+		})
+	}
+}
+
+func TestFixedDimensionsOverrideStyles(t *testing.T) {
+	b := NewBlock(nil)
+	b.computedStyles.SetWidth(PercentageLength(50))
+	b.computedStyles.SetHeight(NumberLength(80))
+	size := b.resolveDimensions(Constraints{
+		ParentContentWidth: 200, ParentContentHeight: 100,
+		FixedWidth: NumberLength(0), FixedHeight: NumberLength(20),
+	})
+	if size.Width != NumberLength(0) || size.Height != NumberLength(20) {
+		t.Fatalf("size: %+v", size)
+	}
+	if b.computedStyles.Width != PercentageLength(50) || b.computedStyles.Height != NumberLength(80) {
+		t.Fatal("styles modified")
+	}
+	img := NewImage(nil)
+	img.src = `cached`
+	img.status = imageLoadStatusScaled
+	img.decodedImage = DecodedImage{Width: 20, Height: 10}
+	img.Calc(0, 0, Constraints{FixedWidth: NumberLength(0), FixedHeight: NumberLength(0)})
+	if got := img.GetLayoutBox(); got.Width != 0 || got.Height != 0 {
+		t.Fatalf("image ignored fixed zero: %+v", got)
+	}
+}
+
 func TestResolveLayoutLength(t *testing.T) {
 	for _, tc := range []struct {
 		name      string

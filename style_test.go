@@ -6,6 +6,82 @@ import (
 	"testing"
 )
 
+func TestFlexStyleProperties(t *testing.T) {
+	for _, tc := range []struct {
+		name, raw, field string
+		want             any
+	}{
+		{"display", "flex", "Display", DisplayFlex},
+		{"flex-direction", "row", "FlexDirection", "row"},
+		{"flex-direction", "column", "FlexDirection", "column"},
+		{"flex-grow", "1.5", "FlexGrow", 1.5},
+		{"flex-grow", "0", "FlexGrow", 0.0},
+		{"gap", "12", "Gap", 12},
+		{"justify-content", "space-evenly", "JustifyContent", "space-evenly"},
+		{"justify-content", "flex-end", "JustifyContent", "end"},
+		{"align-items", "stretch", "AlignItems", "stretch"},
+		{"align-items", "flex-start", "AlignItems", "start"},
+		{"align-self", "auto", "AlignSelf", "auto"},
+		{"align-self", "center", "AlignSelf", "center"},
+	} {
+		t.Run(tc.name+"/"+tc.raw, func(t *testing.T) {
+			var styles Styles
+			inherit, layout, _, err := styles.Set(tc.name, tc.raw)
+			if err != nil || inherit || !layout {
+				t.Fatalf("Set: inherit=%v, layout=%v, err=%v", inherit, layout, err)
+			}
+			if got := reflect.ValueOf(styles).FieldByName(tc.field).Interface(); !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("got %v, want %v", got, tc.want)
+			}
+			if !styles.has(stylePropertyByName(tc.name)) || stylePropertyByName(tc.name) != stylePropertyByName(tc.field) {
+				t.Fatal("property bit/name mapping is missing")
+			}
+		})
+	}
+	for name, values := range map[string][]string{
+		"flex-grow":       {"-1", "NaN", "+Inf", "1e999", "abc"},
+		"gap":             {"-1", "1.5", "abc"},
+		"flex-direction":  {"row-reverse", "wrap", ""},
+		"justify-content": {"stretch", "auto"},
+		"align-items":     {"auto", "baseline"},
+		"align-self":      {"space-between", "baseline"},
+	} {
+		for _, value := range values {
+			var styles Styles
+			before := styles
+			if _, _, _, err := styles.Set(name, value); err == nil {
+				t.Errorf("accepted %s: %s", name, value)
+			}
+			if !reflect.DeepEqual(styles, before) {
+				t.Errorf("invalid %s modified styles", name)
+			}
+		}
+	}
+}
+
+func TestFlexStyleCascadeAndNonInheritance(t *testing.T) {
+	parent := &BaseBox{Tag: `block`, ID: `parent`}
+	child := &BaseBox{Tag: `block`, ID: `child`, parent: parent}
+	parent.children = []Box{child}
+	parent.inlineStyles.SetGap(0)
+	parent.inlineStyles.SetFlexGrow(0)
+	parent.inlineStyles.SetJustifyContent(`center`)
+	parent.inlineStyles.SetAlignItems(`end`)
+	parent.inlineStyles.SetAlignSelf(`start`)
+	parent.inlineStyles.SetFlexDirection(`column`)
+	sheet := Must1(ParseStyle(`#parent { display: flex; gap: 10; flex-grow: 3; flex-direction: row; align-items: center; } #child { align-self: stretch; }`))
+	if err := (_Styler{}).Style(parent, true, sheet); err != nil {
+		t.Fatal(err)
+	}
+	ps, cs := parent.GetComputedStyles(), child.GetComputedStyles()
+	if ps.Display != DisplayFlex || ps.Gap != 0 || ps.FlexGrow != 0 || ps.FlexDirection != `column` || ps.AlignItems != `end` || ps.JustifyContent != `center` || ps.AlignSelf != `start` {
+		t.Fatalf("inline style priority lost: %+v", ps)
+	}
+	if cs.Display == DisplayFlex || cs.Gap != 0 || cs.FlexGrow != 0 || cs.FlexDirection != `` || cs.AlignItems != `` || cs.JustifyContent != `` || cs.AlignSelf != `stretch` {
+		t.Fatalf("flex container styles inherited: %+v", cs)
+	}
+}
+
 func TestParseStyleNesting(t *testing.T) {
 	nested := Must1(ParseStyle(`
 		.card, #panel {

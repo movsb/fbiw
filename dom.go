@@ -202,7 +202,7 @@ func parseDocument(owner *Document, content io.Reader) (*_ParsedDocumentData, er
 					return nil, fmt.Errorf(`重复的样式节点`)
 				}
 				styleNode = child
-			} else if child.Data == `block` || child.Data == `inline` || child.Data == `stack` {
+			} else if child.Data == `block` || child.Data == `inline` || child.Data == `stack` || child.Data == `flex` {
 				if bodyNode != nil {
 					return nil, fmt.Errorf(`根元素下重复节点`)
 				}
@@ -857,6 +857,8 @@ func (n _NodeTransformer) transform(parent Box, node *html.Node) (Box, error) {
 			return n.transformNode(NewBlock(n.doc), node, false, false)
 		case `inline`:
 			return n.transformNode(NewInline(n.doc), node, false, false)
+		case `flex`:
+			return n.transformNode(NewFlex(n.doc), node, false, false)
 		case `stack`:
 			return n.transformNode(NewStack(n.doc), node, false, false)
 		case `scroll`:

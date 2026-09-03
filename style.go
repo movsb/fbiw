@@ -37,6 +37,12 @@ const (
 	propertySpacer
 	propertyDisplay
 	propertyFill
+	propertyFlexDirection
+	propertyFlexGrow
+	propertyGap
+	propertyJustifyContent
+	propertyAlignItems
+	propertyAlignSelf
 )
 
 // 用于保存节点的样式值。
@@ -70,7 +76,7 @@ type Styles struct {
 	// 是否当作Spacer可变大小布局。
 	Spacer bool
 
-	// 显示方式。兼容 true/false，并支持 none/block/inline。
+	// 内部布局方式。兼容 true/false，并支持 none/block/inline/flex。
 	// 此属性虽非继承属性，但是子盒子即便为true但父盒子为false时，
 	// 此子盒子仍然不会被显示。所以不能通过判断子盒子的display是否
 	// 为true来判断子盒子是否正处于显示状态。
@@ -78,6 +84,59 @@ type Styles struct {
 
 	// 填充方式。
 	Fill Fill
+
+	// 单行 Flex；空字符串分别采用 row、start、stretch、auto。
+	FlexDirection  string
+	JustifyContent string
+	AlignItems     string
+	AlignSelf      string
+
+	/*
+		**还有多余空间时，这个元素按多大权重分一份。**
+
+		例如横排容器宽度是 `300`：
+
+		```html
+		<flex width="300" gap="10">
+		    <block width="50" flex-grow="1"></block>
+		    <block width="50" flex-grow="2"></block>
+		</flex>
+		```
+
+		先扣掉基础宽度和间距：
+
+		```text
+		剩余空间 = 300 - 50 - 50 - 10 = 190
+		```
+
+		再按 `1:2` 分配这 190：
+
+		- 第一个得到约 63，最终宽度 `50 + 63 = 113`。
+		- 第二个得到约 127，最终宽度 `50 + 127 = 177`。
+
+		所以 **`grow=2` 并不是最终宽度为另一项的两倍，而是分到的新增空间为两倍左右。**
+
+		几个关键点：
+
+		- 默认 `0`：不分剩余空间，保留基础尺寸。
+		- 都为 `1`：平均分配剩余空间。
+		- 只有一个大于 `0`：它拿走全部剩余空间。
+		- 没有剩余空间：grow 不起作用，也不会缩小元素。
+		- `column` 下分配的是剩余高度。
+
+		如果你想让**最终宽度**按 `1:2` 分配，把基础宽度都设为 `0`：
+
+		```html
+		<flex width="300">
+		    <block width="0" flex-grow="1"></block>
+		    <block width="0" flex-grow="2"></block>
+		</flex>
+		```
+
+		最终就是 `100` 和 `200`。
+	*/
+	FlexGrow float64
+	Gap      int
 }
 
 func (s *Styles) has(property styleProperty) bool {
@@ -112,6 +171,18 @@ func (s *Styles) SetFontItalic(value bool)     { s.FontItalic = value; s.mark(pr
 func (s *Styles) SetSpacer(value bool)         { s.Spacer = value; s.mark(propertySpacer) }
 func (s *Styles) SetDisplay(value DisplayMode) { s.Display = value; s.mark(propertyDisplay) }
 func (s *Styles) SetFill(value Fill)           { s.Fill = value; s.mark(propertyFill) }
+func (s *Styles) SetFlexDirection(value string) {
+	s.FlexDirection = value
+	s.mark(propertyFlexDirection)
+}
+func (s *Styles) SetFlexGrow(value float64) { s.FlexGrow = value; s.mark(propertyFlexGrow) }
+func (s *Styles) SetGap(value int)          { s.Gap = value; s.mark(propertyGap) }
+func (s *Styles) SetJustifyContent(value string) {
+	s.JustifyContent = value
+	s.mark(propertyJustifyContent)
+}
+func (s *Styles) SetAlignItems(value string) { s.AlignItems = value; s.mark(propertyAlignItems) }
+func (s *Styles) SetAlignSelf(value string)  { s.AlignSelf = value; s.mark(propertyAlignSelf) }
 
 func stylePropertyByName(name string) styleProperty {
 	switch name {
@@ -151,6 +222,18 @@ func stylePropertyByName(name string) styleProperty {
 		return propertyDisplay
 	case `fill`, `Fill`:
 		return propertyFill
+	case `flex-direction`, `FlexDirection`:
+		return propertyFlexDirection
+	case `flex-grow`, `FlexGrow`:
+		return propertyFlexGrow
+	case `gap`, `Gap`:
+		return propertyGap
+	case `justify-content`, `JustifyContent`:
+		return propertyJustifyContent
+	case `align-items`, `AlignItems`:
+		return propertyAlignItems
+	case `align-self`, `AlignSelf`:
+		return propertyAlignSelf
 	default:
 		return 0
 	}
@@ -191,6 +274,7 @@ const (
 	DisplayNone
 	DisplayBlock
 	DisplayInline
+	DisplayFlex
 )
 
 func (d DisplayMode) Visible() bool {
@@ -436,9 +520,56 @@ func (s *Styles) parseProperty(name string, raw string) (
 			update = DisplayBlock
 		case `inline`:
 			update = DisplayInline
+		case `flex`:
+			update = DisplayFlex
 		default:
 			outErr = fmt.Errorf(`不认识的显示方式：%s`, raw)
 		}
+		return
+	case `flex-grow`:
+		affectLayout = true
+		current = &s.FlexGrow
+		value, err := strconv.ParseFloat(raw, 64)
+		if err != nil || math.IsNaN(value) || math.IsInf(value, 0) || value < 0 {
+			outErr = fmt.Errorf(`flex-grow 需要非负有限数值：%s`, raw)
+			return
+		}
+		update = value
+		return
+	case `gap`:
+		affectLayout = true
+		current = &s.Gap
+		value, err := strconv.Atoi(raw)
+		if err != nil || value < 0 {
+			outErr = fmt.Errorf(`gap 需要非负整数：%s`, raw)
+			return
+		}
+		update = value
+		return
+	case `flex-direction`, `justify-content`, `align-items`, `align-self`:
+		affectLayout = true
+		var allowed []string
+		switch name {
+		case `flex-direction`:
+			current, allowed = &s.FlexDirection, []string{`row`, `column`}
+		case `justify-content`:
+			current, allowed = &s.JustifyContent, []string{`start`, `end`, `center`, `space-between`, `space-around`, `space-evenly`}
+		case `align-items`:
+			current, allowed = &s.AlignItems, []string{`start`, `end`, `center`, `stretch`}
+		case `align-self`:
+			current, allowed = &s.AlignSelf, []string{`auto`, `start`, `end`, `center`, `stretch`}
+		}
+		if raw == `flex-start` {
+			raw = `start`
+		}
+		if raw == `flex-end` {
+			raw = `end`
+		}
+		if !slices.Contains(allowed, raw) {
+			outErr = fmt.Errorf(`不支持的 %s：%s`, name, raw)
+			return
+		}
+		update = raw
 		return
 	case `fill`:
 		affectLayout = true
