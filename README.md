@@ -816,7 +816,45 @@ nil 回调、未绑定或已关闭文档的请求会 panic。
 时间仍继续流逝；恢复后收到当前时间。无可运行请求时，动画时钟不产生周期唤醒
 （不改变 macOS 原有事件轮询方式）。关闭文档自动取消其请求，App 退出时清理全部请求。
 
-当前只提供帧调度，不包含 Tween、缓动或 CSS 动画。
+## 数值补间（Tween）
+
+`Document.Tween` 在统一帧时钟上，将数值从 `From` 逐步更新到 `To`：
+
+```go
+progress := doc.GetBoxByID[*fbiw.ProgressBar]("download")
+cancelTween := doc.Tween(fbiw.TweenOptions{
+    From:     progress.Value(),
+    To:       1,
+    Duration: 300 * time.Millisecond,
+    Easing:   fbiw.EaseOut,
+    OnUpdate: func(value float64) {
+        // SetValue 会按需请求重绘；这里的插值范围始终位于 [0,1]。
+        if err := progress.SetValue(value); err != nil {
+            panic(err)
+        }
+    },
+    OnComplete: func() {
+        log.Println("动画完成")
+    },
+})
+
+// 需要提前停止时在 UI 主线程调用，可重复调用：
+// cancelTween()
+```
+
+- 从调用时开始计时，回调不会同步执行；首帧按实际经过时间计算，不保证恰好交付
+  `From`。需要立即显示起点时，应先设置组件状态。帧回调内创建的 Tween 使用本帧统一时间戳作为起点。
+- 默认 `EaseLinear` 为匀速；`EaseIn`、`EaseOut`、`EaseInOut` 使用二次曲线，
+  不等同于 CSS 同名关键字的三次贝塞尔曲线。
+- `OnUpdate` 必填；`From`、`To` 必须是有限数值；时长不能为负。
+  零时长在下一帧直接交付 `To`。相同端点仍按指定时长执行。
+- 自然结束时先精确交付 `To`，再调用可选的 `OnComplete`，且只完成一次。
+  取消、关闭文档或退出 App 不触发完成回调；在最后一次 `OnUpdate` 中取消也会阻止它。
+- 后台和 Detach 行为沿用帧时钟：暂停回调，不暂停时间，恢复后追上当前进度或直接完成。
+- Tween 不自动修改样式或标记重绘。动画中途改变目标时，先取消旧 Tween，
+  再以当前显示值为 `From` 创建新 Tween，避免跳变和多个动画同时写同一状态。
+
+目前不提供 CSS Transition、颜色补间、循环或 Timeline；现有组件也不会自动添加动效。
 
 ## 异步更新
 

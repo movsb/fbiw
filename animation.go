@@ -2,6 +2,7 @@ package fbiw
 
 import (
 	"context"
+	"math"
 	"sync/atomic"
 	"time"
 )
@@ -180,4 +181,125 @@ func (c *_AnimationClock) tick() {
 		r.doc, r.callback = nil, nil
 		callback(now)
 	}
+}
+
+// Easing 决定补间动画的变化节奏。这里使用二次曲线，
+// 不等同于 CSS 同名关键字对应的三次贝塞尔曲线。
+type Easing uint8
+
+const (
+	EaseLinear Easing = iota // 匀速，也是默认值。
+	EaseIn                   // 开始慢，随后加速。
+	EaseOut                  // 开始快，随后减速。
+	EaseInOut                // 先加速，再减速。
+)
+
+func (e Easing) apply(t float64) float64 {
+	switch e {
+	case EaseIn:
+		return t * t
+	case EaseOut:
+		return t * (2 - t)
+	case EaseInOut:
+		if t < 0.5 {
+			return 2 * t * t
+		}
+		return 1 - 2*(1-t)*(1-t)
+	default:
+		return t
+	}
+}
+
+// TweenOptions 描述一次数值补间。From、To 必须是有限数值，
+// Duration 不能为负；零时长在下一帧直接更新为 To。
+type TweenOptions struct {
+	From, To float64
+	Duration time.Duration
+	Easing   Easing
+
+	// OnUpdate 接收当前值，不能为空。布局和重绘仍由调用者按需请求。
+	OnUpdate func(value float64)
+	// OnComplete 只在自然完成时调用一次，在最后一次 OnUpdate 之后执行。
+	// 主动取消、关闭文档或退出 App 都不会触发它。
+	OnComplete func()
+}
+
+// value 只计算当前时刻的值，不修改样式，也不参与帧调度。
+func (o TweenOptions) value(elapsed time.Duration) (value float64, complete bool) {
+	if elapsed >= o.Duration {
+		return o.To, true
+	}
+	if elapsed <= 0 {
+		return o.From, false
+	}
+	p := o.Easing.apply(float64(elapsed) / float64(o.Duration))
+	// 使用加权和，避免有限但符号相反的端点相减后溢出。
+	return (1-p)*o.From + p*o.To, false
+}
+
+// Tween 从调用时开始计时，通过统一帧时钟更新数值，返回可重复调用的取消函数。
+// 不会同步调用 OnUpdate，也不保证首帧恰好为 From；需要立即显示起点时由调用者设置。
+//
+// 注册、取消和回调均在 UI 主线程执行。后台暂停回调但不暂停时间，
+// 恢复时直接追上当前进度。完成时精确交付 To，不补发错过的中间帧。
+// 同一属性的新动画不会自动替换旧动画；调用者应先取消旧动画，
+// 再以当前显示值为 From 创建新动画。
+func (doc *Document) Tween(options TweenOptions) (cancel func()) {
+	if options.OnUpdate == nil || options.Duration < 0 || options.Easing > EaseInOut ||
+		math.IsNaN(options.From) || math.IsInf(options.From, 0) ||
+		math.IsNaN(options.To) || math.IsInf(options.To, 0) {
+		panic("Tween: 无效的回调、时长、缓动或端点。")
+	}
+	if doc.app == nil || doc.app.ctx.Err() != nil || doc.app.animation.closed {
+		panic("Tween: 文档未绑定到运行中的动画时钟。")
+	}
+	app := doc.app
+	clock := app.animation
+	start := clock.now()
+	if clock.running {
+		// 帧回调中创建的动画以本帧统一时间戳为起点。
+		start = clock.last
+	}
+	stopped := false
+	var cancelFrame func()
+	cancel = func() {
+		if stopped {
+			return
+		}
+		stopped = true
+		if cancelFrame != nil {
+			cancelFrame()
+			cancelFrame = nil
+		}
+		options.OnUpdate, options.OnComplete = nil, nil
+	}
+	live := func() bool {
+		return !stopped && doc.app == app && app.ctx.Err() == nil && !clock.closed
+	}
+	var frame func(time.Time)
+	frame = func(now time.Time) {
+		cancelFrame = nil
+		if !live() {
+			cancel()
+			return
+		}
+		value, complete := options.value(now.Sub(start))
+		options.OnUpdate(value)
+		// 用户回调可能取消动画、关闭文档或退出 App，不能再续订下一帧。
+		if !live() {
+			cancel()
+			return
+		}
+		if complete {
+			onComplete := options.OnComplete
+			cancel()
+			if onComplete != nil {
+				onComplete()
+			}
+			return
+		}
+		cancelFrame = doc.RequestAnimationFrame(frame)
+	}
+	cancelFrame = doc.RequestAnimationFrame(frame)
+	return cancel
 }

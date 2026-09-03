@@ -2,6 +2,7 @@ package fbiw
 
 import (
 	"context"
+	"math"
 	"slices"
 	"testing"
 	"time"
@@ -399,5 +400,233 @@ func TestAnimationSyncPaintBatch(t *testing.T) {
 	app.sync()
 	if paints != 2 || syncs != 2 || layouts != 1 {
 		t.Fatal("paint-only callback caused layout")
+	}
+}
+
+func TestTweenValues(t *testing.T) {
+	for _, tc := range []struct {
+		easing Easing
+		want   float64
+	}{
+		{EaseLinear, 0.25}, {EaseIn, 0.0625}, {EaseOut, 0.4375}, {EaseInOut, 0.125},
+	} {
+		o := TweenOptions{From: 0, To: 1, Duration: time.Second, Easing: tc.easing}
+		if got, done := o.value(250 * time.Millisecond); got != tc.want || done {
+			t.Fatalf("缓动 %d: 得到 %v/%v，期望 %v/false", tc.easing, got, done, tc.want)
+		}
+		previous := 0.0
+		for i := 0; i <= 100; i++ {
+			v, _ := o.value(time.Duration(i) * time.Second / 100)
+			if v < previous || v < 0 || v > 1 {
+				t.Fatal("缓动不单调或越界")
+			}
+			previous = v
+		}
+		if v, done := o.value(-time.Second); v != 0 || done {
+			t.Fatal("起点不正确")
+		}
+		if v, done := o.value(2 * time.Second); v != 1 || !done {
+			t.Fatal("终点不正确")
+		}
+	}
+	for _, ends := range [][2]float64{{20, -20}, {4, 4}, {-math.MaxFloat64, math.MaxFloat64}} {
+		o := TweenOptions{From: ends[0], To: ends[1], Duration: time.Second}
+		v, done := o.value(time.Second / 2)
+		if v != ends[0]/2+ends[1]/2 || done {
+			t.Fatal("反向、相同或极大端点插值错误")
+		}
+	}
+}
+
+func TestTweenFramesAndCompletion(t *testing.T) {
+	app, doc, f := newAnimationTestApp(t)
+	var values []float64
+	var events []string
+	cancel := doc.Tween(TweenOptions{
+		From: 10, To: 30, Duration: time.Second,
+		OnUpdate:   func(v float64) { values = append(values, v); events = append(events, "更新") },
+		OnComplete: func() { events = append(events, "完成") },
+	})
+	if len(values) != 0 {
+		t.Fatal("注册时不应同步回调")
+	}
+	f.now = f.now.Add(250 * time.Millisecond)
+	animationStep(app)
+	f.now = f.now.Add(250 * time.Millisecond)
+	animationStep(app)
+	f.now = f.now.Add(5 * time.Second)
+	animationStep(app)
+	cancel()
+	cancel()
+	animationStep(app)
+	if !slices.Equal(values, []float64{15, 20, 30}) || !slices.Equal(events, []string{"更新", "更新", "更新", "完成"}) {
+		t.Fatalf("值和完成顺序不正确：%v, %v", values, events)
+	}
+	if app.animation.stop != nil || len(app.animation.requests) != 0 {
+		t.Fatal("完成后仍有活动请求")
+	}
+	if doc.dirty() || app.dirty {
+		t.Fatal("Tween 不应自动请求重绘")
+	}
+}
+
+func TestTweenZeroDuration(t *testing.T) {
+	app, doc, f := newAnimationTestApp(t)
+	calls, completions := 0, 0
+	doc.Tween(TweenOptions{From: 2, To: 7,
+		OnUpdate: func(v float64) {
+			calls++
+			if v != 7 {
+				t.Fatal("零时长未交付终点")
+			}
+		},
+		OnComplete: func() { completions++ },
+	})
+	if calls != 0 {
+		t.Fatal("零时长仍应异步更新")
+	}
+	f.now = f.now.Add(animationFrameInterval)
+	animationStep(app)
+	if calls != 1 || completions != 1 {
+		t.Fatal("零时长未恰好完成一次")
+	}
+}
+
+func TestTweenCancelAndLifecycle(t *testing.T) {
+	for _, action := range []string{"取消", "关闭文档", "退出App"} {
+		for _, when := range []string{"首帧前", "更新中", "终点更新中"} {
+			t.Run(action+when, func(t *testing.T) {
+				app, doc, f := newAnimationTestApp(t)
+				var cancel func()
+				stop := func() {
+					switch action {
+					case "取消":
+						cancel()
+						cancel()
+					case "关闭文档":
+						doc.Close()
+					case "退出App":
+						app.Quit()
+					}
+				}
+				calls := 0
+				cancel = doc.Tween(TweenOptions{To: 1, Duration: time.Second,
+					OnUpdate:   func(float64) { calls++; stop() },
+					OnComplete: func() { t.Fatal("取消或关闭后仍调用完成回调") },
+				})
+				if when == "首帧前" {
+					stop()
+				}
+				if when == "终点更新中" {
+					f.now = f.now.Add(time.Second)
+				} else {
+					f.now = f.now.Add(animationFrameInterval)
+				}
+				animationStep(app)
+				f.now = f.now.Add(time.Second)
+				animationStep(app)
+				want := 1
+				if when == "首帧前" {
+					want = 0
+				}
+				if calls != want || app.animation.stop != nil || len(app.animation.requests) != 0 {
+					t.Fatal("停止后仍有更新或请求")
+				}
+			})
+		}
+	}
+}
+
+func TestTweenBackgroundTime(t *testing.T) {
+	app, doc, f := newAnimationTestApp(t)
+	background := &Desktop{app: app}
+	app.desktops.PushBack(background)
+	other := addDesktopTestDocument(app, background)
+	calls, completions := 0, 0
+	other.Tween(TweenOptions{To: 1, Duration: time.Second,
+		OnUpdate: func(v float64) {
+			calls++
+			if v != 1 {
+				t.Fatal("后台时间未计入进度")
+			}
+		},
+		OnComplete: func() { completions++ },
+	})
+	if app.animation.stop != nil {
+		t.Fatal("后台 Tween 产生周期唤醒")
+	}
+	f.now = f.now.Add(2 * time.Second)
+	app.SwitchTo(other.desktop)
+	f.now = f.now.Add(animationFrameInterval)
+	animationStep(app)
+	if calls != 1 || completions != 1 {
+		t.Fatal("恢复后未直接完成")
+	}
+	app.SwitchTo(doc.desktop)
+}
+
+func TestTweenSharedFrameStartAndChaining(t *testing.T) {
+	app, doc, f := newAnimationTestApp(t)
+	var got []float64
+	doc.RequestAnimationFrame(func(now time.Time) {
+		f.now = now.Add(100 * time.Millisecond) // 模拟帧内已有回调耗时。
+		doc.Tween(TweenOptions{To: 1, Duration: time.Second,
+			OnUpdate: func(v float64) { got = append(got, v) },
+			OnComplete: func() {
+				doc.Tween(TweenOptions{From: 1, To: 2, OnUpdate: func(v float64) { got = append(got, v) }})
+			},
+		})
+	})
+	f.now = f.now.Add(animationFrameInterval)
+	start := f.now
+	animationStep(app)
+	if len(got) != 0 {
+		t.Fatal("新动画不应在同帧执行")
+	}
+	f.now = start.Add(500 * time.Millisecond)
+	animationStep(app)
+	f.now = start.Add(time.Second)
+	animationStep(app)
+	if !slices.Equal(got, []float64{0.5, 1}) {
+		t.Fatalf("未使用统一帧起点：%v", got)
+	}
+	f.now = f.now.Add(animationFrameInterval)
+	animationStep(app)
+	if !slices.Equal(got, []float64{0.5, 1, 2}) {
+		t.Fatal("完成回调创建的动画未延到下一帧")
+	}
+}
+
+func TestTweenInvalidOptions(t *testing.T) {
+	_, doc, _ := newAnimationTestApp(t)
+	valid := TweenOptions{To: 1, Duration: time.Second, OnUpdate: func(float64) {}}
+	for _, edit := range []func(*TweenOptions){
+		func(o *TweenOptions) { o.OnUpdate = nil },
+		func(o *TweenOptions) { o.Duration = -1 },
+		func(o *TweenOptions) { o.Easing = Easing(255) },
+		func(o *TweenOptions) { o.From = math.NaN() },
+		func(o *TweenOptions) { o.To = math.Inf(1) },
+	} {
+		func() {
+			defer func() {
+				if recover() == nil {
+					t.Error("无效参数应被拒绝")
+				}
+			}()
+			o := valid
+			edit(&o)
+			doc.Tween(o)
+		}()
+	}
+	for _, closed := range []*Document{{}, doc} {
+		closed.Close()
+		func() {
+			defer func() {
+				if recover() == nil {
+					t.Error("未绑定或已关闭的文档应被拒绝")
+				}
+			}()
+			closed.Tween(valid)
+		}()
 	}
 }
