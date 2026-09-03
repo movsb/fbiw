@@ -76,11 +76,12 @@ type Styles struct {
 	// 是否当作Spacer可变大小布局。
 	Spacer bool
 
-	// 内部布局方式。兼容 true/false，并支持 none/block/inline/flex。
+	// 是否显示，默认 true；只控制可见性，不改变盒子的布局类型。
+	// 未设置与显式 false 通过 propertyDisplay 属性位区分。
 	// 此属性虽非继承属性，但是子盒子即便为true但父盒子为false时，
 	// 此子盒子仍然不会被显示。所以不能通过判断子盒子的display是否
 	// 为true来判断子盒子是否正处于显示状态。
-	Display DisplayMode
+	Display bool
 
 	// 填充方式。
 	Fill Fill
@@ -156,21 +157,21 @@ func (s *Styles) SetBackgroundImage(value string) {
 	s.BackgroundImage = value
 	s.mark(propertyBackgroundImage)
 }
-func (s *Styles) SetBorderColor(value Color)   { s.BorderColor = value; s.mark(propertyBorderColor) }
-func (s *Styles) SetBorderWidth(value int)     { s.BorderWidth = value; s.mark(propertyBorderWidth) }
-func (s *Styles) SetOutlineWidth(value int)    { s.OutlineWidth = value; s.mark(propertyOutlineWidth) }
-func (s *Styles) SetOutlineColor(value Color)  { s.OutlineColor = value; s.mark(propertyOutlineColor) }
-func (s *Styles) SetColor(value Color)         { s.Color = value; s.mark(propertyColor) }
-func (s *Styles) SetHeight(value Length)       { s.Height = value; s.mark(propertyHeight) }
-func (s *Styles) SetPadding(value Padding)     { s.Padding = value; s.mark(propertyPadding) }
-func (s *Styles) SetWidth(value Length)        { s.Width = value; s.mark(propertyWidth) }
-func (s *Styles) SetFontFamily(value string)   { s.FontFamily = value; s.mark(propertyFontFamily) }
-func (s *Styles) SetFontSize(value Length)     { s.FontSize = value; s.mark(propertyFontSize) }
-func (s *Styles) SetFontBold(value bool)       { s.FontBold = value; s.mark(propertyFontBold) }
-func (s *Styles) SetFontItalic(value bool)     { s.FontItalic = value; s.mark(propertyFontItalic) }
-func (s *Styles) SetSpacer(value bool)         { s.Spacer = value; s.mark(propertySpacer) }
-func (s *Styles) SetDisplay(value DisplayMode) { s.Display = value; s.mark(propertyDisplay) }
-func (s *Styles) SetFill(value Fill)           { s.Fill = value; s.mark(propertyFill) }
+func (s *Styles) SetBorderColor(value Color)  { s.BorderColor = value; s.mark(propertyBorderColor) }
+func (s *Styles) SetBorderWidth(value int)    { s.BorderWidth = value; s.mark(propertyBorderWidth) }
+func (s *Styles) SetOutlineWidth(value int)   { s.OutlineWidth = value; s.mark(propertyOutlineWidth) }
+func (s *Styles) SetOutlineColor(value Color) { s.OutlineColor = value; s.mark(propertyOutlineColor) }
+func (s *Styles) SetColor(value Color)        { s.Color = value; s.mark(propertyColor) }
+func (s *Styles) SetHeight(value Length)      { s.Height = value; s.mark(propertyHeight) }
+func (s *Styles) SetPadding(value Padding)    { s.Padding = value; s.mark(propertyPadding) }
+func (s *Styles) SetWidth(value Length)       { s.Width = value; s.mark(propertyWidth) }
+func (s *Styles) SetFontFamily(value string)  { s.FontFamily = value; s.mark(propertyFontFamily) }
+func (s *Styles) SetFontSize(value Length)    { s.FontSize = value; s.mark(propertyFontSize) }
+func (s *Styles) SetFontBold(value bool)      { s.FontBold = value; s.mark(propertyFontBold) }
+func (s *Styles) SetFontItalic(value bool)    { s.FontItalic = value; s.mark(propertyFontItalic) }
+func (s *Styles) SetSpacer(value bool)        { s.Spacer = value; s.mark(propertySpacer) }
+func (s *Styles) SetDisplay(value bool)       { s.Display = value; s.mark(propertyDisplay) }
+func (s *Styles) SetFill(value Fill)          { s.Fill = value; s.mark(propertyFill) }
 func (s *Styles) SetFlexDirection(value string) {
 	s.FlexDirection = value
 	s.mark(propertyFlexDirection)
@@ -265,21 +266,6 @@ const (
 	// 优先保持图片原始大小，但是如果大小超过容器，会缩小到容器大小。
 	FillScaleDown
 )
-
-type DisplayMode uint8
-
-const (
-	DisplayUnset DisplayMode = iota
-	DisplayVisible
-	DisplayNone
-	DisplayBlock
-	DisplayInline
-	DisplayFlex
-)
-
-func (d DisplayMode) Visible() bool {
-	return d != DisplayNone
-}
 
 //go:embed assets/defaults.css
 var _defaultsStyle string
@@ -511,20 +497,7 @@ func (s *Styles) parseProperty(name string, raw string) (
 	case `display`:
 		affectLayout = true
 		current = &s.Display
-		switch raw {
-		case ``, `1`, `true`:
-			update = DisplayVisible
-		case `0`, `false`, `none`:
-			update = DisplayNone
-		case `block`:
-			update = DisplayBlock
-		case `inline`:
-			update = DisplayInline
-		case `flex`:
-			update = DisplayFlex
-		default:
-			outErr = fmt.Errorf(`不认识的显示方式：%s`, raw)
-		}
+		update, outErr = parseBoolean(raw, true)
 		return
 	case `flex-grow`:
 		affectLayout = true
@@ -1400,6 +1373,11 @@ func (s _Styler) computeStyles(node Box, rules [][]RuleMatch) error {
 			assignStyleProperty(current, update)
 			styles.mark(property)
 		}
+	}
+
+	// display 不继承，未声明时默认显示。不要标记属性位：默认值不是显式声明。
+	if !styles.has(propertyDisplay) {
+		styles.Display = true
 	}
 
 	// Defaulting：当前节点没有指定可继承属性时，才从最近的祖先，

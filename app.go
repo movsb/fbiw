@@ -730,7 +730,6 @@ func _NewSafeArea(doc *Document) *SafeArea {
 		BaseBox: NewBaseBox(doc, `safe-area`),
 		app:     doc.app,
 	}
-	b.inlineStyles.SetDisplay(DisplayBlock)
 	return b
 }
 
@@ -746,7 +745,10 @@ func (b *SafeArea) SetProp(key, value string) error {
 }
 
 func (b *SafeArea) Calc(availWidth, availHeight int, constraints Constraints) {
+	if !displaying(b) {
+		return
+	}
 	insets := b.app.safeInsets
 	b.computedStyles.SetPadding(PaddingValue(insets.top, insets.right, insets.bottom, insets.left))
-	b.Base().Calc(availWidth, availHeight, constraints)
+	blockCalc(&b.BaseBox, availWidth, availHeight, constraints)
 }

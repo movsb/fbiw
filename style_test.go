@@ -11,7 +11,6 @@ func TestFlexStyleProperties(t *testing.T) {
 		name, raw, field string
 		want             any
 	}{
-		{"display", "flex", "Display", DisplayFlex},
 		{"flex-direction", "row", "FlexDirection", "row"},
 		{"flex-direction", "column", "FlexDirection", "column"},
 		{"flex-grow", "1.5", "FlexGrow", 1.5},
@@ -60,7 +59,7 @@ func TestFlexStyleProperties(t *testing.T) {
 }
 
 func TestFlexStyleCascadeAndNonInheritance(t *testing.T) {
-	parent := &BaseBox{Tag: `block`, ID: `parent`}
+	parent := &BaseBox{Tag: `flex`, ID: `parent`}
 	child := &BaseBox{Tag: `block`, ID: `child`, parent: parent}
 	parent.children = []Box{child}
 	parent.inlineStyles.SetGap(0)
@@ -69,15 +68,15 @@ func TestFlexStyleCascadeAndNonInheritance(t *testing.T) {
 	parent.inlineStyles.SetAlignItems(`end`)
 	parent.inlineStyles.SetAlignSelf(`start`)
 	parent.inlineStyles.SetFlexDirection(`column`)
-	sheet := Must1(ParseStyle(`#parent { display: flex; gap: 10; flex-grow: 3; flex-direction: row; align-items: center; } #child { align-self: stretch; }`))
+	sheet := Must1(ParseStyle(`#parent { display: false; gap: 10; flex-grow: 3; flex-direction: row; align-items: center; } #child { align-self: stretch; }`))
 	if err := (_Styler{}).Style(parent, true, sheet); err != nil {
 		t.Fatal(err)
 	}
 	ps, cs := parent.GetComputedStyles(), child.GetComputedStyles()
-	if ps.Display != DisplayFlex || ps.Gap != 0 || ps.FlexGrow != 0 || ps.FlexDirection != `column` || ps.AlignItems != `end` || ps.JustifyContent != `center` || ps.AlignSelf != `start` {
+	if ps.Display || ps.Gap != 0 || ps.FlexGrow != 0 || ps.FlexDirection != `column` || ps.AlignItems != `end` || ps.JustifyContent != `center` || ps.AlignSelf != `start` {
 		t.Fatalf("inline style priority lost: %+v", ps)
 	}
-	if cs.Display == DisplayFlex || cs.Gap != 0 || cs.FlexGrow != 0 || cs.FlexDirection != `` || cs.AlignItems != `` || cs.JustifyContent != `` || cs.AlignSelf != `stretch` {
+	if !cs.Display || cs.Gap != 0 || cs.FlexGrow != 0 || cs.FlexDirection != `` || cs.AlignItems != `` || cs.JustifyContent != `` || cs.AlignSelf != `stretch` {
 		t.Fatalf("flex container styles inherited: %+v", cs)
 	}
 }
@@ -503,14 +502,10 @@ func TestStylesPropertyBits(t *testing.T) {
 	}
 }
 
-func TestDisplayModes(t *testing.T) {
-	tests := map[string]DisplayMode{
-		"":       DisplayVisible,
-		"true":   DisplayVisible,
-		"false":  DisplayNone,
-		"none":   DisplayNone,
-		"block":  DisplayBlock,
-		"inline": DisplayInline,
+func TestDisplayBoolean(t *testing.T) {
+	tests := map[string]bool{
+		"": true, "true": true, "1": true,
+		"false": false, "0": false,
 	}
 	for raw, want := range tests {
 		var styles Styles
@@ -520,6 +515,54 @@ func TestDisplayModes(t *testing.T) {
 		if styles.Display != want {
 			t.Errorf("display: %q = %v，期望 %v", raw, styles.Display, want)
 		}
+	}
+	for _, raw := range []string{"none", "block", "inline", "flex", "stack", "invalid"} {
+		var styles Styles
+		styles.SetDisplay(true)
+		before := styles
+		if _, _, _, err := styles.Set("display", raw); err == nil {
+			t.Errorf("accepted display=%q", raw)
+		}
+		if !reflect.DeepEqual(styles, before) {
+			t.Errorf("invalid display=%q changed styles", raw)
+		}
+	}
+}
+
+func TestDisplayDefaultAndPriority(t *testing.T) {
+	box := &BaseBox{Tag: `block`}
+	if !displaying(box) {
+		t.Fatal("zero-value styles must remain visible")
+	}
+	box.computedStyles.SetDisplay(false)
+	if displaying(box) {
+		t.Fatal("explicit false must hide the box")
+	}
+	box.computedStyles.SetDisplay(true)
+	if !displaying(box) {
+		t.Fatal("explicit true must show the box")
+	}
+	if err := (_Styler{}).Style(box, false, nil); err != nil {
+		t.Fatal(err)
+	}
+	if !box.computedStyles.Display || box.computedStyles.has(propertyDisplay) {
+		t.Fatal("default display must be true without an explicit property bit")
+	}
+	sheet := Must1(ParseStyle(`block { display: true; }`))
+	box.inlineStyles.SetDisplay(false)
+	if err := (_Styler{}).Style(box, false, sheet); err != nil {
+		t.Fatal(err)
+	}
+	if box.computedStyles.Display || displaying(box) {
+		t.Fatal("inline false must override stylesheet true")
+	}
+	box.inlineStyles.SetDisplay(true)
+	sheet = Must1(ParseStyle(`block { display: false; }`))
+	if err := (_Styler{}).Style(box, false, sheet); err != nil {
+		t.Fatal(err)
+	}
+	if !box.computedStyles.Display {
+		t.Fatal("inline true must override stylesheet false")
 	}
 }
 

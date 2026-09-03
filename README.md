@@ -284,7 +284,7 @@ language.Activate()
 
 `block` 沿垂直方向依次排列子元素，`inline` 沿水平方向依次排列子元素。`stack` 将所有子元素放置在同一个内容区域。
 
-这里的 `block` 和 `inline` 描述的是容器对其直接子节点采用的内部布局方式，并不等同于浏览器 CSS 中同名 display 类型的完整语义：
+这里的 `block` 和 `inline` 标签描述的是容器对其直接子节点采用的内部布局方式。布局类型由盒子类型决定，`display` 只控制显示/隐藏，并不等同于浏览器 CSS 的 display 属性：
 
 - `block` 约束子节点纵向排列；
 - `inline` 约束子节点横向排列；
@@ -342,7 +342,7 @@ Go 布局接口中的尺寸偏好含义如下：
 
 ### 单行 Flex
 
-使用 `<flex>`（Go 构造函数为 `NewFlex(doc)`）即可创建单行弹性布局容器，也可作为文档内容根节点。原来的 `display="flex"` 用法继续保留：在 `block`、`inline`、`stack` 或使用 `BaseBox.Calc` 的容器上设置它，会改用单行弹性布局。这里的 `display` 只描述**内部布局模式**，自身如何参与上一层布局仍由父容器决定，不区分 CSS 的外部 block/inline 角色，也不提供 `inline-flex`。
+使用 `<flex>`（Go 构造函数为 `NewFlex(doc)`）创建单行弹性布局容器，也可作为文档内容根节点。自身如何参与上一层布局仍由父容器决定。布局类型不能通过 `display` 改变；原来的 `display="flex"` 写法需要改为 `<flex>` 标签。
 
 ```html
 <flex width="300" height="80" gap="12" align-items="center">
@@ -371,7 +371,7 @@ Go 布局接口中的尺寸偏好含义如下：
 - 文本作为一个 Flex item，可在分配后的宽度内多行断行；这不代表 Flex items 自身支持换行。
 - 未实现 `flex-shrink`、`flex-basis`、`flex` shorthand、`flex-wrap`、反向排列、`order`、baseline 和 min/max 尺寸。空间不足时保持基础尺寸并溢出，grow 不会分配负尺寸。
 - `<spacer>` 和 `spacer` 属性不会在 Flex 中自动启用增长，需要显式设置 `flex-grow`。`gap` 是 Flex 和 Scroll 共用的非继承样式，分别表示子元素间距和行列槽位间距；Block/Inline 暂不使用它。Scroll 同时支持 `<scroll gap="4">` 和 `scroll { gap: 4; }`，内联属性优先，动态修改会触发重新布局。
-- Scroll 等自带内部布局的专用组件可作为 Flex item，但不会因 `display="flex"` 改成通用 Flex 容器。
+- Scroll 等自带内部布局的专用组件可作为 Flex item，但保持各自的内部布局规则。
 
 ## 系统覆盖层和安全区域
 
@@ -467,6 +467,8 @@ overlay.Close()
 - `justify-content`、`align-items`、`align-self`
 
 `width` 和 `height` 可以解析整数或百分比。常规 `Calc` 布局每次根据父容器提供的完整内容区解析百分比，不受前序兄弟元素占用影响，也不会改写计算后的样式；根元素以文档尺寸为参考。文本的独立分段路径和内容自适应父容器的百分比规则仍有限制，参见 [`todo.md`](todo.md)。
+
+`display` 是非继承的 bool 样式，默认 `true`。接受 `true` / `false`、`1` / `0`，空属性 `<block display>` 表示 `true`。隐藏元素不参与父布局和绘制，隐藏祖先下的子元素也不会显示。`none`、`block`、`inline`、`flex` 等布局关键字不再接受；隐藏请使用 `display="false"`，选择布局请使用相应的盒子标签。Go 中使用 `Styles.SetDisplay(bool)`，`DisplayMode` 类型已移除。
 
 `padding` 接受一至四个 `0...65535` 范围内的整数，展开顺序与 CSS shorthand 相同：
 

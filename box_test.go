@@ -41,27 +41,27 @@ func TestFlexLayout(t *testing.T) {
 			map[string]Rect{"a": {0, 0, 30, 40}, "b": {40, 0, 60, 40}}},
 		{"nested flex tags", `<flex><flex id="a" width="20" flex-grow="1"><block id="inner" width="0" flex-grow="1"></block></flex><block id="b" width="20"></block></flex>`, 100, 40,
 			map[string]Rect{"a": {0, 0, 80, 40}, "inner": {0, 0, 80, 40}, "b": {80, 0, 20, 40}}},
-		{"weighted growth", `<block display="flex" gap="10"><block id="a" width="10" flex-grow="1"></block><block id="b" width="20" flex-grow="2"></block></block>`, 100, 40,
+		{"weighted growth", `<flex gap="10"><block id="a" width="10" flex-grow="1"></block><block id="b" width="20" flex-grow="2"></block></flex>`, 100, 40,
 			map[string]Rect{"a": {0, 0, 30, 40}, "b": {40, 0, 60, 40}}},
-		{"column", `<inline display="flex" flex-direction="column" gap="10"><block id="a" height="10" flex-grow="1"></block><block id="b" height="20" flex-grow="2"></block></inline>`, 80, 100,
+		{"column", `<flex flex-direction="column" gap="10"><block id="a" height="10" flex-grow="1"></block><block id="b" height="20" flex-grow="2"></block></flex>`, 80, 100,
 			map[string]Rect{"a": {0, 0, 80, 30}, "b": {0, 40, 80, 60}}},
-		{"rounding", `<block display="flex"><block id="a" width="0" flex-grow="1"></block><block id="b" width="0" flex-grow="1"></block><block id="c" width="0" flex-grow="1"></block></block>`, 100, 40,
+		{"rounding", `<flex><block id="a" width="0" flex-grow="1"></block><block id="b" width="0" flex-grow="1"></block><block id="c" width="0" flex-grow="1"></block></flex>`, 100, 40,
 			map[string]Rect{"a": {0, 0, 33, 40}, "b": {33, 0, 33, 40}, "c": {66, 0, 34, 40}}},
-		{"insets", `<block display="flex" padding="5" border-width="1" justify-content="space-between" align-items="center"><block id="a" width="20" height="10"></block><block id="b" width="30" height="20"></block></block>`, 100, 60,
+		{"insets", `<flex padding="5" border-width="1" justify-content="space-between" align-items="center"><block id="a" width="20" height="10"></block><block id="b" width="30" height="20"></block></flex>`, 100, 60,
 			map[string]Rect{"a": {6, 25, 20, 10}, "b": {64, 20, 30, 20}}},
-		{"self alignment and explicit zero", `<block display="flex" align-items="end"><block id="a" width="20" height="10" align-self="center"></block><block id="b" width="20" height="10"></block><block id="c" width="20" height="0" align-self="stretch"></block></block>`, 100, 40,
+		{"self alignment and explicit zero", `<flex align-items="end"><block id="a" width="20" height="10" align-self="center"></block><block id="b" width="20" height="10"></block><block id="c" width="20" height="0" align-self="stretch"></block></flex>`, 100, 40,
 			map[string]Rect{"a": {0, 15, 20, 10}, "b": {20, 30, 20, 10}, "c": {40, 0, 20, 0}}},
-		{"overflow", `<block display="flex" gap="5"><block id="a" width="30" height="30"></block><block id="b" width="30" height="30"></block></block>`, 40, 20,
+		{"overflow", `<flex gap="5"><block id="a" width="30" height="30"></block><block id="b" width="30" height="30"></block></flex>`, 40, 20,
 			map[string]Rect{"a": {0, 0, 30, 30}, "b": {35, 0, 30, 30}}},
-		{"hidden children do not add gaps", `<block display="flex" gap="5"><block id="a" width="20"></block><block display="none" width="90" flex-grow="99"></block><block id="b" width="20"></block></block>`, 100, 40,
+		{"hidden children do not add gaps", `<flex gap="5"><block id="a" width="20"></block><block display="false" width="90" flex-grow="99"></block><block id="b" width="20"></block></flex>`, 100, 40,
 			map[string]Rect{"a": {0, 0, 20, 40}, "b": {25, 0, 20, 40}}},
-		{"nested flex", `<block display="flex"><block id="a" display="flex" width="20" flex-grow="1"><block id="inner" width="0" flex-grow="1"></block></block><block id="b" width="20"></block></block>`, 100, 40,
+		{"nested flex", `<flex><flex id="a" width="20" flex-grow="1"><block id="inner" width="0" flex-grow="1"></block></flex><block id="b" width="20"></block></flex>`, 100, 40,
 			map[string]Rect{"a": {0, 0, 80, 40}, "inner": {0, 0, 80, 40}, "b": {80, 0, 20, 40}}},
-		{"stack display override", `<stack display="flex" gap="5"><block id="a" width="20"></block><block id="b" width="20"></block></stack>`, 100, 40,
+		{"flex gap", `<flex gap="5"><block id="a" width="20"></block><block id="b" width="20"></block></flex>`, 100, 40,
 			map[string]Rect{"a": {0, 0, 20, 40}, "b": {25, 0, 20, 40}}},
-		{"content sized container", `<block><inline id="outer" display="flex" align-items="start" gap="5"><block id="a" width="20" height="10"></block><block id="b" width="30" height="20"></block></inline></block>`, 100, 40,
+		{"content sized container", `<block><flex id="outer" align-items="start" gap="5"><block id="a" width="20" height="10"></block><block id="b" width="30" height="20"></block></flex></block>`, 100, 40,
 			map[string]Rect{"outer": {0, 0, 100, 20}, "a": {0, 0, 20, 10}, "b": {25, 0, 30, 20}}},
-		{"empty", `<block id="empty" display="flex" justify-content="space-around" gap="20"></block>`, 0, 0,
+		{"empty", `<flex id="empty" justify-content="space-around" gap="20"></flex>`, 0, 0,
 			map[string]Rect{"empty": {0, 0, 0, 0}}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -96,12 +96,14 @@ func TestFlexBox(t *testing.T) {
 	if got := b.GetLayoutBox(); got.X != 0 || got.Y != 15 {
 		t.Fatalf("column flex: %+v", got)
 	}
-	if err := root.SetProp("display", "inline"); err != nil {
+	if err := root.SetProp("display", "inline"); err == nil {
+		t.Fatal("display must not change layout type")
+	}
+	if err := root.SetProp("display", "false"); err != nil {
 		t.Fatal(err)
 	}
-	doc.layout()
-	if got := b.GetLayoutBox(); got.X != 20 || got.Y != 0 {
-		t.Fatalf("display override: %+v", got)
+	if displaying(root) {
+		t.Fatal("flex was not hidden")
 	}
 	if err := root.SetProp("display", "true"); err != nil {
 		t.Fatal(err)
@@ -121,7 +123,7 @@ func TestFlexJustification(t *testing.T) {
 		{"space-between", 0, 80}, {"space-around", 15, 65}, {"space-evenly", 20, 60},
 	} {
 		t.Run(tc.mode, func(t *testing.T) {
-			doc := newFlexTestDocument(t, `<block display="flex" justify-content="`+tc.mode+`"><block id="a" width="20"></block><block id="b" width="20"></block></block>`, 100, 40)
+			doc := newFlexTestDocument(t, `<flex justify-content="`+tc.mode+`"><block id="a" width="20"></block><block id="b" width="20"></block></flex>`, 100, 40)
 			if a, b := doc.GetBoxByID[Box]("a").GetLayoutBox(), doc.GetBoxByID[Box]("b").GetLayoutBox(); a.X != tc.first || b.X != tc.second {
 				t.Fatalf("positions = %d, %d; want %d, %d", a.X, b.X, tc.first, tc.second)
 			}
@@ -130,7 +132,7 @@ func TestFlexJustification(t *testing.T) {
 }
 
 func TestFlexRelayoutPreservesStyles(t *testing.T) {
-	doc := newFlexTestDocument(t, `<block display="flex" gap="10"><block id="a" width="25%" flex-grow="1"></block><block id="b" width="20"></block></block>`, 100, 40)
+	doc := newFlexTestDocument(t, `<flex gap="10"><block id="a" width="25%" flex-grow="1"></block><block id="b" width="20"></block></flex>`, 100, 40)
 	a := doc.GetBoxByID[Box]("a")
 	before := *a.GetComputedStyles()
 	for _, width := range []int{100, 200, 100, 100} {
@@ -157,7 +159,7 @@ func TestFlexRelayoutPreservesStyles(t *testing.T) {
 }
 
 func TestFlexTextReflowsAtAllocatedWidth(t *testing.T) {
-	doc := newFlexTestDocument(t, `<block display="flex" align-items="start"><text id="text" width="14" flex-grow="1">ABCDEFGHIJKL</text><block width="14"></block></block>`, 98, 100)
+	doc := newFlexTestDocument(t, `<flex align-items="start"><text id="text" width="14" flex-grow="1">ABCDEFGHIJKL</text><block width="14"></block></flex>`, 98, 100)
 	text := doc.GetBoxByID[*Text]("text")
 	if text.layoutBox.Width != 84 || len(text.textLines) != 1 {
 		t.Fatalf("wide text: box %+v, lines %d", text.layoutBox, len(text.textLines))
@@ -175,7 +177,7 @@ func TestFlexTextReflowsAtAllocatedWidth(t *testing.T) {
 func TestFlexWidgetAllocation(t *testing.T) {
 	for _, tag := range []string{`toggle`, `progress`, `select`, `img`, `scroll`} {
 		t.Run(tag, func(t *testing.T) {
-			doc := newFlexTestDocument(t, `<block display="flex"><`+tag+` id="item" width="10" height="5" padding="0" flex-grow="1"></`+tag+`></block>`, 100, 40)
+			doc := newFlexTestDocument(t, `<flex><`+tag+` id="item" width="10" height="5" padding="0" flex-grow="1"></`+tag+`></flex>`, 100, 40)
 			box := doc.GetBoxByID[Box](`item`)
 			if got := box.GetLayoutBox(); got.Width != 100 || got.Height != 5 {
 				t.Fatalf("allocated box: %+v", got)
@@ -208,6 +210,60 @@ func TestFixedDimensionsOverrideStyles(t *testing.T) {
 	img.Calc(0, 0, Constraints{FixedWidth: NumberLength(0), FixedHeight: NumberLength(0)})
 	if got := img.GetLayoutBox(); got.Width != 0 || got.Height != 0 {
 		t.Fatalf("image ignored fixed zero: %+v", got)
+	}
+}
+
+func TestDisplayHidesRootAndDescendants(t *testing.T) {
+	for _, tag := range []string{`block`, `inline`, `flex`, `stack`} {
+		t.Run(tag, func(t *testing.T) {
+			doc := newFlexTestDocument(t, `<`+tag+` id="root" background-color="red"><block id="child" width="10" height="10" display="true" background-color="blue"></block></`+tag+`>`, 20, 20)
+			root := doc.root
+			child := doc.GetBoxByID[Box](`child`)
+			if !root.GetComputedStyles().Display {
+				t.Fatal("root should default to visible")
+			}
+			doc.layoutDirty = false
+			if err := root.SetProp(`display`, `false`); err != nil {
+				t.Fatal(err)
+			}
+			if !doc.layoutDirty || displaying(root) {
+				t.Fatal("hide must invalidate layout and hide root")
+			}
+			if !child.GetComputedStyles().Display {
+				t.Fatal("display must not inherit from parent")
+			}
+			doc.layout()
+			canvas := NewCanvas(20, 20)
+			doc.paint(canvas)
+			if !reflect.DeepEqual(canvas.buffer, make([]byte, len(canvas.buffer))) {
+				t.Fatal("hidden root or its child was painted")
+			}
+			if err := root.SetProp(`display`, `true`); err != nil {
+				t.Fatal(err)
+			}
+			doc.layout()
+			doc.paint(canvas)
+			if reflect.DeepEqual(canvas.buffer, make([]byte, len(canvas.buffer))) {
+				t.Fatal("root was not painted after showing it")
+			}
+		})
+	}
+}
+
+func TestDisplayToggleRelayout(t *testing.T) {
+	doc := newFlexTestDocument(t, `<flex gap="5"><block id="a" width="20"></block><block id="b" width="20"></block></flex>`, 100, 40)
+	a, b := doc.GetBoxByID[Box](`a`), doc.GetBoxByID[Box](`b`)
+	for _, tc := range []struct {
+		display string
+		x       int
+	}{{"false", 0}, {"true", 25}, {"0", 0}, {"1", 25}} {
+		if err := a.SetProp(`display`, tc.display); err != nil {
+			t.Fatal(err)
+		}
+		doc.layout()
+		if got := b.GetLayoutBox().X; got != tc.x {
+			t.Fatalf("display=%s: second item X=%d, want %d", tc.display, got, tc.x)
+		}
 	}
 }
 

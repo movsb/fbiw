@@ -96,7 +96,7 @@
 ## 4. Flex 与 Grid 类需求
 
 - [ ] **P1：实现适合项目范围的轻量 Flex 分配**
-  - **部分完成：** `display: flex` 已支持 row/column、不同权重的正剩余空间分配、整数余数、gap、justify-content、align-items、align-self，并覆盖嵌套、重排和文本断行测试。
+  - **部分完成：** `<flex>` 已支持 row/column、不同权重的正剩余空间分配、整数余数、gap、justify-content、align-items、align-self，并覆盖嵌套、重排和文本断行测试。`display` 现为仅控制显示/隐藏的 bool，不能切换布局类型。
   - 支持空间不足时的 shrink 和最小尺寸约束。
   - 视需求支持 basis、反向排列和顺序调整。
 

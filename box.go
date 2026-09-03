@@ -136,7 +136,11 @@ type BaseBox struct {
 // 返回的不是指针。
 // 所以不要在这里初始化内部循环引用（比如： eventTarget.box）。
 func NewBaseBox(doc *Document, tagName string) BaseBox {
-	return BaseBox{document: doc, Tag: tagName}
+	return BaseBox{
+		document:       doc,
+		Tag:            tagName,
+		computedStyles: Styles{Display: true},
+	}
 }
 
 type Rect struct {
@@ -389,26 +393,21 @@ func (b *BaseBox) VerticalInsets() int {
 }
 
 // TODO 重构：把所有元素的calc方法统一到这里分发。
-// 对于 <block> 或 display=block，用 blocking formatting context
-// 对于 <inline> 或 display=inline，用 inline context
-// 对于 <stack> 或 display=stack，用 stack context
-// 对于 display=none，不参与排版
-// 对于 <用户自定义>，参考 css.display。
+// <block> 使用纵向布局，<inline> 使用横向布局，<flex> 使用弹性布局。
+// display 只控制显示/隐藏，不能覆盖盒子类型。其它通用盒子默认横向布局。
 //
 // 只针对没有自己实现 Calc 方法的元素而言。如果自己实现了 Calc 方法（比如 Scroll），
 // 行为不受此约束。
 func (b *BaseBox) Calc(availWidth, availHeight int, constraints Constraints) {
-	if b.computedStyles.Display == DisplayNone {
+	if !displaying(b) {
 		return
 	}
 
-	display := b.computedStyles.Display
-
-	if b.Tag == `block` || display == DisplayBlock {
+	if b.Tag == `block` {
 		blockCalc(b, availWidth, availHeight, constraints)
-	} else if b.Tag == `inline` || display == DisplayInline {
+	} else if b.Tag == `inline` {
 		inlineCalc(b, availWidth, availHeight, constraints)
-	} else if b.Tag == `flex` || display == DisplayFlex {
+	} else if b.Tag == `flex` {
 		flexCalc(b, availWidth, availHeight, constraints)
 	} else {
 		// 其它自己不实现的通通按inline来。
@@ -483,7 +482,9 @@ func (b *BaseBox) draw(canvas *Canvas, drawChildren bool) {
 }
 
 func displaying(b Box) bool {
-	return b.Base().computedStyles.Display.Visible()
+	styles := &b.Base().computedStyles
+	// 保留零值 Styles 的默认显示语义，只有显式设置 false 才隐藏。
+	return !styles.has(propertyDisplay) || styles.Display
 }
 
 // 纵向排版容器。
@@ -743,7 +744,7 @@ func inlineCalc(b *BaseBox, availWidth, availHeight int, constraints Constraints
 	}
 }
 
-// 单行弹性布局容器。默认使用 Flex，也可通过 display 指定其它内部布局。
+// 单行弹性布局容器。
 type Flex struct {
 	BaseBox
 }
@@ -1044,8 +1045,7 @@ func (b *Stack) SetProp(key string, value string) error {
 }
 
 func (b *Stack) Calc(availWidth, availHeight int, constrains Constraints) {
-	if b.computedStyles.Display == DisplayFlex {
-		flexCalc(&b.BaseBox, availWidth, availHeight, constrains)
+	if !displaying(b) {
 		return
 	}
 	size := b.resolveDimensions(constrains)
@@ -2386,8 +2386,7 @@ func (b *Scroll) adjust() {
 		for c := range b.cols {
 			child := b.children[r*b.cols+c].(*_ScrollChild)
 			display := child.dataIndex() <= b.count-1
-			displayValue := child.computedStyles.Display
-			if displayValue.Visible() != display {
+			if displaying(child) != display {
 				// TODO 可以不用重新排版
 				child.SetProp(`display`, fmt.Sprint(display))
 			}

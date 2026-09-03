@@ -985,6 +985,10 @@ func (doc *Document) layout() {
 
 // 绘制文档。
 func (doc *Document) paint(canvas *Canvas) {
+	if !displaying(doc.root) {
+		return
+	}
+
 	// 文档默认总是居中绘制？
 	// TODO 对于未占满的部分，需要画backdrop/背景虚化？
 	displayWidth, displayHeight := canvas.width, canvas.height
