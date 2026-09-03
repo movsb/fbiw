@@ -31,6 +31,9 @@ type Document struct {
 	app     *App
 	desktop *Desktop
 
+	// 同一文档的 Tween 共享 Timeline，由它统一申请帧并推进动画。
+	timeline *_Timeline
+
 	// 资源包。
 	// html文件和img资源等放这里。
 	fsys fs.FS
@@ -106,6 +109,9 @@ func (doc *Document) RequestAnimationFrame(callback func(now time.Time)) (cancel
 }
 
 func (doc *Document) Close() {
+	if doc.timeline != nil {
+		doc.timeline.close()
+	}
 	doc.cancelTimers()
 	if doc.app != nil {
 		doc.app._CloseDocument(doc)

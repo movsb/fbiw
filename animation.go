@@ -12,6 +12,16 @@ const animationFrameInterval = time.Second / 60
 type _AnimationRequest struct {
 	doc      *Document
 	callback func(time.Time)
+	// 请求被取消时释放调用方持有的状态；正常执行不触发。
+	onCancel func()
+}
+
+func (r *_AnimationRequest) cancel() {
+	onCancel := r.onCancel
+	r.doc, r.callback, r.onCancel = nil, nil, nil
+	if onCancel != nil {
+		onCancel()
+	}
 }
 
 // 所有状态都由 UI 主线程管理。定时器回调只检查原子的取消标记，
@@ -30,6 +40,7 @@ type _AnimationClock struct {
 	last     time.Time
 	closed   bool
 	running  bool
+	frame    uint64 // 已开始的帧序号，用于阻止帧内新增动画提前执行。
 }
 
 func newAnimationClock(ctx context.Context, runnable func(*Document) bool, wake func()) *_AnimationClock {
@@ -47,15 +58,18 @@ func newAnimationClock(ctx context.Context, runnable func(*Document) bool, wake 
 
 // 注册一次帧回调，返回可重复调用的取消函数。
 func (c *_AnimationClock) request(doc *Document, callback func(time.Time)) func() {
+	return c.enqueue(&_AnimationRequest{doc: doc, callback: callback})
+}
+
+func (c *_AnimationClock) enqueue(r *_AnimationRequest) func() {
 	if c.closed {
 		panic("动画时钟已停摆。")
 	}
 
-	r := &_AnimationRequest{doc: doc, callback: callback}
 	c.requests = append(c.requests, r)
 	c.updateTimer()
 	return func() {
-		r.doc, r.callback = nil, nil
+		r.cancel()
 		c.updateTimer()
 	}
 }
@@ -79,19 +93,24 @@ func (c *_AnimationClock) disarm() {
 
 // 彻底停摆，准备退出。
 func (c *_AnimationClock) close() {
+	if c.closed {
+		return
+	}
 	c.closed = true
 	c.disarm()
-	for _, r := range c.requests {
-		r.doc, r.callback = nil, nil
-	}
+	requests := c.requests
 	c.requests = nil
+	for _, r := range requests {
+		r.cancel()
+	}
 }
 
 // 取消文档的所有请求，包括已进入当前帧快照但尚未执行的请求。
 func (c *_AnimationClock) cancelDocument(doc *Document) {
-	for _, r := range c.requests {
+	// 取消通知可能继续取消其他请求，因此遍历快照。
+	for _, r := range append([]*_AnimationRequest(nil), c.requests...) {
 		if r.doc == doc {
-			r.doc, r.callback = nil, nil
+			r.cancel()
 		}
 	}
 	c.updateTimer()
@@ -164,6 +183,7 @@ func (c *_AnimationClock) tick() {
 	}
 	c.disarm()
 	c.last = now
+	c.frame++
 	c.running = true
 	defer func() { c.running = false }()
 	// 执行期间仍将请求保留在时钟中，保证按文档取消请求时，
@@ -178,8 +198,115 @@ func (c *_AnimationClock) tick() {
 			continue
 		}
 		callback := r.callback
-		r.doc, r.callback = nil, nil
+		r.doc, r.callback, r.onCancel = nil, nil, nil
 		callback(now)
+	}
+}
+
+// 动画只负责推进自身状态：返回 true 表示自然结束，nil 表示已取消。
+type _TimelineAnimation struct {
+	tick  func(time.Time) bool
+	frame uint64 // 最早允许推进的帧。
+}
+
+// Timeline 管理一个文档的活动动画，并共享一次帧请求。
+type _Timeline struct {
+	doc        *Document
+	clock      *_AnimationClock
+	animations []*_TimelineAnimation
+	pending    *_AnimationRequest
+	running    bool
+	closed     bool
+}
+
+func (t *_Timeline) live() bool {
+	return !t.closed && t.doc.app != nil && t.doc.app.animation == t.clock &&
+		t.clock.ctx.Err() == nil && !t.clock.closed
+}
+
+func (t *_Timeline) add(tick func(time.Time) bool) (*_TimelineAnimation, func()) {
+	a := &_TimelineAnimation{tick: tick, frame: t.clock.frame + 1}
+	t.animations = append(t.animations, a)
+	t.update()
+	return a, func() {
+		a.tick = nil
+		t.update()
+	}
+}
+
+func (t *_Timeline) stopFrame() {
+	if request := t.pending; request != nil {
+		t.pending = nil
+		// 主动停止续订不等于关闭 Timeline，不执行外部取消通知。
+		request.onCancel = nil
+		request.cancel()
+		t.clock.updateTimer()
+	}
+}
+
+func (t *_Timeline) close() {
+	if t.closed {
+		return
+	}
+	t.closed = true
+	for _, a := range t.animations {
+		a.tick = nil
+	}
+	t.animations = nil
+	t.stopFrame()
+}
+
+// 清理结束或取消的动画，有活动动画时维持一个帧请求。
+func (t *_Timeline) update() {
+	if !t.live() {
+		t.close()
+		return
+	}
+	if t.running {
+		return
+	}
+	kept := t.animations[:0]
+	for _, a := range t.animations {
+		if a.tick != nil {
+			kept = append(kept, a)
+		}
+	}
+	clear(t.animations[len(kept):])
+	t.animations = kept
+	if len(kept) == 0 {
+		t.stopFrame()
+		return
+	}
+	if t.pending == nil {
+		t.pending = &_AnimationRequest{
+			doc: t.doc, callback: t.tick,
+			onCancel: t.close,
+		}
+		t.clock.enqueue(t.pending)
+	}
+}
+
+func (t *_Timeline) tick(now time.Time) {
+	t.pending = nil
+	t.running = true
+	defer func() {
+		t.running = false
+		t.update()
+	}()
+	for _, a := range append([]*_TimelineAnimation(nil), t.animations...) {
+		if !t.live() {
+			return
+		}
+		// 前一个动画的回调可能切换桌面或 Detach，后续动画应暂停。
+		if !t.clock.runnable(t.doc) {
+			return
+		}
+		if a.tick == nil || a.frame > t.clock.frame {
+			continue
+		}
+		if a.tick(now) {
+			a.tick = nil
+		}
 	}
 }
 
@@ -253,53 +380,31 @@ func (doc *Document) Tween(options TweenOptions) (cancel func()) {
 	if doc.app == nil || doc.app.ctx.Err() != nil || doc.app.animation.closed {
 		panic("Tween: 文档未绑定到运行中的动画时钟。")
 	}
-	app := doc.app
-	clock := app.animation
+	clock := doc.app.animation
 	start := clock.now()
 	if clock.running {
 		// 帧回调中创建的动画以本帧统一时间戳为起点。
 		start = clock.last
 	}
-	stopped := false
-	var cancelFrame func()
-	cancel = func() {
-		if stopped {
-			return
-		}
-		stopped = true
-		if cancelFrame != nil {
-			cancelFrame()
-			cancelFrame = nil
-		}
-		options.OnUpdate, options.OnComplete = nil, nil
+	if doc.timeline == nil {
+		doc.timeline = &_Timeline{doc: doc, clock: clock}
 	}
-	live := func() bool {
-		return !stopped && doc.app == app && app.ctx.Err() == nil && !clock.closed
-	}
-	var frame func(time.Time)
-	frame = func(now time.Time) {
-		cancelFrame = nil
-		if !live() {
-			cancel()
-			return
-		}
+	timeline := doc.timeline
+	var animation *_TimelineAnimation
+	animation, cancel = timeline.add(func(now time.Time) bool {
 		value, complete := options.value(now.Sub(start))
 		options.OnUpdate(value)
-		// 用户回调可能取消动画、关闭文档或退出 App，不能再续订下一帧。
-		if !live() {
-			cancel()
-			return
+		// 更新回调可能取消自身或关闭文档，此时不再触发完成回调。
+		if animation.tick == nil || !timeline.live() {
+			return true
 		}
 		if complete {
-			onComplete := options.OnComplete
-			cancel()
-			if onComplete != nil {
-				onComplete()
+			animation.tick = nil
+			if options.OnComplete != nil {
+				options.OnComplete()
 			}
-			return
 		}
-		cancelFrame = doc.RequestAnimationFrame(frame)
-	}
-	cancelFrame = doc.RequestAnimationFrame(frame)
+		return complete
+	})
 	return cancel
 }

@@ -854,7 +854,20 @@ cancelTween := doc.Tween(fbiw.TweenOptions{
 - Tween 不自动修改样式或标记重绘。动画中途改变目标时，先取消旧 Tween，
   再以当前显示值为 `From` 创建新 Tween，避免跳变和多个动画同时写同一状态。
 
-目前不提供 CSS Transition、颜色补间、循环或 Timeline；现有组件也不会自动添加动效。
+### 文档 Timeline
+
+每个使用 Tween 的文档会按需创建一个内部 Timeline，统一管理活动动画：
+
+- 同一文档的所有 Tween 共享一个帧请求，按文档内的注册顺序推进。
+- 完成或取消的动画会被移除；没有活动动画时停止续订，后续可以复用该 Timeline。
+- 帧回调中新增的动画最早下一帧执行，即使它所属的 Timeline 在本帧还未执行。
+- 关闭文档会清理整个 Timeline；App 退出时也会清理后台文档的活动动画。
+
+时钟只负责帧调度，Timeline 负责集合与续订，Tween 负责数值推进与完成回调。
+`doc.Tween(...)` 接口不变。直接使用 `RequestAnimationFrame` 的回调仍是独立请求；
+与 Tween 混用时，Tween 按文档成批推进，不保证各个 Tween 与独立帧回调交错的注册顺序。
+
+目前不提供 CSS Transition、颜色补间、循环、倍速或倒放；现有组件也不会自动添加动效。
 
 ## 异步更新
 

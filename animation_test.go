@@ -630,3 +630,171 @@ func TestTweenInvalidOptions(t *testing.T) {
 		}()
 	}
 }
+
+func TestTimelineSharesFramePerDocument(t *testing.T) {
+	app, doc, f := newAnimationTestApp(t)
+	other := addDesktopTestDocument(app, doc.desktop)
+	var order []int
+	for i := range 4 {
+		owner := doc
+		if i >= 2 {
+			owner = other
+		}
+		owner.Tween(TweenOptions{To: 1, Duration: time.Second,
+			OnUpdate: func(v float64) {
+				if v != 0.5 {
+					t.Fatal("同帧进度不一致")
+				}
+				order = append(order, i)
+			},
+		})
+	}
+	if len(app.animation.requests) != 2 {
+		t.Fatal("每个文档应只申请一个帧回调")
+	}
+	f.now = f.now.Add(time.Second / 2)
+	animationStep(app)
+	if !slices.Equal(order, []int{0, 1, 2, 3}) || len(app.animation.requests) != 2 {
+		t.Fatal("Timeline 未按顺序统一推进或重复续订")
+	}
+}
+
+func TestTimelineCancelAndReuse(t *testing.T) {
+	app, doc, f := newAnimationTestApp(t)
+	var stopSecond func()
+	var order []int
+	stopFirst := doc.Tween(TweenOptions{To: 1, OnUpdate: func(float64) {
+		order = append(order, 1)
+		stopSecond()
+	}})
+	stopSecond = doc.Tween(TweenOptions{To: 1, OnUpdate: func(float64) { t.Fatal("同帧取消未生效") }})
+	timeline := doc.timeline
+	f.now = f.now.Add(animationFrameInterval)
+	animationStep(app)
+	stopFirst()
+	stopSecond()
+	if timeline.closed || len(timeline.animations) != 0 || len(app.animation.requests) != 0 {
+		t.Fatal("空闲 Timeline 未正确清理，或被永久关闭")
+	}
+	stop := doc.Tween(TweenOptions{To: 1, OnUpdate: func(float64) { t.Fatal("首帧前取消未生效") }})
+	stop()
+	stop()
+	if timeline != doc.timeline || timeline.pending != nil || app.animation.stop != nil {
+		t.Fatal("空闲 Timeline 无法复用或取消最后一个动画后仍在续订")
+	}
+	doc.Tween(TweenOptions{To: 1, OnUpdate: func(float64) { order = append(order, 3) }})
+	f.now = f.now.Add(animationFrameInterval)
+	animationStep(app)
+	if !slices.Equal(order, []int{1, 3}) {
+		t.Fatal("复用 Timeline 未执行新动画")
+	}
+}
+
+func TestTimelineDefersAdditionsBeforeItsFrame(t *testing.T) {
+	app, doc, f := newAnimationTestApp(t)
+	var order []int
+	// 手写帧回调先执行，在已有 Timeline 的本帧快照之前新增 Tween。
+	doc.RequestAnimationFrame(func(time.Time) {
+		doc.Tween(TweenOptions{To: 1, OnUpdate: func(float64) { order = append(order, 2) }})
+	})
+	doc.Tween(TweenOptions{To: 1, OnUpdate: func(float64) { order = append(order, 1) }})
+	f.now = f.now.Add(animationFrameInterval)
+	animationStep(app)
+	if !slices.Equal(order, []int{1}) {
+		t.Fatal("帧内新增 Tween 被已有 Timeline 提前执行")
+	}
+	f.now = f.now.Add(animationFrameInterval)
+	animationStep(app)
+	if !slices.Equal(order, []int{1, 2}) {
+		t.Fatal("新 Tween 未在下一帧执行")
+	}
+}
+
+func TestTimelinePausesDuringBatch(t *testing.T) {
+	for _, mode := range []string{"切换桌面", "Detach"} {
+		t.Run(mode, func(t *testing.T) {
+			app, doc, f := newAnimationTestApp(t)
+			background := &Desktop{app: app}
+			app.desktops.PushBack(background)
+			addDesktopTestDocument(app, background)
+			calls := 0
+			doc.Tween(TweenOptions{To: 1, OnUpdate: func(float64) {
+				if mode == "Detach" {
+					app.Detach()
+				} else {
+					app.SwitchTo(background)
+				}
+			}})
+			doc.Tween(TweenOptions{To: 1, Duration: time.Second, OnUpdate: func(v float64) {
+				calls++
+				if v != 1 {
+					t.Fatal("恢复后未计入后台时间")
+				}
+			}})
+			f.now = f.now.Add(animationFrameInterval)
+			animationStep(app)
+			if calls != 0 || app.animation.stop != nil || len(doc.timeline.animations) != 1 {
+				t.Fatal("当前帧后续动画未暂停，或产生了后台唤醒")
+			}
+			f.now = f.now.Add(2 * time.Second)
+			if mode == "Detach" {
+				app.Attach()
+			} else {
+				app.SwitchTo(doc.desktop)
+			}
+			animationStep(app)
+			if calls != 1 {
+				t.Fatal("恢复后未推进待执行的动画")
+			}
+		})
+	}
+}
+
+func TestTimelineCloseReleasesCallbacks(t *testing.T) {
+	for _, mode := range []string{"文档关闭", "App退出", "时钟关闭", "更新中关闭"} {
+		t.Run(mode, func(t *testing.T) {
+			app, doc, f := newAnimationTestApp(t)
+			// 保留一个前台文档，避免被测文档关闭后后台桌面自动转到前台。
+			addDesktopTestDocument(app, doc.desktop)
+			background := &Desktop{app: app}
+			app.desktops.PushBack(background)
+			other := addDesktopTestDocument(app, background)
+			if mode == "更新中关闭" {
+				doc.Tween(TweenOptions{To: 1, OnUpdate: func(float64) { doc.Close() }})
+			}
+			opts := TweenOptions{To: 1, OnUpdate: func(float64) { t.Fatal("关闭后仍更新") },
+				OnComplete: func() { t.Fatal("关闭后仍触发完成回调") },
+			}
+			stop := doc.Tween(opts)
+			other.Tween(opts)
+			entries := append([]*_TimelineAnimation(nil), doc.timeline.animations...)
+			switch mode {
+			case "文档关闭":
+				doc.Close()
+			case "App退出":
+				app.Quit()
+			case "时钟关闭":
+				app.animation.close()
+			}
+			f.now = f.now.Add(animationFrameInterval)
+			animationStep(app)
+			stop()
+			stop()
+			if !doc.timeline.closed || len(doc.timeline.animations) != 0 || doc.timeline.pending != nil {
+				t.Fatal("关闭后仍保留 Timeline 动画")
+			}
+			for _, a := range entries {
+				if a.tick != nil {
+					t.Fatal("关闭后仍保留用户回调")
+				}
+			}
+			if mode == "App退出" || mode == "时钟关闭" {
+				if !other.timeline.closed || len(other.timeline.animations) != 0 {
+					t.Fatal("App退出未清理后台 Timeline")
+				}
+			} else if other.timeline.closed {
+				t.Fatal("关闭一个文档影响了另一个文档的 Timeline")
+			}
+		})
+	}
+}
