@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"golang.org/x/image/font/basicfont"
 )
@@ -248,6 +249,156 @@ func TestToggleDrawsIndicatorAccordingToState(t *testing.T) {
 	knobX := trackX + trackWidth - inset - knobSize
 	if got := canvas.getPixel(knobX, trackY+inset); got != toggle.knobColor.NRGBA() {
 		t.Fatalf(`选中滑块位置不正确：%v`, got)
+	}
+}
+
+func newAnimatedToggle(t *testing.T, markup string, paint bool) (*App, *Document, *Toggle, *fakeAnimationTime) {
+	t.Helper()
+	app, placeholder, clock := newAnimationTestApp(t)
+	doc, toggle := newToggleDocument(t, markup)
+	desktop := placeholder.desktop
+	desktop.remove(placeholder)
+	doc.app = app
+	desktop.add(doc)
+	doc.layout()
+	if paint {
+		layout := toggle.GetLayoutBox()
+		toggle.Draw(NewCanvas(layout.Width, layout.Height))
+	}
+	return app, doc, toggle, clock
+}
+
+func TestToggleAnimationInitialState(t *testing.T) {
+	for _, checked := range []bool{false, true} {
+		markup := `<document><block><toggle></toggle></block></document>`
+		if checked {
+			markup = `<document><block><toggle checked></toggle></block></document>`
+		}
+		app, doc, toggle, _ := newAnimatedToggle(t, markup, false)
+		want := 0.0
+		if checked {
+			want = 1
+		}
+		if toggle.knobProgress != want {
+			t.Fatal("初始状态未直接显示目标位置")
+		}
+		toggle.SetChecked(!checked)
+		if toggle.knobProgress != 1-want || doc.timeline != nil || len(app.animation.requests) != 0 {
+			t.Fatal("首次显示前不应播放动画")
+		}
+	}
+}
+
+func TestToggleAnimationPaintOnly(t *testing.T) {
+	app, doc, toggle, clock := newAnimatedToggle(t, `<document><block><toggle></toggle></block></document>`, true)
+	changes := 0
+	toggle.OnChange(func(checked bool) {
+		changes++
+		if !checked || toggle.knobProgress != 0 {
+			t.Fatal("逻辑事件未在动画之前生效")
+		}
+	})
+	toggle.SetChecked(true)
+	if !toggle.Checked() || !toggle.ClassContains("checked") || changes != 1 {
+		t.Fatal("逻辑状态未立即更新")
+	}
+	// checked 类名可能改变布局；这里只验证后续动画帧不再请求布局。
+	doc.layout()
+	doc.layoutDirty, doc.paintDirty = false, false
+	layout := toggle.GetLayoutBox()
+	clock.now = clock.now.Add(75 * time.Millisecond)
+	animationStep(app)
+	if toggle.knobProgress != 0.75 || doc.layoutDirty || !doc.paintDirty || toggle.GetLayoutBox() != layout {
+		t.Fatal("动画未在中间位置只请求重绘")
+	}
+	canvas := NewCanvas(layout.Width, layout.Height)
+	toggle.Draw(canvas)
+	inset := min(layout.Width, layout.Height) / 10
+	knobSize := layout.Height - inset*2
+	knobX := inset + int(math.Round(float64(layout.Width-inset*2-knobSize)*0.75))
+	if canvas.getPixel(knobX, inset) != toggle.knobColor.NRGBA() || canvas.getPixel(inset, inset) != toggle.checkedTrackColor.NRGBA() {
+		t.Fatal("实际绘制的滑块未移动到补间位置")
+	}
+	clock.now = clock.now.Add(75 * time.Millisecond)
+	animationStep(app)
+	if toggle.knobProgress != 1 || toggle.cancelTween != nil || app.animation.stop != nil || changes != 1 {
+		t.Fatal("动画结束状态或事件次数不正确")
+	}
+}
+
+func TestToggleAnimationReversesFromCurrentPosition(t *testing.T) {
+	app, doc, toggle, clock := newAnimatedToggle(t, `<document><block><toggle></toggle></block></document>`, true)
+	toggle.SetChecked(true)
+	clock.now = clock.now.Add(75 * time.Millisecond)
+	animationStep(app)
+	toggle.SetChecked(false)
+	if toggle.knobProgress != 0.75 || len(doc.timeline.animations) != 1 {
+		t.Fatal("反向切换跳变或旧动画未取消")
+	}
+	animation := doc.timeline.animations[0]
+	toggle.SetChecked(false)
+	if doc.timeline.animations[0] != animation {
+		t.Fatal("相同状态重复设置重启了动画")
+	}
+	clock.now = clock.now.Add(75 * time.Millisecond)
+	animationStep(app)
+	if toggle.knobProgress != 0.1875 {
+		t.Fatal("没有从当前显示位置反向移动")
+	}
+	clock.now = clock.now.Add(75 * time.Millisecond)
+	animationStep(app)
+	if toggle.knobProgress != 0 || len(doc.timeline.animations) != 0 {
+		t.Fatal("旧动画覆盖了新目标")
+	}
+}
+
+func TestToggleAnimationReentrantChange(t *testing.T) {
+	app, _, toggle, _ := newAnimatedToggle(t, `<document><block><toggle></toggle></block></document>`, true)
+	var states []bool
+	toggle.OnChange(func(checked bool) {
+		states = append(states, checked)
+		if checked {
+			toggle.SetChecked(false)
+		}
+	})
+	toggle.SetChecked(true)
+	if toggle.Checked() || toggle.knobProgress != 0 || toggle.cancelTween != nil || len(app.animation.requests) != 0 || !slices.Equal(states, []bool{true, false}) {
+		t.Fatal("状态事件中反向切换后仍残留旧动画")
+	}
+}
+
+func TestToggleAnimationAttributeAndLifecycle(t *testing.T) {
+	app, doc, toggle, clock := newAnimatedToggle(t, `<document><block><toggle></toggle></block></document>`, true)
+	toggle.OnChange(func(bool) { t.Fatal("SetProp 不应额外派发事件") })
+	if err := toggle.SetProp("checked", "true"); err != nil {
+		t.Fatal(err)
+	}
+	app.Detach()
+	clock.now = clock.now.Add(time.Second)
+	animationStep(app)
+	if toggle.knobProgress != 0 || app.animation.stop != nil {
+		t.Fatal("Detach 后没有暂停动画")
+	}
+	app.Attach()
+	clock.now = clock.now.Add(animationFrameInterval)
+	animationStep(app)
+	if toggle.knobProgress != 1 {
+		t.Fatal("恢复后没有追上进度")
+	}
+	if err := toggle.SetProp("checked", "false"); err != nil {
+		t.Fatal(err)
+	}
+	doc.Close()
+	clock.now = clock.now.Add(time.Second)
+	animationStep(app)
+	if toggle.knobProgress != 1 || len(app.animation.requests) != 0 {
+		t.Fatal("文档关闭后仍更新滑块")
+	}
+	if err := toggle.SetProp("checked", "true"); err != nil {
+		t.Fatal(err)
+	}
+	if toggle.cancelTween != nil {
+		t.Fatal("关闭后的状态设置仍保留动画")
 	}
 }
 

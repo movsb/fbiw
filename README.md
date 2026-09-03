@@ -230,6 +230,15 @@ toggle.Activate()
 `StopPropagation` 时，可以改用底层的 `Listen` 和
 `fbiw.ToggleChangeEvent`。
 
+Toggle 首次显示时直接呈现当前状态。显示过后切换状态，滑块会在 150ms 内以
+`EaseOut` 平滑移动；快速反复切换会取消旧动画，从当前显示位置转向新目标。
+`checked`、对应类名、轨道颜色和 `OnChange` 立即更新，不等待动画结束。
+`SetProp("checked", ...)` 同样更新动效，但仍不派发状态事件。
+
+滑块动画每帧只请求重绘；切换 `checked` 类名本身仍可能因 CSS 规则触发布局。
+动画期间尺寸变化会按新的滑动距离绘制。未绑定 App 或尚未首次绘制时直接更新位置；
+后台和 Detach 沿用 Timeline 的暂停回调、时间继续策略，关闭文档自动取消动画。
+
 `progress` 只绘制轨道和完成部分，进度使用 `[0,1]` 范围内的浮点数：
 
 ```html
@@ -867,7 +876,8 @@ cancelTween := doc.Tween(fbiw.TweenOptions{
 `doc.Tween(...)` 接口不变。直接使用 `RequestAnimationFrame` 的回调仍是独立请求；
 与 Tween 混用时，Tween 按文档成批推进，不保证各个 Tween 与独立帧回调交错的注册顺序。
 
-目前不提供 CSS Transition、颜色补间、循环、倍速或倒放；现有组件也不会自动添加动效。
+目前不提供 CSS Transition、颜色补间、循环、倍速或倒放；Toggle 已使用数值补间
+实现滑块动效，其他组件尚未自动添加动效。
 
 ## 异步更新
 

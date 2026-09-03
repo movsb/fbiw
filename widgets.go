@@ -6,6 +6,7 @@ import (
 	"math"
 	"slices"
 	"strconv"
+	"time"
 )
 
 // ButtonClickEvent 在 Button 被有效触发时派发。
@@ -145,6 +146,11 @@ type Toggle struct {
 	trackColor        Color
 	checkedTrackColor Color
 	knobColor         Color
+
+	// 逻辑状态立即改变，滑块使用独立的显示进度。
+	knobProgress float64
+	painted      bool
+	cancelTween  func()
 }
 
 func init() {
@@ -208,6 +214,7 @@ func (b *Toggle) Draw(canvas *Canvas) {
 	if trackWidth <= inset*2 {
 		return
 	}
+	b.painted = true
 
 	trackColor := b.trackColor
 	if b.checked {
@@ -216,10 +223,8 @@ func (b *Toggle) Draw(canvas *Canvas) {
 	canvas.FillRect(trackX, trackY, trackWidth, trackHeight, trackColor)
 
 	knobSize := min(trackHeight-inset*2, trackWidth-inset*2)
-	knobX := trackX + inset
-	if b.checked {
-		knobX = trackX + trackWidth - inset - knobSize
-	}
+	travel := trackWidth - inset*2 - knobSize
+	knobX := trackX + inset + int(math.Round(float64(travel)*b.knobProgress))
 	knobY := trackY + (trackHeight-knobSize)/2
 	canvas.FillRect(knobX, knobY, knobSize, knobSize, b.knobColor)
 }
@@ -239,9 +244,43 @@ func (b *Toggle) setChecked(checked, dispatch bool) {
 	}
 	b.checked = checked
 	b.ClassToggle(`checked`, checked)
+	b.animateKnob()
 	if dispatch {
 		b.Dispatch(ToggleChangeEvent, ToggleChangeArgs{Checked: checked})
 	}
+}
+
+// 从当前显示位置转向新目标；先安排动画再派发状态事件，
+// 使 OnChange 中再次切换状态时，可以正确取消本次动画。
+func (b *Toggle) animateKnob() {
+	if b.cancelTween != nil {
+		b.cancelTween()
+		b.cancelTween = nil
+	}
+	target := 0.0
+	if b.checked {
+		target = 1
+	}
+	doc := b.document
+	app := doc.app
+	// 初次显示、脱离 App 或生命周期已结束时，直接显示目标状态。
+	if !b.painted || app == nil || app.ctx.Err() != nil || app.animation.closed || b.knobProgress == target {
+		b.knobProgress = target
+		doc.RequestPaint()
+		return
+	}
+	b.cancelTween = doc.Tween(TweenOptions{
+		From:     b.knobProgress,
+		To:       target,
+		Duration: 250 * time.Millisecond,
+		Easing:   EaseOut,
+		OnUpdate: func(value float64) {
+			b.knobProgress = value
+			doc.RequestPaint()
+		},
+		OnComplete: func() { b.cancelTween = nil },
+	})
+	doc.RequestPaint()
 }
 
 func (b *Toggle) SetProp(key, value string) error {
