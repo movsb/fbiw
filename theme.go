@@ -6,8 +6,51 @@ import (
 	"log"
 	"maps"
 	"math"
+	"strings"
 	"time"
 )
+
+// ThemeColor 是组件注册并从当前主题解析的颜色变量。
+type ThemeColor string
+
+type themeColorDefaults struct {
+	light Color
+	dark  Color
+}
+
+var registeredThemeColors = map[ThemeColor]themeColorDefaults{}
+
+// RegisterThemeColor 注册组件使用的主题颜色及其浅色、深色默认值。
+// 组件包通常应在包初始化期间注册。
+func RegisterThemeColor(name, lightDefault, darkDefault string) ThemeColor {
+	if !strings.HasPrefix(name, `--`) || len(name) <= 2 || strings.ContainsAny(name, ",() \t\r\n") {
+		panic(`无效主题颜色变量：` + name)
+	}
+	light := ColorFromString(lightDefault)
+	dark := ColorFromString(darkDefault)
+	variable := ThemeColor(name)
+	defaults := themeColorDefaults{light: light, dark: dark}
+
+	if previous, ok := registeredThemeColors[variable]; ok && previous != defaults {
+		panic(`主题颜色变量重复注册且默认值不同：` + name)
+	}
+	registeredThemeColors[variable] = defaults
+	return variable
+}
+
+func withRegisteredThemeColors(theme Theme, light bool) Theme {
+	resolved := Theme{Colors: map[string]Color{}}
+	for name, defaults := range registeredThemeColors {
+		resolved.Colors[string(name)] = Iif(light, defaults.light, defaults.dark)
+	}
+	maps.Copy(resolved.Colors, theme.Colors)
+	return resolved
+}
+
+func isRegisteredThemeColor(name string) bool {
+	_, ok := registeredThemeColors[ThemeColor(name)]
+	return ok
+}
 
 // Theme 保存样式表可引用的语义颜色。
 type Theme struct {
@@ -66,11 +109,11 @@ const (
 )
 
 func defaultLightTheme() Theme {
-	return _defaultLightTheme.clone()
+	return withRegisteredThemeColors(_defaultLightTheme, true)
 }
 
 func defaultDarkTheme() Theme {
-	return _defaultDarkTheme.clone()
+	return withRegisteredThemeColors(_defaultDarkTheme, false)
 }
 
 func (m *ThemeManager) register(name string, theme Theme) {

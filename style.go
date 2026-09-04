@@ -995,8 +995,8 @@ func (p StyleParser) ParseTheme(data string) (Theme, error) {
 
 	theme := Theme{Colors: map[string]Color{}}
 	for _, declaration := range sheet.Rules[0].Declarations {
-		if !strings.HasPrefix(declaration.Name, `--color-`) {
-			return Theme{}, fmt.Errorf(`主题只支持 --color-* 声明：%s`, declaration.Name)
+		if !strings.HasPrefix(declaration.Name, `--`) {
+			return Theme{}, fmt.Errorf(`主题只支持 --* 颜色声明：%s`, declaration.Name)
 		}
 		color, err := ParseColor(declaration.Value)
 		if err != nil {
@@ -1513,7 +1513,7 @@ func parseThemeColorReference(raw string) (name string, referenced bool, err err
 		return ``, true, fmt.Errorf(`无效主题颜色引用：%s`, raw)
 	}
 	name = strings.TrimSpace(raw[len(`var(`) : len(raw)-1])
-	if !strings.HasPrefix(name, `--color-`) || strings.ContainsAny(name, ",() \t\r\n") {
+	if (!strings.HasPrefix(name, `--color-`) && !isRegisteredThemeColor(name)) || strings.ContainsAny(name, ",() \t\r\n") {
 		return ``, true, fmt.Errorf(`无效主题颜色名：%s`, name)
 	}
 	return name, true, nil

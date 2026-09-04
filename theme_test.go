@@ -270,3 +270,68 @@ func TestThemeAccent(t *testing.T) {
 		t.Fatal(`无效颜色字符串未返回错误`)
 	}
 }
+
+func TestRegisteredThemeColor(t *testing.T) {
+	variable := RegisterThemeColor(`--test-component-color`, `#112233`, `#ddeeff`)
+	if got := defaultLightTheme().Colors[string(variable)]; got != ColorFromString(`#112233`) {
+		t.Fatalf(`浅色默认值错误：%v`, got)
+	}
+	if got := defaultDarkTheme().Colors[string(variable)]; got != ColorFromString(`#ddeeff`) {
+		t.Fatalf(`深色默认值错误：%v`, got)
+	}
+
+	theme := Must1((StyleParser{}).ParseTheme(`:root { --test-component-color: #abcdef; }`))
+	app := newDesktopTestApp()
+	app.themeManager.register(`component`, theme)
+	if err := app.SetThemeLight(`component`); err != nil {
+		t.Fatal(err)
+	}
+	noon := time.Date(2026, time.September, 4, 12, 0, 0, 0, time.Local)
+	if err := app.themeManager.applyForTime(noon); err != nil {
+		t.Fatal(err)
+	}
+	doc := _NewDocument(100, 100, fstest.MapFS{}, nil, nil)
+	doc.bindApp(app)
+	defer doc.unbindApp()
+	if got := doc.ResolveThemeColor(variable); got != ColorFromString(`#abcdef`) {
+		t.Fatalf(`主题覆盖值错误：%v`, got)
+	}
+}
+
+func TestBuiltInWidgetThemeColors(t *testing.T) {
+	theme := Must1((StyleParser{}).ParseTheme(`:root {
+		--toggle-track-color: #102030;
+		--toggle-checked-track-color: #405060;
+		--toggle-knob-color: #708090;
+		--progress-track-color: #a0b0c0;
+		--progress-value-color: #d0e0f0;
+	}`))
+	app := newDesktopTestApp()
+	app.themeManager.register(`widgets`, theme)
+	if err := app.SetThemeLight(`widgets`); err != nil {
+		t.Fatal(err)
+	}
+	noon := time.Date(2026, time.September, 4, 12, 0, 0, 0, time.Local)
+	if err := app.themeManager.applyForTime(noon); err != nil {
+		t.Fatal(err)
+	}
+
+	doc := _NewDocument(100, 100, fstest.MapFS{
+		`main.html`: &fstest.MapFile{Data: []byte(`<document><block><toggle></toggle><progress></progress></block></document>`)},
+	}, nil, nil)
+	doc.bindApp(app)
+	defer doc.unbindApp()
+	if err := doc.load(`main.html`); err != nil {
+		t.Fatal(err)
+	}
+	toggle := doc.QuerySelector[*Toggle](`toggle`)
+	progress := doc.QuerySelector[*ProgressBar](`progress`)
+	if toggle.trackColor != ColorFromString(`#102030`) ||
+		toggle.checkedTrackColor != ColorFromString(`#405060`) ||
+		toggle.knobColor != ColorFromString(`#708090`) {
+		t.Fatal(`toggle 未使用主题颜色`)
+	}
+	if progress.trackColor != ColorFromString(`#a0b0c0`) || progress.valueColor != ColorFromString(`#d0e0f0`) {
+		t.Fatal(`progress 未使用主题颜色`)
+	}
+}

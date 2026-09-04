@@ -1012,6 +1012,16 @@ func (doc *Document) appTheme() (string, Theme) {
 	return defaultLightThemeName, defaultLightTheme()
 }
 
+// ResolveThemeColor 返回当前主题中的组件颜色变量。
+func (doc *Document) ResolveThemeColor(variable ThemeColor) Color {
+	_, theme := doc.appTheme()
+	color, ok := theme.ResolveColor(string(variable))
+	if !ok {
+		panic(`主题颜色变量未注册：` + string(variable))
+	}
+	return color
+}
+
 func (doc *Document) validateTheme(name string, theme Theme) error {
 	if err := validateThemeSheet(name, theme, DefaultStyles); err != nil {
 		return err

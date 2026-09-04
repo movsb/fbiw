@@ -123,9 +123,9 @@ func parseBooleanAttribute(name, value string) (bool, error) {
 }
 
 var (
-	toggleTrackOffColor = ColorFromRGBA(101, 107, 118, 255)
-	toggleTrackOnColor  = ColorFromRGBA(54, 183, 102, 255)
-	toggleKnobColor     = ColorFromRGBA(255, 255, 255, 255)
+	toggleTrackOffThemeColor = RegisterThemeColor(`--toggle-track-color`, `#656b76`, `#656b76`)
+	toggleTrackOnThemeColor  = RegisterThemeColor(`--toggle-checked-track-color`, `#36b766`, `#30a46c`)
+	toggleKnobThemeColor     = RegisterThemeColor(`--toggle-knob-color`, `#ffffff`, `#ffffff`)
 )
 
 const (
@@ -149,10 +149,19 @@ type ToggleChangeArgs struct {
 type Toggle struct {
 	BaseBox
 
-	checked           bool
+	checked bool
+
 	trackColor        Color
 	checkedTrackColor Color
 	knobColor         Color
+
+	themeTrackColor        Color
+	themeCheckedTrackColor Color
+	themeKnobColor         Color
+
+	customTrackColor        bool
+	customCheckedTrackColor bool
+	customKnobColor         bool
 
 	// 逻辑状态立即改变，滑块使用独立的显示进度。
 	knobProgress    float64
@@ -165,11 +174,19 @@ func init() {
 }
 
 func NewToggle(doc *Document) *Toggle {
+	var (
+		trackColor        = doc.ResolveThemeColor(toggleTrackOffThemeColor)
+		checkedTrackColor = doc.ResolveThemeColor(toggleTrackOnThemeColor)
+		knobColor         = doc.ResolveThemeColor(toggleKnobThemeColor)
+	)
 	b := &Toggle{
-		BaseBox:           NewBaseBox(doc, `toggle`),
-		trackColor:        toggleTrackOffColor,
-		checkedTrackColor: toggleTrackOnColor,
-		knobColor:         toggleKnobColor,
+		BaseBox:                NewBaseBox(doc, `toggle`),
+		trackColor:             trackColor,
+		checkedTrackColor:      checkedTrackColor,
+		knobColor:              knobColor,
+		themeTrackColor:        trackColor,
+		themeCheckedTrackColor: checkedTrackColor,
+		themeKnobColor:         knobColor,
 	}
 	b.Listen(StickDownEvent, func(event *Event) {
 		if event.Stick.Name != A || event.Stick.Repeat {
@@ -223,14 +240,32 @@ func (b *Toggle) Draw(canvas *Canvas) {
 	}
 	b.painted = true
 
-	trackColor := ColorAnimator(b.trackColor, b.checkedTrackColor)(b.knobProgress)
+	trackOffColor := b.trackColor
+	if !b.customTrackColor && b.trackColor == b.themeTrackColor {
+		trackOffColor = b.document.ResolveThemeColor(toggleTrackOffThemeColor)
+		b.trackColor = trackOffColor
+		b.themeTrackColor = trackOffColor
+	}
+	trackOnColor := b.checkedTrackColor
+	if !b.customCheckedTrackColor && b.checkedTrackColor == b.themeCheckedTrackColor {
+		trackOnColor = b.document.ResolveThemeColor(toggleTrackOnThemeColor)
+		b.checkedTrackColor = trackOnColor
+		b.themeCheckedTrackColor = trackOnColor
+	}
+	knobColor := b.knobColor
+	if !b.customKnobColor && b.knobColor == b.themeKnobColor {
+		knobColor = b.document.ResolveThemeColor(toggleKnobThemeColor)
+		b.knobColor = knobColor
+		b.themeKnobColor = knobColor
+	}
+	trackColor := ColorAnimator(trackOffColor, trackOnColor)(b.knobProgress)
 	canvas.FillRect(trackX, trackY, trackWidth, trackHeight, trackColor)
 
 	knobSize := min(trackHeight-inset*2, trackWidth-inset*2)
 	travel := trackWidth - inset*2 - knobSize
 	knobX := trackX + inset + int(math.Round(float64(travel)*b.knobProgress))
 	knobY := trackY + (trackHeight-knobSize)/2
-	canvas.FillRect(knobX, knobY, knobSize, knobSize, b.knobColor)
+	canvas.FillRect(knobX, knobY, knobSize, knobSize, knobColor)
 }
 
 func (b *Toggle) Checked() bool {
@@ -297,10 +332,13 @@ func (b *Toggle) SetProp(key, value string) error {
 		switch key {
 		case `track-color`:
 			b.trackColor = parsed
+			b.customTrackColor = true
 		case `checked-track-color`:
 			b.checkedTrackColor = parsed
+			b.customCheckedTrackColor = true
 		case `knob-color`:
 			b.knobColor = parsed
+			b.customKnobColor = true
 		}
 		b.document.paintDirty = true
 		return nil
@@ -325,8 +363,8 @@ func (b *Toggle) OnChange(handler func(checked bool)) func() {
 }
 
 var (
-	progressTrackColor = ColorFromRGBA(101, 107, 118, 255)
-	progressValueColor = ColorFromRGBA(51, 88, 212, 255)
+	progressTrackThemeColor = RegisterThemeColor(`--progress-track-color`, `#656b76`, `#43484f`)
+	progressValueThemeColor = RegisterThemeColor(`--progress-value-color`, `#3358d4`, `#8da4ff`)
 )
 
 // ProgressBar 是一个使用 [0,1] 表示完成比例的进度条。
@@ -334,15 +372,26 @@ var (
 type ProgressBar struct {
 	BaseBox
 
-	value                float64
-	displayValue         float64
-	trackColor           Color
-	valueColor           Color
-	painted              bool
+	value float64
+
+	displayValue float64
+
+	trackColor Color
+	valueColor Color
+
+	themeTrackColor Color
+	themeValueColor Color
+
+	customTrackColor bool
+	customValueColor bool
+
+	painted bool
+
 	indeterminate        bool
 	indeterminatePhase   float64
 	indeterminateForward bool
-	cancelAnimation      func()
+
+	cancelAnimation func()
 }
 
 func init() {
@@ -350,10 +399,14 @@ func init() {
 }
 
 func NewProgressBar(doc *Document) *ProgressBar {
+	trackColor := doc.ResolveThemeColor(progressTrackThemeColor)
+	valueColor := doc.ResolveThemeColor(progressValueThemeColor)
 	return &ProgressBar{
-		BaseBox:    NewBaseBox(doc, `progress`),
-		trackColor: progressTrackColor,
-		valueColor: progressValueColor,
+		BaseBox:         NewBaseBox(doc, `progress`),
+		trackColor:      trackColor,
+		valueColor:      valueColor,
+		themeTrackColor: trackColor,
+		themeValueColor: valueColor,
 	}
 }
 
@@ -398,7 +451,19 @@ func (b *ProgressBar) Draw(canvas *Canvas) {
 		return
 	}
 
-	canvas.FillRect(x, y, width, height, b.trackColor)
+	trackColor := b.trackColor
+	if !b.customTrackColor && b.trackColor == b.themeTrackColor {
+		trackColor = b.document.ResolveThemeColor(progressTrackThemeColor)
+		b.trackColor = trackColor
+		b.themeTrackColor = trackColor
+	}
+	valueColor := b.valueColor
+	if !b.customValueColor && b.valueColor == b.themeValueColor {
+		valueColor = b.document.ResolveThemeColor(progressValueThemeColor)
+		b.valueColor = valueColor
+		b.themeValueColor = valueColor
+	}
+	canvas.FillRect(x, y, width, height, trackColor)
 	if b.indeterminate {
 		segmentWidth := max(1, width/4)
 		// 运动范围两端都在轨道外，使色块到达端点时完全消失。
@@ -408,14 +473,14 @@ func (b *ProgressBar) Draw(canvas *Canvas) {
 		visibleStart := max(x, segmentX)
 		visibleEnd := min(x+width, segmentX+segmentWidth)
 		if visibleStart < visibleEnd {
-			canvas.FillRect(visibleStart, y, visibleEnd-visibleStart, height, b.valueColor)
+			canvas.FillRect(visibleStart, y, visibleEnd-visibleStart, height, valueColor)
 		}
 		return
 	}
 	valueWidth := int(math.Round(float64(width) * b.displayValue))
 	valueWidth = min(width, max(0, valueWidth))
 	if valueWidth > 0 {
-		canvas.FillRect(x, y, valueWidth, height, b.valueColor)
+		canvas.FillRect(x, y, valueWidth, height, valueColor)
 	}
 }
 
@@ -542,8 +607,10 @@ func (b *ProgressBar) SetProp(key, value string) error {
 		}
 		if key == `track-color` {
 			b.trackColor = parsed
+			b.customTrackColor = true
 		} else {
 			b.valueColor = parsed
+			b.customValueColor = true
 		}
 		b.document.RequestPaint()
 		return nil

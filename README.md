@@ -627,6 +627,28 @@ if err := app.ClearThemeAccent(); err != nil {
 强调色会覆盖 `--color-primary`、`--color-primary-border` 和 `--color-focus`，
 并根据对比度自动为 `--color-on-primary` 选择黑色或白色。该覆盖在昼夜主题切换后仍然有效。
 
+组件可以注册自己的主题颜色和浅色、深色默认值：
+
+```go
+var meterColor = fbiw.RegisterThemeColor(
+    "--meter-color",
+    "#3358d4",
+    "#8da4ff",
+)
+
+func (m *Meter) Draw(canvas *fbiw.Canvas) {
+    color := m.Document().ResolveThemeColor(meterColor)
+    // 使用 color 绘制组件……
+}
+```
+
+主题颜色应在 `NewApp` 之前注册，通常声明为组件包的包级变量或在 `init()` 中注册。
+
+主题文件可以通过同名变量覆盖组件默认值。`toggle` 预定义了
+`--toggle-track-color`、`--toggle-checked-track-color`、`--toggle-knob-color`；
+`progress` 预定义了 `--progress-track-color` 和 `--progress-value-color`。
+元素上的 `track-color` 等显式属性仍具有最高优先级。
+
 主题由 App 统一管理。本地时间 06:00 至 18:00 使用浅色主题，18:00 至次日
 06:00 使用深色主题。App 每分钟检查一次本地时间，系统休眠或时钟变更后也会在恢复运行后约一分钟内校正。
 只配置一种时会始终使用该主题。
