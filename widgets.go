@@ -3,10 +3,14 @@ package fbiw
 import (
 	"embed"
 	"fmt"
+	"image"
+	"image/draw"
 	"math"
 	"slices"
 	"strconv"
 	"time"
+
+	"golang.org/x/image/vector"
 )
 
 // ButtonClickEvent 在 Button 被有效触发时派发。
@@ -126,6 +130,9 @@ var (
 	toggleTrackOffThemeColor = RegisterThemeColor(`--toggle-track-color`, `#656b76`, `#656b76`)
 	toggleTrackOnThemeColor  = RegisterThemeColor(`--toggle-checked-track-color`, `var(--color-primary)`, `var(--color-primary)`)
 	toggleKnobThemeColor     = RegisterThemeColor(`--toggle-knob-color`, `#ffffff`, `#ffffff`)
+	checkBoxThemeColor       = RegisterThemeColor(`--check-box-color`, `#656b76`, `#8b919c`)
+	checkCheckedThemeColor   = RegisterThemeColor(`--check-checked-box-color`, `var(--color-primary)`, `var(--color-primary)`)
+	checkMarkThemeColor      = RegisterThemeColor(`--check-mark-color`, `#ffffff`, `#ffffff`)
 )
 
 const (
@@ -359,6 +366,200 @@ func (b *Toggle) OnChange(handler func(checked bool)) func() {
 	return b.Listen(ToggleChangeEvent, func(event *Event) {
 		args := event.Data[ToggleChangeArgs]()
 		handler(args.Checked)
+	})
+}
+
+// CheckChangeEvent 在 CheckBox 的选中状态发生变化后派发。
+var CheckChangeEvent = RegisterEventType()
+
+type CheckChangeArgs struct {
+	Checked bool
+}
+
+// CheckBox 是一个有选中状态的复选框。激活后按 A 键切换状态。
+//
+// CheckBox 只绘制方框和勾号，不接受子节点。选中状态会同步为 checked 类名。
+type CheckBox struct {
+	BaseBox
+
+	checked bool
+
+	boxColor        Color
+	checkedBoxColor Color
+	markColor       Color
+
+	themeBoxColor        Color
+	themeCheckedBoxColor Color
+	themeMarkColor       Color
+
+	customBoxColor        bool
+	customCheckedBoxColor bool
+	customMarkColor       bool
+}
+
+func init() {
+	Define(`check`, true, NewCheckBox)
+}
+
+func NewCheckBox(doc *Document) *CheckBox {
+	boxColor := doc.ResolveThemeColor(checkBoxThemeColor)
+	checkedBoxColor := doc.ResolveThemeColor(checkCheckedThemeColor)
+	markColor := doc.ResolveThemeColor(checkMarkThemeColor)
+	b := &CheckBox{
+		BaseBox:              NewBaseBox(doc, `check`),
+		boxColor:             boxColor,
+		checkedBoxColor:      checkedBoxColor,
+		markColor:            markColor,
+		themeBoxColor:        boxColor,
+		themeCheckedBoxColor: checkedBoxColor,
+		themeMarkColor:       markColor,
+	}
+	b.Listen(StickDownEvent, func(event *Event) {
+		if event.Stick.Name != A || event.Stick.Repeat {
+			return
+		}
+		b.SetChecked(!b.Checked())
+		event.StopPropagation()
+	})
+	return b
+}
+
+func (b *CheckBox) intrinsicSize() (width, height int) {
+	fontSize := int(b.computedStyles.FontSize.Number())
+	size := max(1, fontSize*5/4)
+	return size, size
+}
+
+func (b *CheckBox) Calc(availWidth, availHeight int, constraints Constraints) {
+	size := b.resolveDimensions(constraints)
+	intrinsicWidth, intrinsicHeight := b.intrinsicSize()
+	b.layoutBox.Width = resolveSize(size.Width, availWidth, false, min(availWidth, intrinsicWidth+b.HorizontalInsets()))
+	b.layoutBox.Height = resolveSize(size.Height, availHeight, false, min(availHeight, intrinsicHeight+b.VerticalInsets()))
+}
+
+func (b *CheckBox) Draw(canvas *Canvas) {
+	b.BaseBox.draw(canvas, false)
+
+	x, y := b.InsetLeft(), b.InsetTop()
+	width := b.layoutBox.Width - b.HorizontalInsets()
+	height := b.layoutBox.Height - b.VerticalInsets()
+	if width < 3 || height < 3 {
+		return
+	}
+
+	boxColor := b.boxColor
+	if !b.customBoxColor && b.boxColor == b.themeBoxColor {
+		boxColor = b.document.ResolveThemeColor(checkBoxThemeColor)
+		b.boxColor, b.themeBoxColor = boxColor, boxColor
+	}
+	checkedBoxColor := b.checkedBoxColor
+	if !b.customCheckedBoxColor && b.checkedBoxColor == b.themeCheckedBoxColor {
+		checkedBoxColor = b.document.ResolveThemeColor(checkCheckedThemeColor)
+		b.checkedBoxColor, b.themeCheckedBoxColor = checkedBoxColor, checkedBoxColor
+	}
+	markColor := b.markColor
+	if !b.customMarkColor && b.markColor == b.themeMarkColor {
+		markColor = b.document.ResolveThemeColor(checkMarkThemeColor)
+		b.markColor, b.themeMarkColor = markColor, markColor
+	}
+
+	// 画背景、边框。
+	if b.checked {
+		canvas.FillRect(x, y, width, height, checkedBoxColor)
+	} else {
+		border := max(1, min(width, height)/10)
+		canvas.FillRect(x, y, width, border, boxColor)
+		canvas.FillRect(x, y+height-border, width, border, boxColor)
+		canvas.FillRect(x, y+border, border, height-border*2, boxColor)
+		canvas.FillRect(x+width-border, y+border, border, height-border*2, boxColor)
+	}
+
+	if !b.checked {
+		return
+	}
+
+	drawCheckMark(canvas, x, y, width, height, markColor)
+}
+
+// drawCheckMark 将勾号作为一个连续的六边形路径进行抗锯齿填充。
+// 相比沿折线堆叠方块，这能保持两段笔画等宽，并避免转折处鼓包。
+func drawCheckMark(canvas *Canvas, x, y, width, height int, color Color) {
+	mask := image.NewAlpha(image.Rect(0, 0, width, height))
+	rasterizer := vector.NewRasterizer(width, height)
+	points := [][2]float32{
+		{0.41, 0.62},
+		{0.22, 0.43},
+		{0.15, 0.50},
+		{0.41, 0.76},
+		{0.87, 0.30},
+		{0.80, 0.23},
+	}
+	rasterizer.MoveTo(points[0][0]*float32(width), points[0][1]*float32(height))
+	for _, point := range points[1:] {
+		rasterizer.LineTo(point[0]*float32(width), point[1]*float32(height))
+	}
+	rasterizer.ClosePath()
+	rasterizer.Draw(mask, mask.Bounds(), image.Opaque, image.Point{})
+	draw.DrawMask(
+		canvas.drawable(),
+		image.Rect(x, y, x+width, y+height),
+		image.NewUniform(color.NRGBA()),
+		image.Point{},
+		mask,
+		image.Point{},
+		draw.Over,
+	)
+}
+
+func (b *CheckBox) Checked() bool { return b.checked }
+
+// SetChecked 设置选中状态，并在状态发生变化时派发 CheckChangeEvent。
+func (b *CheckBox) SetChecked(checked bool) { b.setChecked(checked, true) }
+
+func (b *CheckBox) setChecked(checked, dispatch bool) {
+	if b.checked == checked {
+		return
+	}
+	b.checked = checked
+	b.ClassToggle(`checked`, checked)
+	b.document.RequestPaint()
+	if dispatch {
+		b.Dispatch(CheckChangeEvent, CheckChangeArgs{Checked: checked})
+	}
+}
+
+func (b *CheckBox) SetProp(key, value string) error {
+	switch key {
+	case `box-color`, `checked-box-color`, `mark-color`:
+		parsed, err := ParseColor(value)
+		if err != nil {
+			return fmt.Errorf(`%s 属性不是颜色：%s`, key, value)
+		}
+		switch key {
+		case `box-color`:
+			b.boxColor, b.customBoxColor = parsed, true
+		case `checked-box-color`:
+			b.checkedBoxColor, b.customCheckedBoxColor = parsed, true
+		case `mark-color`:
+			b.markColor, b.customMarkColor = parsed, true
+		}
+		b.document.paintDirty = true
+		return nil
+	case `checked`:
+		checked, err := parseBooleanAttribute(`checked`, value)
+		if err != nil {
+			return err
+		}
+		b.setChecked(checked, false)
+		return nil
+	default:
+		return b.Base().SetProp(key, value)
+	}
+}
+
+func (b *CheckBox) OnChange(handler func(checked bool)) func() {
+	return b.Listen(CheckChangeEvent, func(event *Event) {
+		handler(event.Data[CheckChangeArgs]().Checked)
 	})
 }
 

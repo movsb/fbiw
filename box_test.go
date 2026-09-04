@@ -231,7 +231,7 @@ func TestFlexTextReflowsAtAllocatedWidth(t *testing.T) {
 }
 
 func TestFlexWidgetAllocation(t *testing.T) {
-	for _, tag := range []string{`toggle`, `progress`, `select`, `img`, `scroll`} {
+	for _, tag := range []string{`toggle`, `check`, `progress`, `select`, `img`, `scroll`} {
 		t.Run(tag, func(t *testing.T) {
 			doc := newFlexTestDocument(t, `<flex><`+tag+` id="item" width="10" height="5" padding="0" flex-grow="1"></`+tag+`></flex>`, 100, 40)
 			box := doc.GetBoxByID[Box](`item`)
@@ -359,6 +359,7 @@ func TestPercentageDimensionsRelayout(t *testing.T) {
 		"image":    func(d *Document) Box { return NewImage(d) },
 		"scroll":   func(d *Document) Box { return NewScroll(d) },
 		"toggle":   func(d *Document) Box { return NewToggle(d) },
+		"check":    func(d *Document) Box { return NewCheckBox(d) },
 		"progress": func(d *Document) Box { return NewProgressBar(d) },
 		"select":   func(d *Document) Box { return NewSelectBox(d) },
 	}

@@ -255,7 +255,7 @@ func TestThemeAccent(t *testing.T) {
 			t.Fatalf(`%s 未使用强调色`, token)
 		}
 	}
-	for _, token := range []string{`--toggle-checked-track-color`, `--progress-value-color`} {
+	for _, token := range []string{`--toggle-checked-track-color`, `--check-checked-box-color`, `--progress-value-color`} {
 		if theme.Colors[token] != darkAccent {
 			t.Fatalf(`%s 未跟随强调色：got=%v want=%v`, token, theme.Colors[token], darkAccent)
 		}
@@ -335,6 +335,9 @@ func TestBuiltInWidgetThemeColors(t *testing.T) {
 		--toggle-track-color: #102030;
 		--toggle-checked-track-color: #405060;
 		--toggle-knob-color: #708090;
+		--check-box-color: #182838;
+		--check-checked-box-color: #485868;
+		--check-mark-color: #788898;
 		--progress-track-color: #a0b0c0;
 		--progress-value-color: #d0e0f0;
 	}`))
@@ -349,7 +352,7 @@ func TestBuiltInWidgetThemeColors(t *testing.T) {
 	}
 
 	doc := _NewDocument(100, 100, fstest.MapFS{
-		`main.html`: &fstest.MapFile{Data: []byte(`<document><block><toggle></toggle><progress></progress></block></document>`)},
+		`main.html`: &fstest.MapFile{Data: []byte(`<document><block><toggle></toggle><check></check><progress></progress></block></document>`)},
 	}, nil, nil)
 	doc.bindApp(app)
 	defer doc.unbindApp()
@@ -357,11 +360,17 @@ func TestBuiltInWidgetThemeColors(t *testing.T) {
 		t.Fatal(err)
 	}
 	toggle := doc.QuerySelector[*Toggle](`toggle`)
+	check := doc.QuerySelector[*CheckBox](`check`)
 	progress := doc.QuerySelector[*ProgressBar](`progress`)
 	if toggle.trackColor != ColorFromString(`#102030`) ||
 		toggle.checkedTrackColor != ColorFromString(`#405060`) ||
 		toggle.knobColor != ColorFromString(`#708090`) {
 		t.Fatal(`toggle 未使用主题颜色`)
+	}
+	if check.boxColor != ColorFromString(`#182838`) ||
+		check.checkedBoxColor != ColorFromString(`#485868`) ||
+		check.markColor != ColorFromString(`#788898`) {
+		t.Fatal(`check 未使用主题颜色`)
 	}
 	if progress.trackColor != ColorFromString(`#a0b0c0`) || progress.valueColor != ColorFromString(`#d0e0f0`) {
 		t.Fatal(`progress 未使用主题颜色`)

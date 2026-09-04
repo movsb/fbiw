@@ -127,6 +127,7 @@ func main() {
 | `spacer` | 在布局主轴上分配剩余空间 |
 | `button` | 带默认样式、A 键交互和禁用状态的按钮容器 |
 | `toggle` | 不接受子节点，激活后按 A 键切换 checked 状态的开关 |
+| `check` | 不接受子节点，激活后按 A 键切换 checked 状态的复选框 |
 | `progress` | 不接受子节点，绘制 `[0,1]` 范围内的确定进度 |
 | `select` | 不接受子节点，使用模态列表选择预定义选项 |
 | `text` | 文本内容和文本分段 |
@@ -238,6 +239,20 @@ Toggle 首次显示时直接呈现当前状态。显示过后切换状态，滑�
 滑块动画每帧只请求重绘；切换 `checked` 类名本身仍可能因 CSS 规则触发布局。
 动画期间尺寸变化会按新的滑动距离绘制。尚未首次绘制时直接更新位置；
 后台和 Detach 沿用 Timeline 的暂停回调、时间继续策略，关闭文档自动取消动画。
+
+`check` 与 Toggle 使用相同的状态和输入约定，但绘制为方框与勾号：
+
+```html
+<inline align="middle">
+    <check id="music" checked></check>
+    <text>背景音乐</text>
+</inline>
+```
+
+默认宽高均为 `1.25em`，也可显式设置尺寸。`box-color`、
+`checked-box-color` 和 `mark-color` 分别设置未选中边框、选中方框和勾号颜色。
+Go API 为 `Checked`、`SetChecked` 和 `OnChange`，事件类型为
+`fbiw.CheckChangeEvent`。切换状态后方框与勾号会立即重绘。
 
 `progress` 只绘制轨道和完成部分，进度使用 `[0,1]` 范围内的浮点数：
 
@@ -651,6 +666,7 @@ func (m *Meter) Draw(canvas *fbiw.Canvas) {
 
 主题文件可以通过同名变量覆盖组件默认值。`toggle` 预定义了
 `--toggle-track-color`、`--toggle-checked-track-color`、`--toggle-knob-color`；
+`check` 预定义了 `--check-box-color`、`--check-checked-box-color`、`--check-mark-color`；
 `progress` 预定义了 `--progress-track-color` 和 `--progress-value-color`。
 元素上的 `track-color` 等显式属性仍具有最高优先级。
 注册默认值既可以是固定颜色，也可以引用另一个主题颜色；引用会在主题与强调色完成

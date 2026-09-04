@@ -405,6 +405,81 @@ func TestToggleAnimationAttributeAndLifecycle(t *testing.T) {
 	}
 }
 
+func newCheckDocument(t *testing.T, markup string) (*Document, *CheckBox) {
+	t.Helper()
+	doc := _NewDocument(320, 240, fstest.MapFS{
+		`main.html`: &fstest.MapFile{Data: []byte(markup)},
+	}, NewFontManager(), NewImageManager())
+	if err := doc.load(`main.html`); err != nil {
+		t.Fatal(err)
+	}
+	check := doc.QuerySelector[*CheckBox](`check`)
+	if check == nil {
+		t.Fatal(`找不到 check`)
+	}
+	return doc, check
+}
+
+func TestCheckCheckedAttributeAndRejectsChildren(t *testing.T) {
+	_, check := newCheckDocument(t, `<document><block><check checked></check></block></document>`)
+	if !check.Checked() || !check.ClassContains(`checked`) {
+		t.Fatal(`checked 属性没有正确初始化 check`)
+	}
+	doc := _NewDocument(320, 240, fstest.MapFS{
+		`main.html`: &fstest.MapFile{Data: []byte(`<document><block><check><text>音乐</text></check></block></document>`)},
+	}, NewFontManager(), NewImageManager())
+	if err := doc.load(`main.html`); err == nil {
+		t.Fatal(`check 接受了子节点`)
+	}
+}
+
+func TestActiveCheckChangesOnA(t *testing.T) {
+	doc, check := newCheckDocument(t, `<document><block><check></check></block></document>`)
+	var states []bool
+	check.OnChange(func(checked bool) { states = append(states, checked) })
+	check.Activate()
+	doc.handleEvent(&Event{Type: StickDownEvent, Stick: KeyEventArgs{Name: B}})
+	doc.handleEvent(&Event{Type: StickDownEvent, Stick: KeyEventArgs{Name: A}})
+	doc.handleEvent(&Event{Type: StickDownEvent, Stick: KeyEventArgs{Name: A, Repeat: true}})
+	if !check.Checked() || !check.ClassContains(`checked`) || !slices.Equal(states, []bool{true}) {
+		t.Fatalf(`A 键切换结果不正确：checked=%v states=%v`, check.Checked(), states)
+	}
+	check.SetChecked(false)
+	check.SetChecked(false)
+	if check.Checked() || check.ClassContains(`checked`) || !slices.Equal(states, []bool{true, false}) {
+		t.Fatalf(`SetChecked 结果不正确：checked=%v states=%v`, check.Checked(), states)
+	}
+}
+
+func TestCheckSizeColorsAndDrawing(t *testing.T) {
+	doc, check := newCheckDocument(t, `<document><block font-size="24"><check padding="2 3" box-color="#112233" checked-box-color="#445566" mark-color="#ffffff"></check></block></document>`)
+	doc.layout()
+	if got, want := check.GetLayoutBox(), (Rect{Width: 30 + 6, Height: 30 + 4}); got.Width != want.Width || got.Height != want.Height {
+		t.Fatalf(`check 固有尺寸不正确：got=%+v want=%+v`, got, want)
+	}
+	if check.boxColor != ColorFromString(`#112233`) || check.checkedBoxColor != ColorFromString(`#445566`) || check.markColor != ColorFromString(`#ffffff`) {
+		t.Fatal(`check 自定义颜色不正确`)
+	}
+	canvas := NewCanvas(check.layoutBox.Width, check.layoutBox.Height)
+	check.Draw(canvas)
+	if got := canvas.getPixel(check.InsetLeft(), check.InsetTop()); got != check.boxColor.NRGBA() {
+		t.Fatalf(`未选中边框颜色不正确：%v`, got)
+	}
+	if got := canvas.getPixel(check.InsetLeft()+5, check.InsetTop()+5); got.A != 0 {
+		t.Fatalf(`未选中方框内部不透明：%v`, got)
+	}
+	check.checked = true
+	check.Draw(canvas)
+	if got := canvas.getPixel(check.InsetLeft()+5, check.InsetTop()+5); got != check.checkedBoxColor.NRGBA() {
+		t.Fatalf(`选中方框颜色不正确：%v`, got)
+	}
+	markX := check.InsetLeft() + int(math.Round(.42*float64(30-1)))
+	markY := check.InsetTop() + int(math.Round(.72*float64(30-1)))
+	if got := canvas.getPixel(markX, markY); got != check.markColor.NRGBA() {
+		t.Fatalf(`没有绘制勾号：%v`, got)
+	}
+}
+
 func newProgressDocument(t *testing.T, markup string) (*Document, *ProgressBar) {
 	t.Helper()
 	doc := _NewDocument(640, 480, fstest.MapFS{
