@@ -611,6 +611,22 @@ if err := app.SetThemeDark("dark"); err != nil {
 }
 ```
 
+可以在 App 层一键覆盖浅色和深色主题的强调色：
+
+```go
+if err := app.SetThemeAccent("#7c3aed"); err != nil {
+    panic(err)
+}
+
+// 恢复主题文件中定义的强调色。
+if err := app.ClearThemeAccent(); err != nil {
+    panic(err)
+}
+```
+
+强调色会覆盖 `--color-primary`、`--color-primary-border` 和 `--color-focus`，
+并根据对比度自动为 `--color-on-primary` 选择黑色或白色。该覆盖在昼夜主题切换后仍然有效。
+
 主题由 App 统一管理。本地时间 06:00 至 18:00 使用浅色主题，18:00 至次日
 06:00 使用深色主题。App 每分钟检查一次本地时间，系统休眠或时钟变更后也会在恢复运行后约一分钟内校正。
 只配置一种时会始终使用该主题。

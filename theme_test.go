@@ -231,3 +231,42 @@ func TestWithThemeReadsFile(t *testing.T) {
 		t.Fatalf(`文件主题未生效：%v`, got)
 	}
 }
+
+func TestThemeAccent(t *testing.T) {
+	app := newDesktopTestApp()
+	before := app.Theme()
+
+	darkAccent := ColorFromString(`#3358d4`)
+	if err := app.SetThemeAccent(`#3358d4`); err != nil {
+		t.Fatal(err)
+	}
+	theme := app.Theme()
+	for _, token := range []string{`--color-primary`, `--color-primary-border`, `--color-focus`} {
+		if theme.Colors[token] != darkAccent {
+			t.Fatalf(`%s 未使用强调色`, token)
+		}
+	}
+	if theme.Colors[`--color-on-primary`] != ColorFromString(`#ffffff`) {
+		t.Fatal(`深色强调色未自动使用白色前景`)
+	}
+
+	if err := app.SetThemeAccent(`#ffee00`); err != nil {
+		t.Fatal(err)
+	}
+	if app.Theme().Colors[`--color-on-primary`] != ColorFromString(`#000000`) {
+		t.Fatal(`浅色强调色未自动使用黑色前景`)
+	}
+
+	if err := app.ClearThemeAccent(); err != nil {
+		t.Fatal(err)
+	}
+	if got := app.Theme(); !reflect.DeepEqual(got, before) {
+		t.Fatalf(`清除强调色后未恢复主题：got=%+v want=%+v`, got, before)
+	}
+	if err := app.SetThemeAccent(`none`); err == nil {
+		t.Fatal(`特殊颜色不应能作为强调色`)
+	}
+	if err := app.SetThemeAccent(`not-a-color`); err == nil {
+		t.Fatal(`无效颜色字符串未返回错误`)
+	}
+}

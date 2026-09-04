@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"log"
 	"maps"
+	"math"
 	"time"
 )
 
@@ -41,6 +42,7 @@ type ThemeManager struct {
 
 	lightName string
 	darkName  string
+	accent    *Color
 
 	timer *time.Timer
 }
@@ -143,7 +145,72 @@ func (m *ThemeManager) resolved(name string, base Theme) (Theme, bool) {
 		resolved.Colors = map[string]Color{}
 	}
 	maps.Copy(resolved.Colors, theme.Colors)
+	if m.accent != nil {
+		resolved.Colors[`--color-primary`] = *m.accent
+		resolved.Colors[`--color-primary-border`] = *m.accent
+		resolved.Colors[`--color-focus`] = *m.accent
+		resolved.Colors[`--color-on-primary`] = accentForeground(*m.accent)
+	}
 	return resolved, true
+}
+
+func accentForeground(accent Color) Color {
+	linear := func(value uint8) float64 {
+		channel := float64(value) / 255
+		if channel <= 0.04045 {
+			return channel / 12.92
+		}
+		return math.Pow((channel+0.055)/1.055, 2.4)
+	}
+	luminance := 0.2126*linear(accent.R()) + 0.7152*linear(accent.G()) + 0.0722*linear(accent.B())
+	blackContrast := (luminance + 0.05) / 0.05
+	whiteContrast := 1.05 / (luminance + 0.05)
+	if blackContrast >= whiteContrast {
+		return ColorFromRGBA(0, 0, 0, 0xff)
+	}
+	return ColorFromRGBA(0xff, 0xff, 0xff, 0xff)
+}
+
+func (m *ThemeManager) selectionForTime(now time.Time) (string, Theme) {
+	light := isLightThemeTime(now)
+	name := Iif(light, m.lightName, m.darkName)
+	if name == `` {
+		name = Iif(m.lightName != ``, m.lightName, m.darkName)
+		light = m.lightName != ``
+	}
+	return name, Iif(light, defaultLightTheme(), defaultDarkTheme())
+}
+
+func (m *ThemeManager) SetAccent(raw string) error {
+	accent, err := ParseColor(raw)
+	if err != nil {
+		return fmt.Errorf(`无效强调色 %q：%w`, raw, err)
+	}
+	if accent == 0 || accent.IsNone() || accent.IsClear() || accent.A() != 0xff {
+		return fmt.Errorf(`强调色必须是不透明颜色`)
+	}
+	previous := m.accent
+	m.accent = &accent
+	name, base := m.selectionForTime(time.Now())
+	if err := m.apply(name, base); err != nil {
+		m.accent = previous
+		return err
+	}
+	return nil
+}
+
+func (m *ThemeManager) ClearAccent() error {
+	if m.accent == nil {
+		return nil
+	}
+	previous := m.accent
+	m.accent = nil
+	name, base := m.selectionForTime(time.Now())
+	if err := m.apply(name, base); err != nil {
+		m.accent = previous
+		return err
+	}
+	return nil
 }
 
 func (m *ThemeManager) apply(name string, base Theme) error {
@@ -183,16 +250,11 @@ func (m *ThemeManager) apply(name string, base Theme) error {
 }
 
 func (m *ThemeManager) applyForTime(now time.Time) error {
-	name := Iif(isLightThemeTime(now), m.lightName, m.darkName)
-	if name == `` {
-		name = Iif(m.lightName != ``, m.lightName, m.darkName)
-	}
+	name, base := m.selectionForTime(now)
 
 	if name == `` || name == m.name {
 		return nil
 	}
-
-	base := Iif(isLightThemeTime(now) && m.lightName != ``, defaultLightTheme(), defaultDarkTheme())
 
 	return m.apply(name, base)
 }
@@ -272,4 +334,19 @@ func (app *App) SetThemeLight(name string) error {
 // SetThemeDark 设置晚上 6 点到次早 6 点使用的深色主题。
 func (app *App) SetThemeDark(name string) error {
 	return app.themeManager.SetDark(name)
+}
+
+// SetThemeAccent 设置跨浅色、深色主题生效的强调色。
+//
+// 目前需要为不透明色，主要是为了让 --color-on-primary 的黑白自动选择可靠。
+//
+//   - 同一个半透明紫色放在白色和黑色背景上，最终亮度不同，因此无法只根据强调色本身判断应该配黑字还是白字。
+//   - 强调色还会用于边框和焦点颜色，透明后视觉效果也更不稳定。
+func (app *App) SetThemeAccent(color string) error {
+	return app.themeManager.SetAccent(color)
+}
+
+// ClearThemeAccent 清除强调色覆盖，恢复当前主题原有颜色。
+func (app *App) ClearThemeAccent() error {
+	return app.themeManager.ClearAccent()
 }
