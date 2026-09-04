@@ -119,7 +119,8 @@ type BaseBox struct {
 	_EventTarget
 
 	// 来自内联样式的值和样式计算的最终结果。
-	inlineStyles Styles
+	inlineStyles      Styles
+	inlineThemeColors map[styleProperty]Declaration
 	// 样式计算结束后只读；布局阶段不得改写百分比等样式值。
 	computedStyles Styles
 
@@ -254,8 +255,38 @@ type PropertySetter interface {
 }
 
 func (b *BaseBox) SetProp(key string, val string) error {
-	reInherit, reLayout, rePaint, err := b.inlineStyles.Set(key, val)
+	inlineValue := val
+	var themeDeclaration *Declaration
+	if isColorProperty(key) {
+		name, referenced, err := parseThemeColorReference(val)
+		if err != nil {
+			return err
+		}
+		if referenced {
+			if b.document == nil {
+				return fmt.Errorf(`内联主题颜色需要文档`)
+			}
+			_, theme := b.document.appTheme()
+			if _, ok := theme.ResolveColor(name); !ok {
+				return fmt.Errorf(`当前主题未定义颜色 %s`, name)
+			}
+			inlineValue = `none`
+			declaration := Declaration{Name: key, Value: val}
+			themeDeclaration = &declaration
+		}
+	}
+
+	reInherit, reLayout, rePaint, err := b.inlineStyles.Set(key, inlineValue)
 	if err == nil {
+		property := stylePropertyByName(key)
+		if themeDeclaration != nil {
+			if b.inlineThemeColors == nil {
+				b.inlineThemeColors = map[styleProperty]Declaration{}
+			}
+			b.inlineThemeColors[property] = *themeDeclaration
+		} else if b.inlineThemeColors != nil {
+			delete(b.inlineThemeColors, property)
+		}
 		// 文档解析过程中也会调用进来，所以需要判断。
 		if b.document.root != nil {
 			b.document.style(b, reInherit)

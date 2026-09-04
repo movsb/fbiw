@@ -1416,6 +1416,17 @@ func (s _Styler) computeStyles(node Box, rules [][]RuleMatch) error {
 	// Cascade：内联样式优先，然后从高到低查找样式表声明。每个属性
 	// 一旦取得值，低优先级声明就不能再覆盖它。
 	styles := node.Base().inlineStyles
+	for _, declaration := range node.Base().inlineThemeColors {
+		raw, err := s.resolveDeclarationValue(declaration)
+		if err != nil {
+			return err
+		}
+		_, _, _, current, update, err := styles.parseProperty(declaration.Name, raw)
+		if err != nil {
+			return fmt.Errorf(`内联样式应用错误：%w`, err)
+		}
+		assignStyleProperty(current, update)
+	}
 	stylesValue := reflect.ValueOf(&styles).Elem()
 	for d := range s.declarationsByPriority(rules) {
 		raw, err := s.resolveDeclarationValue(d)

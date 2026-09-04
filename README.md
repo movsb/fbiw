@@ -661,7 +661,15 @@ func (m *Meter) Draw(canvas *fbiw.Canvas) {
 只配置一种时会始终使用该主题。
 切换前会检查所有文档引用的颜色；缺失颜色时返回错误并保留旧主题。
 
-当前仅支持 `<style>` 中的 `var(--color-*)`，不支持 fallback、非颜色变量或元素内联属性中的主题变量。
+`var(...)` 可用于 `<style>` 以及元素内联属性中的 `color`、`background-color`、
+`border-color` 和 `outline-color`：
+
+```html
+<block background-color="var(--color-selection-background)"></block>
+```
+
+当前不支持 fallback 或非颜色变量。除 `--color-*` 外，变量需要先通过
+`RegisterThemeColor` 注册。
 
 样式来源的覆盖顺序为：
 

@@ -103,10 +103,6 @@ func TestThemeColorErrors(t *testing.T) {
 		})
 	}
 
-	var inline Styles
-	if _, _, _, err := inline.Set(`color`, `var(--color-text)`); err == nil {
-		t.Fatal(`内联样式不应在首版支持主题变量`)
-	}
 }
 
 func TestAppThemeSwitch(t *testing.T) {
@@ -132,11 +128,8 @@ func TestAppThemeSwitch(t *testing.T) {
 	doc := _NewDocument(100, 100, fstest.MapFS{
 		`main.html`: &fstest.MapFile{Data: []byte(`<document><style>
 			document { color: var(--color-text); }
-			#target {
-				background-color: var(--color-background);
-				outline-color: var(--color-required);
-			}
-		</style><block id="target"></block></document>`)},
+			#target { outline-color: var(--color-required); }
+		</style><block id="target" background-color="var(--color-background)"></block></document>`)},
 	}, nil, nil)
 	doc.bindApp(app)
 	desktop.add(doc)
@@ -176,6 +169,19 @@ func TestAppThemeSwitch(t *testing.T) {
 	copyOfTheme := app.Theme()
 	copyOfTheme.Colors[`--color-text`] = ColorFromString(`#FF0000`)
 	assertColors(`dark`, activeDark)
+
+	if err := target.SetProp(`background-color`, `#123456`); err != nil {
+		t.Fatal(err)
+	}
+	if err := app.themeManager.applyForTime(noon); err != nil {
+		t.Fatal(err)
+	}
+	if got := target.GetComputedStyles().BackgroundColor; got != ColorFromString(`#123456`) {
+		t.Fatalf(`固定内联颜色未覆盖主题变量：%v`, got)
+	}
+	if err := target.SetProp(`background-color`, `var(--color-missing)`); err == nil {
+		t.Fatal(`未定义的内联主题变量未返回错误`)
+	}
 }
 
 func TestBuiltInThemesAndPartialOverride(t *testing.T) {
