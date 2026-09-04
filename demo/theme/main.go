@@ -13,16 +13,10 @@ var embedded embed.FS
 func main() {
 	app := fbiw.NewApp(
 		fbiw.WithSystemFont(os.DirFS(`..`), `regular.ttf`),
-		fbiw.WithTheme(`light`, embedded, `light.css`),
-		fbiw.WithTheme(`dark`, embedded, `dark.css`),
+		fbiw.WithThemeLight(embedded, `light.css`),
+		fbiw.WithThemeDark(embedded, `dark.css`),
 	)
 	defer app.Close()
-	if err := app.SetThemeLight(`light`); err != nil {
-		panic(err)
-	}
-	if err := app.SetThemeDark(`dark`); err != nil {
-		panic(err)
-	}
 
 	doc := app.NewDesktop(embedded, `main.html`)
 	button := doc.GetBoxByID[*fbiw.Button](`switch`)

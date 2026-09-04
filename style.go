@@ -710,6 +710,10 @@ func (c Color) Value() uint32 {
 	return uint32(c)
 }
 
+func (c Color) String() string {
+	return fmt.Sprintf(`#%02x%02x%02x%02x`, c.R(), c.G(), c.B(), c.A())
+}
+
 // 用结构体而不是直接type为[]string的原因是修改的时候不想重新赋值。
 type Class struct {
 	class []string

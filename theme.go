@@ -239,14 +239,38 @@ func (m *ThemeManager) resolved(name string, base Theme, light bool) (Theme, boo
 		resolved.Colors = map[string]Color{}
 	}
 	maps.Copy(resolved.Colors, theme.Colors)
+	selectionColor := Color(0)
+	deriveSelection := false
 	if m.accent != nil {
 		resolved.Colors[`--color-primary`] = *m.accent
 		resolved.Colors[`--color-primary-border`] = *m.accent
 		resolved.Colors[`--color-focus`] = *m.accent
 		resolved.Colors[`--color-on-primary`] = accentForeground(*m.accent)
+		selectionColor = *m.accent
+		deriveSelection = true
+	} else if primary, overridden := theme.Colors[`--color-primary`]; overridden {
+		_, selectionOverridden := theme.Colors[`--color-selection-background`]
+		selectionColor = primary
+		deriveSelection = !selectionOverridden
+	}
+	if surface, ok := resolved.Colors[`--color-surface`]; ok && deriveSelection {
+		ratio := Iif(light, 0.18, 0.28)
+		resolved.Colors[`--color-selection-background`] = mixThemeColor(surface, selectionColor, ratio)
 	}
 	resolved = withRegisteredThemeColors(resolved, light, theme.Colors)
 	return resolved, true
+}
+
+func mixThemeColor(base, overlay Color, ratio float64) Color {
+	mix := func(a, b uint8) uint8 {
+		return uint8(math.Round(float64(a)*(1-ratio) + float64(b)*ratio))
+	}
+	return ColorFromRGBA(
+		mix(base.R(), overlay.R()),
+		mix(base.G(), overlay.G()),
+		mix(base.B(), overlay.B()),
+		0xff,
+	)
 }
 
 func accentForeground(accent Color) Color {
@@ -286,8 +310,7 @@ func (m *ThemeManager) SetAccent(raw string) error {
 	}
 	previous := m.accent
 	m.accent = &accent
-	name, base, light := m.selectionForTime(time.Now())
-	if err := m.apply(name, base, light); err != nil {
+	if err := m.apply(m.selectionForTime(time.Now())); err != nil {
 		m.accent = previous
 		return err
 	}
@@ -408,6 +431,20 @@ func WithTheme(name string, fsys fs.FS, path string) Option {
 			return
 		}
 		app.themeManager.register(name, theme)
+	}
+}
+
+func WithThemeLight(fsys fs.FS, path string) Option {
+	return func(app *App) {
+		WithTheme(`light`, fsys, path)(app)
+		app.SetThemeLight(`light`)
+	}
+}
+
+func WithThemeDark(fsys fs.FS, path string) Option {
+	return func(app *App) {
+		WithTheme(`dark`, fsys, path)(app)
+		app.SetThemeDark(`dark`)
 	}
 }
 

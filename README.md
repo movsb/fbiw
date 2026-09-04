@@ -586,6 +586,7 @@ App 内置浅色和深色主题；即使不传任何主题选项，也会随本�
 --color-text              --color-background
 --color-surface           --color-muted
 --color-border            --color-focus
+--color-selection-background
 --color-primary           --color-on-primary
 --color-destructive       --color-on-destructive
 ```
@@ -626,6 +627,10 @@ if err := app.ClearThemeAccent(); err != nil {
 
 强调色会覆盖 `--color-primary`、`--color-primary-border` 和 `--color-focus`，
 并根据对比度自动为 `--color-on-primary` 选择黑色或白色。该覆盖在昼夜主题切换后仍然有效。
+`--color-selection-background` 会由当前 `--color-surface` 和强调色混合生成：浅色主题
+使用 18% 强调色，深色主题使用 28% 强调色。
+主题文件只覆盖 `--color-primary` 而未覆盖 `--color-selection-background` 时，也会执行同样的自动混合；
+显式定义 `--color-selection-background` 则以主题文件为准。
 
 组件可以注册自己的主题颜色和浅色、深色默认值：
 

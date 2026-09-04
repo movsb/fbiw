@@ -112,7 +112,6 @@ func NewApp(options ...Option) *App {
 	}
 
 	app.themeManager = newThemeManager(app)
-	app.themeManager.start()
 
 	for _, opt := range options {
 		opt(app)
@@ -129,6 +128,9 @@ func NewApp(options ...Option) *App {
 
 	// 未初始化任何内容，也不应该使用它。
 	app._EventTarget.box = &BaseBox{}
+
+	// 不要放前面，里面引用了 app.ctx。
+	app.themeManager.start()
 
 	return app
 }
