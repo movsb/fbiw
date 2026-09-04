@@ -18,7 +18,7 @@ func main() {
 
 	doc := app.NewDesktop(embedded, `main.html`)
 	progresses := doc.QuerySelectorAll[*fbiw.ProgressBar](`progress`)
-	values := []float64{0.35, 0.68, 0.82, 1}
+	values := []float64{0.35, 0.68, 0.82, 1, 0}
 	for index, progress := range progresses {
 		if err := progress.SetValue(values[index]); err != nil {
 			panic(err)

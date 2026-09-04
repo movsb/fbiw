@@ -260,12 +260,28 @@ err := progress.SetValue(float64(completed) / float64(total))
 动画帧只请求重绘。首次绘制前直接显示目标值；后台、Detach 和文档关闭行为
 与其他 Timeline 动画一致。
 
+不知道完成比例时，可以启用不确定模式：
+
+```html
+<progress indeterminate></progress>
+```
+
+```go
+progress.SetIndeterminate(true)
+// 得到实际进度后：
+progress.SetValue(0.35)
+progress.SetIndeterminate(false)
+```
+
+不确定模式显示一个往返移动的色块；它会在轨道两端完全移出并短暂停留，
+再从同一侧重新进入。期间 `Value` 与 `SetValue` 仍保存
+确定进度，切回确定模式后立即显示该值。循环由组件内部续订普通 `Animate`，
+端点停留期间停止请求动画帧；整个循环不会在动画公共接口中引入 repeat。
+
 标题、两端数值和百分比文字由外部元素提供。两端文字可以和 Progress
 一起放在 `block` 中，中间覆盖的百分比可以使用 `stack` 将文字叠在
 Progress 上方。默认尺寸为 `8em × 0.5em`，也可以通过 CSS 覆盖尺寸、
 padding、背景和边框。
-
-目前仅支持确定进度，不支持未知进度的循环动画。
 
 `select` 用于从预定义项目中选择一项。它会显示当前值或 placeholder，
 激活后按 A 打开居中的列表；方向键移动高亮，A 提交，B 取消：

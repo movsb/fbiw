@@ -128,8 +128,12 @@ var (
 	toggleKnobColor     = ColorFromRGBA(255, 255, 255, 255)
 )
 
-const toggleAnimationDuration = 250 * time.Millisecond
-const progressAnimationDuration = 250 * time.Millisecond
+const (
+	toggleAnimationDuration       = 250 * time.Millisecond
+	progressAnimationDuration     = 250 * time.Millisecond
+	progressIndeterminateDuration = 900 * time.Millisecond
+	progressIndeterminatePause    = 250 * time.Millisecond
+)
 
 // ToggleChangeEvent 在 Toggle 的选中状态发生变化后派发。
 var ToggleChangeEvent = RegisterEventType()
@@ -325,17 +329,20 @@ var (
 	progressValueColor = ColorFromRGBA(51, 88, 212, 255)
 )
 
-// ProgressBar 是一个使用 [0,1] 表示完成比例的确定进度条。
+// ProgressBar 是一个使用 [0,1] 表示完成比例的进度条。
 // 它只绘制进度条本身，不接受子节点，也不处理输入事件。
 type ProgressBar struct {
 	BaseBox
 
-	value           float64
-	displayValue    float64
-	trackColor      Color
-	valueColor      Color
-	painted         bool
-	cancelAnimation func()
+	value                float64
+	displayValue         float64
+	trackColor           Color
+	valueColor           Color
+	painted              bool
+	indeterminate        bool
+	indeterminatePhase   float64
+	indeterminateForward bool
+	cancelAnimation      func()
 }
 
 func init() {
@@ -377,7 +384,11 @@ func (b *ProgressBar) Calc(availWidth, availHeight int, constraints Constraints)
 // Draw 先绘制完整轨道，再从左向右绘制已完成部分。
 func (b *ProgressBar) Draw(canvas *Canvas) {
 	b.BaseBox.draw(canvas, false)
+	firstPaint := !b.painted
 	b.painted = true
+	if firstPaint && b.indeterminate {
+		b.animateIndeterminate()
+	}
 
 	x := b.InsetLeft()
 	y := b.InsetTop()
@@ -388,6 +399,19 @@ func (b *ProgressBar) Draw(canvas *Canvas) {
 	}
 
 	canvas.FillRect(x, y, width, height, b.trackColor)
+	if b.indeterminate {
+		segmentWidth := max(1, width/4)
+		// 运动范围两端都在轨道外，使色块到达端点时完全消失。
+		travel := width + segmentWidth
+		segmentX := x - segmentWidth + int(math.Round(float64(travel)*b.indeterminatePhase))
+		// Canvas 只按整张画布裁剪；这里还要限制在进度条轨道内。
+		visibleStart := max(x, segmentX)
+		visibleEnd := min(x+width, segmentX+segmentWidth)
+		if visibleStart < visibleEnd {
+			canvas.FillRect(visibleStart, y, visibleEnd-visibleStart, height, b.valueColor)
+		}
+		return
+	}
 	valueWidth := int(math.Round(float64(width) * b.displayValue))
 	valueWidth = min(width, max(0, valueWidth))
 	if valueWidth > 0 {
@@ -410,6 +434,10 @@ func (b *ProgressBar) SetValue(value float64) error {
 		return nil
 	}
 	b.value = value
+	if b.indeterminate {
+		b.displayValue = value
+		return nil
+	}
 	if b.cancelAnimation != nil {
 		b.cancelAnimation()
 		b.cancelAnimation = nil
@@ -433,6 +461,65 @@ func (b *ProgressBar) SetValue(value float64) error {
 	return nil
 }
 
+// Indeterminate 返回进度条是否处于不确定模式。
+func (b *ProgressBar) Indeterminate() bool {
+	return b.indeterminate
+}
+
+// SetIndeterminate 切换不确定模式。不确定模式只表示任务仍在进行，
+// Value 仍可保存下次切回确定模式时要显示的完成比例。
+func (b *ProgressBar) SetIndeterminate(indeterminate bool) {
+	if b.indeterminate == indeterminate {
+		return
+	}
+	if b.cancelAnimation != nil {
+		b.cancelAnimation()
+		b.cancelAnimation = nil
+	}
+	b.indeterminate = indeterminate
+	b.indeterminatePhase = 0
+	b.indeterminateForward = true
+	if indeterminate {
+		b.animateIndeterminate()
+	}
+	b.document.RequestPaint()
+}
+
+// 在轨道内往返移动色块；每次完成后续订下一段，不要求公共动画支持循环。
+func (b *ProgressBar) animateIndeterminate() {
+	if !b.painted || !b.indeterminate {
+		return
+	}
+	from, to := 0.0, 1.0
+	if !b.indeterminateForward {
+		from, to = to, from
+	}
+	phaseAt := NumberAnimator(from, to)
+	b.cancelAnimation = b.document.Animate(AnimationOptions{
+		Duration: progressIndeterminateDuration,
+		Easing:   EaseInOut,
+		OnUpdate: func(progress float64) {
+			b.indeterminatePhase = phaseAt(progress)
+			b.document.RequestPaint()
+		},
+		OnComplete: func() {
+			b.cancelAnimation = nil
+			if !b.indeterminate {
+				return
+			}
+			// 到达端点后停止动画帧，只保留一次生命周期绑定的定时器。
+			b.cancelAnimation = b.document.SetTimeout(progressIndeterminatePause, func() {
+				b.cancelAnimation = nil
+				if !b.indeterminate {
+					return
+				}
+				b.indeterminateForward = !b.indeterminateForward
+				b.animateIndeterminate()
+			})
+		},
+	})
+}
+
 func (b *ProgressBar) SetProp(key, value string) error {
 	switch key {
 	case `value`:
@@ -441,6 +528,13 @@ func (b *ProgressBar) SetProp(key, value string) error {
 			return fmt.Errorf(`progress value 属性不是数值：%s`, value)
 		}
 		return b.SetValue(parsed)
+	case `indeterminate`:
+		parsed, err := parseBooleanAttribute(`indeterminate`, value)
+		if err != nil {
+			return err
+		}
+		b.SetIndeterminate(parsed)
+		return nil
 	case `track-color`, `value-color`:
 		parsed, err := ParseColor(value)
 		if err != nil {

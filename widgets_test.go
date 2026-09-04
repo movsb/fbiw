@@ -1,6 +1,7 @@
 package fbiw
 
 import (
+	"image/color"
 	"math"
 	"slices"
 	"strings"
@@ -500,6 +501,97 @@ func TestProgressAnimationBeforeFirstPaint(t *testing.T) {
 	}
 	if progress.displayValue != 0.8 || progress.cancelAnimation != nil || len(app.animation.requests) != 0 {
 		t.Fatal("首次绘制前不应启动动画")
+	}
+}
+
+func TestProgressIndeterminateAnimation(t *testing.T) {
+	app, doc, progress, clock := newAnimatedProgress(t,
+		`<document><block><progress indeterminate value="0.3"></progress></block></document>`, true)
+	if !progress.Indeterminate() || progress.cancelAnimation == nil {
+		t.Fatal("不确定模式首次绘制后没有启动动画")
+	}
+	doc.layoutDirty, doc.paintDirty = false, false
+	clock.now = clock.now.Add(progressIndeterminateDuration / 2)
+	animationStep(app)
+	if progress.indeterminatePhase != 0.5 || doc.layoutDirty || !doc.paintDirty {
+		t.Fatalf("不确定动画没有只请求重绘：%v", progress.indeterminatePhase)
+	}
+	clock.now = clock.now.Add(progressIndeterminateDuration / 2)
+	animationStep(app)
+	if progress.indeterminatePhase != 1 || !progress.indeterminateForward ||
+		len(doc.timeline.animations) != 0 || app.animation.stop != nil || progress.cancelAnimation == nil {
+		t.Fatal("到达右端后没有停止动画并等待")
+	}
+	// 直接触发生命周期定时器，避免测试依赖真实等待。
+	var pause *_DocumentTimer
+	for timer := range doc.timers {
+		pause = timer
+	}
+	if pause == nil || pause.duration != progressIndeterminatePause {
+		t.Fatal("没有安排端点停留定时器")
+	}
+	pause.cancel()
+	pause.callback()
+	if progress.indeterminateForward || len(doc.timeline.animations) != 1 {
+		t.Fatal("停留结束后没有续订反向动画")
+	}
+	clock.now = clock.now.Add(progressIndeterminateDuration / 2)
+	animationStep(app)
+	if progress.indeterminatePhase != 0.5 {
+		t.Fatal("反向动画没有返回中点")
+	}
+}
+
+func TestProgressIndeterminateValueAndStop(t *testing.T) {
+	app, _, progress, clock := newAnimatedProgress(t,
+		`<document><block><progress value="0.2"></progress></block></document>`, true)
+	progress.SetIndeterminate(true)
+	if err := progress.SetValue(0.8); err != nil {
+		t.Fatal(err)
+	}
+	if progress.Value() != 0.8 || progress.displayValue != 0.8 || !progress.Indeterminate() {
+		t.Fatal("不确定模式没有保存确定进度")
+	}
+	progress.SetIndeterminate(false)
+	if progress.Indeterminate() || progress.cancelAnimation != nil || len(app.animation.requests) != 0 {
+		t.Fatal("退出不确定模式后仍有循环动画")
+	}
+	clock.now = clock.now.Add(time.Second)
+	animationStep(app)
+	if progress.displayValue != 0.8 {
+		t.Fatal("退出不确定模式后没有显示保存的进度")
+	}
+}
+
+func TestProgressIndeterminateDraw(t *testing.T) {
+	_, _, progress, _ := newAnimatedProgress(t,
+		`<document><block><progress width="12" height="4" indeterminate></progress></block></document>`, false)
+	progress.indeterminatePhase = 0.5
+	progress.Calc(12, 4, Constraints{})
+	canvas := NewCanvas(12, 4)
+	progress.Draw(canvas)
+	// 色块宽 3，包含轨道外区域的移动距离为 15，中点四舍五入到 x=5。
+	if canvas.getPixel(4, 0) != progress.trackColor.NRGBA() ||
+		canvas.getPixel(5, 0) != progress.valueColor.NRGBA() ||
+		canvas.getPixel(7, 0) != progress.valueColor.NRGBA() ||
+		canvas.getPixel(8, 0) != progress.trackColor.NRGBA() {
+		t.Fatal("不确定进度色块绘制位置不正确")
+	}
+	for _, phase := range []float64{0, 1} {
+		progress.indeterminatePhase = phase
+		// 画布故意比控件宽，确保裁剪发生在轨道边界而不是画布边界。
+		canvas = NewCanvas(20, 4)
+		progress.Draw(canvas)
+		for x := range 12 {
+			if canvas.getPixel(x, 0) != progress.trackColor.NRGBA() {
+				t.Fatalf("端点 %v 的色块没有完全消失", phase)
+			}
+		}
+		for x := 12; x < 20; x++ {
+			if canvas.getPixel(x, 0) != (color.NRGBA{}) {
+				t.Fatalf("端点 %v 的色块画到了轨道外", phase)
+			}
+		}
 	}
 }
 
