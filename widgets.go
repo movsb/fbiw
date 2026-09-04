@@ -381,7 +381,7 @@ func (b *ProgressBar) Calc(availWidth, availHeight int, constraints Constraints)
 	)
 }
 
-// Draw 先绘制完整轨道，再从左向右绘制已完成部分。
+// Draw 先绘制完整轨道，再绘制完成部分。
 func (b *ProgressBar) Draw(canvas *Canvas) {
 	b.BaseBox.draw(canvas, false)
 	firstPaint := !b.painted

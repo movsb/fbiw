@@ -567,6 +567,57 @@ block, inline {}         /* 分组 */
 支持多层嵌套和逗号分组；父子都是分组选择器时会展开为所有组合。
 Nesting 仍只能使用上述选择器子集，不支持伪类、属性选择器、兄弟选择器或媒体规则。
 
+### 主题颜色
+
+样式表的 `color`、`background-color`、`border-color` 和 `outline-color`
+可以引用主题中的语义颜色：
+
+```css
+button {
+    color: var(--color-on-primary);
+    background-color: var(--color-primary);
+}
+```
+
+App 内置浅色和深色主题；即使不传任何主题选项，也会随本地时间自动切换。
+`defaults.css` 中的按钮、选择框等控件颜色均来自内置主题。内置主题提供以下常用变量：
+
+```text
+--color-text              --color-background
+--color-surface           --color-muted
+--color-border            --color-focus
+--color-primary           --color-on-primary
+--color-destructive       --color-on-destructive
+```
+
+自定义主题会覆盖对应时段的内置主题，因此只需提供想修改的颜色；未提供的变量继续使用
+系统浅色或深色主题中的值。
+预置色值分别维护在 `assets/light.css` 和 `assets/dark.css` 中，使用
+`:root { --color-name: value; }` 格式；这里的 `:root` 是主题文件专用语法，不会扩展
+普通样式表的选择器子集。
+
+应用创建时可以设置初始主题，之后切换主题会自动重新计算所有文档样式并重绘：
+
+```go
+app := fbiw.NewApp(
+    fbiw.WithTheme("light", themeFS, "light.css"),
+    fbiw.WithTheme("dark", themeFS, "dark.css"),
+)
+if err := app.SetThemeLight("light"); err != nil {
+    panic(err)
+}
+if err := app.SetThemeDark("dark"); err != nil {
+    panic(err)
+}
+```
+
+主题由 App 统一管理。本地时间 06:00 至 18:00 使用浅色主题，18:00 至次日
+06:00 使用深色主题。App 每分钟检查一次本地时间，系统休眠或时钟变更后也会在恢复运行后约一分钟内校正。
+只配置一种时会始终使用该主题。
+切换前会检查所有文档引用的颜色；缺失颜色时返回错误并保留旧主题。
+
+当前仅支持 `<style>` 中的 `var(--color-*)`，不支持 fallback、非颜色变量或元素内联属性中的主题变量。
+
 样式来源的覆盖顺序为：
 
 ```text
@@ -970,6 +1021,7 @@ Linux 后端直接读取 evdev 按键码。当前设备选择和按键映射针�
 GOEXPERIMENT=simd go run ./demo
 GOEXPERIMENT=simd go run ./demo/scroll
 GOEXPERIMENT=simd go run ./demo/safe
+GOEXPERIMENT=simd go run ./demo/theme
 ```
 
 示例期望存在 `demo/regular.ttf`。该字体文件当前未包含在仓库中，运行前需要自行放置一个可用的 OpenType/TrueType 字体，并命名为 `regular.ttf`。

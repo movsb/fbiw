@@ -1,5 +1,5 @@
 document {
-	color: black;
+	color: var(--color-text);
 	font-family: system;
 	font-size: 32;
 }
@@ -12,37 +12,37 @@ i {
 button {
 	padding: 10 18;
 	align: both;
-	color: #1c2024;
-	background-color: #e8eaed;
+	color: var(--color-control-text);
+	background-color: var(--color-control-background);
 	border-width: 2;
-	border-color: #c5c9d0;
+	border-color: var(--color-control-border);
 }
 .button-primary {
-	color: white;
-	background-color: #3358d4;
-	border-color: #3e63dd;
+	color: var(--color-on-primary);
+	background-color: var(--color-primary);
+	border-color: var(--color-primary-border);
 }
 .button-destructive {
-	color: white;
-	background-color: #ce2c31;
-	border-color: #dc3e42;
+	color: var(--color-on-destructive);
+	background-color: var(--color-destructive);
+	border-color: var(--color-destructive-border);
 }
 button.disabled {
-	color: #8b8d98;
-	background-color: #d9dadd;
-	border-color: #c5c6ca;
+	color: var(--color-disabled-text);
+	background-color: var(--color-disabled-background);
+	border-color: var(--color-disabled-border);
 }
 select {
 	padding: 10 16;
-	color: #1c2024;
-	background-color: #e8eaed;
+	color: var(--color-control-text);
+	background-color: var(--color-control-background);
 	border-width: 2;
-	border-color: #c5c9d0;
+	border-color: var(--color-control-border);
 }
 select.disabled {
-	color: #8b8d98;
-	background-color: #d9dadd;
-	border-color: #c5c6ca;
+	color: var(--color-disabled-text);
+	background-color: var(--color-disabled-background);
+	border-color: var(--color-disabled-border);
 }
 .h1 { font-size: 1.50rem; }
 .h2 { font-size: 1.35rem; }

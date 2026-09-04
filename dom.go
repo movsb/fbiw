@@ -155,15 +155,8 @@ func (doc *Document) load(name string) error {
 	doc.styleSheet = parsed.style
 	doc.templates = parsed.templates
 
-	// 计算文档默认样式。
-	docBox := _DocBox{Tag: `document`}
-	if err := doc.style(&docBox, false); err != nil {
-		return err
-	}
-	doc.defaultStyles = docBox.computedStyles
-
-	// 为所有子元素计算样式。
-	if err := doc.style(doc.root, true); err != nil {
+	themeName, theme := doc.appTheme()
+	if err := doc.restyle(themeName, theme); err != nil {
 		return err
 	}
 
@@ -1002,11 +995,42 @@ func (doc *Document) match(box Box, selector Selector) bool {
 
 // 为节点计算样式。
 func (doc *Document) style(box Box, descendents bool) error {
+	themeName, theme := doc.appTheme()
 	styler := _Styler{
 		defaultStyles:  DefaultStyles,
 		documentStyles: &doc.defaultStyles,
+		theme:          theme,
+		themeName:      themeName,
 	}
 	return styler.Style(box, descendents, doc.styleSheet)
+}
+
+func (doc *Document) appTheme() (string, Theme) {
+	if doc.app != nil && doc.app.themeManager != nil {
+		return doc.app.themeManager.current()
+	}
+	return defaultLightThemeName, defaultLightTheme()
+}
+
+func (doc *Document) validateTheme(name string, theme Theme) error {
+	if err := validateThemeSheet(name, theme, DefaultStyles); err != nil {
+		return err
+	}
+	return validateThemeSheet(name, theme, doc.styleSheet)
+}
+
+func (doc *Document) restyle(themeName string, theme Theme) error {
+	if doc.root == nil {
+		return nil
+	}
+	docBox := _DocBox{Tag: `document`}
+	styler := _Styler{defaultStyles: DefaultStyles, theme: theme, themeName: themeName}
+	if err := styler.Style(&docBox, false, doc.styleSheet); err != nil {
+		return err
+	}
+	doc.defaultStyles = docBox.computedStyles
+	styler.documentStyles = &doc.defaultStyles
+	return styler.Style(doc.root, true, doc.styleSheet)
 }
 
 // 重新布局整个文档。

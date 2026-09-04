@@ -12,6 +12,7 @@ func newDesktopTestApp() *App {
 		cancel:  cancel,
 		unblock: make(chan struct{}, 1),
 	}
+	app.themeManager = newThemeManager(app)
 	app._EventTarget.box = &BaseBox{}
 	app.animation = newAnimationClock(app.ctx, app.animationRunnable, app.wakeUp)
 	return app

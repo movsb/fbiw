@@ -267,10 +267,19 @@ const (
 	FillScaleDown
 )
 
-//go:embed assets/defaults.css
-var _defaultsStyle string
+var (
+	//go:embed assets/defaults.css
+	_defaultsStyle string
+	DefaultStyles  = Must1((StyleParser{}).ParseStyle(_defaultsStyle))
 
-var DefaultStyles = Must1((StyleParser{}).ParseStyle(_defaultsStyle))
+	//go:embed assets/light.css
+	_defaultLightThemeStyle string
+	_defaultLightTheme      = Must1((StyleParser{}).ParseTheme(_defaultLightThemeStyle))
+
+	//go:embed assets/dark.css
+	_defaultDarkThemeStyle string
+	_defaultDarkTheme      = Must1((StyleParser{}).ParseTheme(_defaultDarkThemeStyle))
+)
 
 // 直接传入的是结构体字段，原始名字，没有小写、没有中划线。
 func shouldInherit(name string) bool {
@@ -964,6 +973,40 @@ func (p StyleParser) ParseStyle(data string) (_ *Sheet, outErr error) {
 	return &ss, nil
 }
 
+// ParseTheme 解析只包含一个 :root 规则的主题样式表。
+// :root 仅用于主题文件，不属于普通样式表支持的选择器。
+func (p StyleParser) ParseTheme(data string) (Theme, error) {
+	data = strings.TrimSpace(data)
+	if !strings.HasPrefix(data, `:root`) {
+		return Theme{}, fmt.Errorf(`主题样式表必须以 :root 开头`)
+	}
+	rest := strings.TrimSpace(strings.TrimPrefix(data, `:root`))
+	if !strings.HasPrefix(rest, `{`) {
+		return Theme{}, fmt.Errorf(`:root 后缺少 {`)
+	}
+
+	sheet, err := p.ParseStyle(`document ` + rest)
+	if err != nil {
+		return Theme{}, err
+	}
+	if len(sheet.Rules) != 1 {
+		return Theme{}, fmt.Errorf(`主题样式表只能包含一个 :root 规则`)
+	}
+
+	theme := Theme{Colors: map[string]Color{}}
+	for _, declaration := range sheet.Rules[0].Declarations {
+		if !strings.HasPrefix(declaration.Name, `--color-`) {
+			return Theme{}, fmt.Errorf(`主题只支持 --color-* 声明：%s`, declaration.Name)
+		}
+		color, err := ParseColor(declaration.Value)
+		if err != nil {
+			return Theme{}, fmt.Errorf(`主题颜色 %s 无效：%w`, declaration.Name, err)
+		}
+		theme.Colors[declaration.Name] = color
+	}
+	return theme, nil
+}
+
 func (p StyleParser) parseRule(buf *BufioReader, parents []Selector) []Rule {
 	header := strings.TrimSpace(buf.readUntil('{'))
 	if header == `` {
@@ -1287,6 +1330,10 @@ type _Styler struct {
 	// doc的body(即doc.root)和doc是没有parent关系的，
 	// 所以需要单独拿出来应用。但是允许为空，方便调试。
 	documentStyles *Styles
+
+	// 用于解析样式表中的 var(--color-*)。
+	theme     Theme
+	themeName string
 }
 
 // 计算样式。
@@ -1364,7 +1411,11 @@ func (s _Styler) computeStyles(node Box, rules [][]RuleMatch) error {
 	styles := node.Base().inlineStyles
 	stylesValue := reflect.ValueOf(&styles).Elem()
 	for d := range s.declarationsByPriority(rules) {
-		_, _, _, current, update, err := styles.parseProperty(d.Name, d.Value)
+		raw, err := s.resolveDeclarationValue(d)
+		if err != nil {
+			return err
+		}
+		_, _, _, current, update, err := styles.parseProperty(d.Name, raw)
 		if err != nil {
 			return fmt.Errorf(`样式应用错误：%w`, err)
 		}
@@ -1438,6 +1489,70 @@ func (s _Styler) computeStyles(node Box, rules [][]RuleMatch) error {
 	// 直接保存起来。
 	node.Base().computedStyles = styles
 
+	return nil
+}
+
+func isColorProperty(name string) bool {
+	switch name {
+	case `background-color`, `BackgroundColor`,
+		`border-color`, `BorderColor`,
+		`outline-color`, `OutlineColor`,
+		`color`, `Color`:
+		return true
+	default:
+		return false
+	}
+}
+
+func parseThemeColorReference(raw string) (name string, referenced bool, err error) {
+	raw = strings.TrimSpace(raw)
+	if !strings.HasPrefix(raw, `var(`) {
+		return ``, false, nil
+	}
+	if !strings.HasSuffix(raw, `)`) {
+		return ``, true, fmt.Errorf(`无效主题颜色引用：%s`, raw)
+	}
+	name = strings.TrimSpace(raw[len(`var(`) : len(raw)-1])
+	if !strings.HasPrefix(name, `--color-`) || strings.ContainsAny(name, ",() \t\r\n") {
+		return ``, true, fmt.Errorf(`无效主题颜色名：%s`, name)
+	}
+	return name, true, nil
+}
+
+func (s _Styler) resolveDeclarationValue(declaration Declaration) (string, error) {
+	if !isColorProperty(declaration.Name) {
+		return declaration.Value, nil
+	}
+	name, referenced, err := parseThemeColorReference(declaration.Value)
+	if err != nil || !referenced {
+		return declaration.Value, err
+	}
+	value, ok := s.theme.ResolveColor(name)
+	if !ok {
+		return ``, fmt.Errorf(`主题 %q 未定义颜色 %s`, s.themeName, name)
+	}
+	switch value {
+	case ColorNone:
+		return `none`, nil
+	case ColorClear:
+		return `clear`, nil
+	default:
+		return fmt.Sprintf(`#%02X%02X%02X%02X`, value.R(), value.G(), value.B(), value.A()), nil
+	}
+}
+
+func validateThemeSheet(themeName string, theme Theme, sheet *Sheet) error {
+	if sheet == nil {
+		return nil
+	}
+	styler := _Styler{theme: theme, themeName: themeName}
+	for _, rule := range sheet.Rules {
+		for _, declaration := range rule.Declarations {
+			if _, err := styler.resolveDeclarationValue(declaration); err != nil {
+				return err
+			}
+		}
+	}
 	return nil
 }
 

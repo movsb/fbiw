@@ -1,0 +1,65 @@
+<document>
+<style>
+document {
+	color: var(--color-text);
+}
+
+#page {
+	background-color: var(--color-background);
+	align: both;
+}
+
+#card {
+	width: 640;
+	padding: 32;
+	background-color: var(--color-surface);
+	border-width: 2;
+	border-color: var(--color-border);
+	align: center;
+
+	.muted {
+		color: var(--color-muted);
+		font-size: 22;
+	}
+}
+
+#swatch {
+	width: 420;
+	height: 64;
+	color: var(--color-on-primary);
+	background-color: var(--color-primary);
+
+	border-width: 3;
+	border-color: var(--color-focus);
+	align: both;
+}
+
+#switch {
+	width: 420;
+	height: 64;
+	color: var(--color-on-primary);
+	background-color: var(--color-primary);
+
+	&.selected {
+		outline-width: 3;
+		outline-color: var(--color-focus);
+	}
+}
+</style>
+
+<block id="page" fill>
+	<block id="card">
+		<text class="h2">主题颜色</text>
+		<spacer height="16"></spacer>
+		<text class="muted">组件只引用语义颜色，切换时无需重新解析 CSS。</text>
+		<spacer height="28"></spacer>
+		<block id="swatch"><text>主题色预览</text></block>
+		<spacer height="20"></spacer>
+		<button id="switch"><text id="switch-label">手动切换主题</text></button>
+		<spacer height="20"></spacer>
+		<text id="status">当前主题由本地时间自动选择</text>
+		<spacer height="8"></spacer>
+		<text class="muted">按 A 手动切换，再按恢复 06:00/18:00 自动模式</text>
+	</block>
+</block>
+</document>

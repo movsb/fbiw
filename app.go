@@ -51,12 +51,15 @@ type App struct {
 	pending []func()
 	unblock chan struct{}
 
-	display   *Display
-	canvas    *Canvas
+	display *Display
+	canvas  *Canvas
+
 	fpsCalc   _FPSCounter
 	animation *_AnimationClock
-	images    *ImageManager
-	fonts     *FontManager
+
+	images       *ImageManager
+	fonts        *FontManager
+	themeManager *ThemeManager
 
 	// 桌面列表。
 	// 桌面由文档构成。
@@ -108,6 +111,9 @@ func NewApp(options ...Option) *App {
 		unblock: make(chan struct{}, 1),
 	}
 
+	app.themeManager = newThemeManager(app)
+	app.themeManager.start()
+
 	for _, opt := range options {
 		opt(app)
 	}
@@ -132,6 +138,7 @@ func (app *App) Close() {
 	defer app.images.Close()
 	defer app.fonts.Close()
 	defer app.animation.close()
+	app.themeManager.close()
 	app.cancel()
 }
 
@@ -176,6 +183,7 @@ func (app *App) _New(fsys fs.FS, name string, desktop _AppNewDocDesktop, docRef 
 	doc.bindApp(app)
 
 	if err := doc.load(name); err != nil {
+		doc.unbindApp()
 		panic(err)
 	}
 
@@ -612,6 +620,24 @@ func (d *Desktop) All() iter.Seq[*Document] {
 		for _, doc := range documents {
 			if !yield(doc) {
 				break
+			}
+		}
+	}
+}
+
+// 返回本App关联所有的文档（含Overlays）。
+func (app *App) allDocuments() iter.Seq[*Document] {
+	return func(yield func(*Document) bool) {
+		for desktop := range app.Desktops() {
+			for doc := range desktop.All() {
+				if !yield(doc) {
+					return
+				}
+			}
+		}
+		if app.overlay != nil {
+			if !yield(app.overlay) {
+				return
 			}
 		}
 	}
