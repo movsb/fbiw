@@ -632,8 +632,8 @@ if err := app.ClearThemeAccent(); err != nil {
 ```go
 var meterColor = fbiw.RegisterThemeColor(
     "--meter-color",
-    "#3358d4",
-    "#8da4ff",
+    "var(--color-primary)",
+    "var(--color-primary)",
 )
 
 func (m *Meter) Draw(canvas *fbiw.Canvas) {
@@ -648,6 +648,8 @@ func (m *Meter) Draw(canvas *fbiw.Canvas) {
 `--toggle-track-color`、`--toggle-checked-track-color`、`--toggle-knob-color`；
 `progress` 预定义了 `--progress-track-color` 和 `--progress-value-color`。
 元素上的 `track-color` 等显式属性仍具有最高优先级。
+注册默认值既可以是固定颜色，也可以引用另一个主题颜色；引用会在主题与强调色完成
+合并后解析，并检查不存在的变量和循环引用。
 
 主题由 App 统一管理。本地时间 06:00 至 18:00 使用浅色主题，18:00 至次日
 06:00 使用深色主题。App 每分钟检查一次本地时间，系统休眠或时钟变更后也会在恢复运行后约一分钟内校正。
@@ -785,9 +787,12 @@ scroll.Activate()
 ```css
 scroll .selected {
     outline-width: 3;
-    outline-color: red;
+    outline-color: var(--color-focus);
 }
 ```
+
+框架默认已从 `assets/focus.css` 为 `scroll .selected`、`button.selected` 和
+`select.active` 提供上述焦点轮廓；应用只在需要不同宽度或交互样式时覆盖它。
 
 `Scroll` 支持读取和恢复选择状态，但当前所有槽位尺寸相同，不支持可变高度列表。
 

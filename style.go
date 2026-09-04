@@ -270,7 +270,10 @@ const (
 var (
 	//go:embed assets/defaults.css
 	_defaultsStyle string
-	DefaultStyles  = Must1((StyleParser{}).ParseStyle(_defaultsStyle))
+
+	//go:embed assets/focus.css
+	_focusStyle   string
+	DefaultStyles = Must1((StyleParser{}).ParseStyle(_defaultsStyle + "\n" + _focusStyle))
 
 	//go:embed assets/light.css
 	_defaultLightThemeStyle string

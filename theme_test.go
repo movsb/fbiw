@@ -246,6 +246,11 @@ func TestThemeAccent(t *testing.T) {
 			t.Fatalf(`%s 未使用强调色`, token)
 		}
 	}
+	for _, token := range []string{`--toggle-checked-track-color`, `--progress-value-color`} {
+		if theme.Colors[token] != darkAccent {
+			t.Fatalf(`%s 未跟随强调色：got=%v want=%v`, token, theme.Colors[token], darkAccent)
+		}
+	}
 	if theme.Colors[`--color-on-primary`] != ColorFromString(`#ffffff`) {
 		t.Fatal(`深色强调色未自动使用白色前景`)
 	}
@@ -296,6 +301,19 @@ func TestRegisteredThemeColor(t *testing.T) {
 	if got := doc.ResolveThemeColor(variable); got != ColorFromString(`#abcdef`) {
 		t.Fatalf(`主题覆盖值错误：%v`, got)
 	}
+}
+
+func TestRegisteredThemeColorRejectsCycle(t *testing.T) {
+	a := RegisterThemeColor(`--test-cycle-a`, `var(--test-cycle-b)`, `#000000`)
+	b := RegisterThemeColor(`--test-cycle-b`, `var(--test-cycle-a)`, `#000000`)
+	defer delete(registeredThemeColors, a)
+	defer delete(registeredThemeColors, b)
+	defer func() {
+		if recover() == nil {
+			t.Fatal(`循环引用未触发 panic`)
+		}
+	}()
+	_ = defaultLightTheme()
 }
 
 func TestBuiltInWidgetThemeColors(t *testing.T) {

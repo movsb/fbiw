@@ -1,0 +1,6 @@
+button.selected,
+select.active,
+scroll .selected {
+	outline-width: 3;
+	outline-color: var(--color-focus);
+}

@@ -13,9 +13,14 @@ import (
 // ThemeColor 是组件注册并从当前主题解析的颜色变量。
 type ThemeColor string
 
+type themeColorValue struct {
+	color     Color
+	reference ThemeColor
+}
+
 type themeColorDefaults struct {
-	light Color
-	dark  Color
+	light themeColorValue
+	dark  themeColorValue
 }
 
 var registeredThemeColors = map[ThemeColor]themeColorDefaults{}
@@ -26,8 +31,8 @@ func RegisterThemeColor(name, lightDefault, darkDefault string) ThemeColor {
 	if !strings.HasPrefix(name, `--`) || len(name) <= 2 || strings.ContainsAny(name, ",() \t\r\n") {
 		panic(`无效主题颜色变量：` + name)
 	}
-	light := ColorFromString(lightDefault)
-	dark := ColorFromString(darkDefault)
+	light := parseRegisteredThemeColorValue(lightDefault)
+	dark := parseRegisteredThemeColorValue(darkDefault)
 	variable := ThemeColor(name)
 	defaults := themeColorDefaults{light: light, dark: dark}
 
@@ -38,12 +43,58 @@ func RegisterThemeColor(name, lightDefault, darkDefault string) ThemeColor {
 	return variable
 }
 
-func withRegisteredThemeColors(theme Theme, light bool) Theme {
-	resolved := Theme{Colors: map[string]Color{}}
-	for name, defaults := range registeredThemeColors {
-		resolved.Colors[string(name)] = Iif(light, defaults.light, defaults.dark)
+func parseRegisteredThemeColorValue(raw string) themeColorValue {
+	raw = strings.TrimSpace(raw)
+	if strings.HasPrefix(raw, `var(`) && strings.HasSuffix(raw, `)`) {
+		name := strings.TrimSpace(raw[4 : len(raw)-1])
+		if !strings.HasPrefix(name, `--`) || len(name) <= 2 || strings.ContainsAny(name, ",() \t\r\n") {
+			panic(`无效主题颜色引用：` + raw)
+		}
+		return themeColorValue{reference: ThemeColor(name)}
 	}
-	maps.Copy(resolved.Colors, theme.Colors)
+	return themeColorValue{color: ColorFromString(raw)}
+}
+
+func withRegisteredThemeColors(theme Theme, light bool, overrides map[string]Color) Theme {
+	resolved := theme.clone()
+	if resolved.Colors == nil {
+		resolved.Colors = map[string]Color{}
+	}
+	states := map[ThemeColor]uint8{}
+	var resolve func(ThemeColor) Color
+	resolve = func(name ThemeColor) Color {
+		if states[name] == 1 {
+			panic(`主题颜色变量循环引用：` + string(name))
+		}
+		if states[name] == 2 {
+			return resolved.Colors[string(name)]
+		}
+		defaults, ok := registeredThemeColors[name]
+		if !ok {
+			color, exists := resolved.Colors[string(name)]
+			if !exists {
+				panic(`主题颜色引用不存在：` + string(name))
+			}
+			return color
+		}
+		if overrides != nil {
+			if color, ok := overrides[string(name)]; ok {
+				return color
+			}
+		}
+		states[name] = 1
+		value := Iif(light, defaults.light, defaults.dark)
+		color := value.color
+		if value.reference != `` {
+			color = resolve(value.reference)
+		}
+		resolved.Colors[string(name)] = color
+		states[name] = 2
+		return color
+	}
+	for name := range registeredThemeColors {
+		resolve(name)
+	}
 	return resolved
 }
 
@@ -97,8 +148,8 @@ func newThemeManager(app *App) *ThemeManager {
 		lightName: defaultLightThemeName,
 		darkName:  defaultDarkThemeName,
 	}
-	m.themes[defaultLightThemeName] = defaultLightTheme()
-	m.themes[defaultDarkThemeName] = defaultDarkTheme()
+	m.themes[defaultLightThemeName] = _defaultLightTheme.clone()
+	m.themes[defaultDarkThemeName] = _defaultDarkTheme.clone()
 	_ = m.applyForTime(time.Now())
 	return m
 }
@@ -109,11 +160,11 @@ const (
 )
 
 func defaultLightTheme() Theme {
-	return withRegisteredThemeColors(_defaultLightTheme, true)
+	return withRegisteredThemeColors(_defaultLightTheme, true, nil)
 }
 
 func defaultDarkTheme() Theme {
-	return withRegisteredThemeColors(_defaultDarkTheme, false)
+	return withRegisteredThemeColors(_defaultDarkTheme, false, nil)
 }
 
 func (m *ThemeManager) register(name string, theme Theme) {
@@ -135,7 +186,7 @@ func (m *ThemeManager) Name() string {
 
 // SetLight 设置早上 6 点到晚上 6 点使用的浅色主题。
 func (m *ThemeManager) SetLight(name string) error {
-	if err := m.validateRegistered(name, defaultLightTheme()); err != nil {
+	if err := m.validateRegistered(name, defaultLightTheme(), true); err != nil {
 		return err
 	}
 	previous := m.lightName
@@ -149,7 +200,7 @@ func (m *ThemeManager) SetLight(name string) error {
 
 // SetDark 设置晚上 6 点到次早 6 点使用的深色主题。
 func (m *ThemeManager) SetDark(name string) error {
-	if err := m.validateRegistered(name, defaultDarkTheme()); err != nil {
+	if err := m.validateRegistered(name, defaultDarkTheme(), false); err != nil {
 		return err
 	}
 	previous := m.darkName
@@ -165,8 +216,8 @@ func (m *ThemeManager) current() (string, Theme) {
 	return m.name, m.theme
 }
 
-func (m *ThemeManager) validateRegistered(name string, base Theme) error {
-	theme, ok := m.resolved(name, base)
+func (m *ThemeManager) validateRegistered(name string, base Theme, light bool) error {
+	theme, ok := m.resolved(name, base, light)
 	if !ok {
 		return fmt.Errorf(`主题未注册：%s`, name)
 	}
@@ -178,7 +229,7 @@ func (m *ThemeManager) validateRegistered(name string, base Theme) error {
 	return nil
 }
 
-func (m *ThemeManager) resolved(name string, base Theme) (Theme, bool) {
+func (m *ThemeManager) resolved(name string, base Theme, light bool) (Theme, bool) {
 	theme, ok := m.themes[name]
 	if !ok {
 		return Theme{}, false
@@ -194,6 +245,7 @@ func (m *ThemeManager) resolved(name string, base Theme) (Theme, bool) {
 		resolved.Colors[`--color-focus`] = *m.accent
 		resolved.Colors[`--color-on-primary`] = accentForeground(*m.accent)
 	}
+	resolved = withRegisteredThemeColors(resolved, light, theme.Colors)
 	return resolved, true
 }
 
@@ -214,14 +266,14 @@ func accentForeground(accent Color) Color {
 	return ColorFromRGBA(0xff, 0xff, 0xff, 0xff)
 }
 
-func (m *ThemeManager) selectionForTime(now time.Time) (string, Theme) {
+func (m *ThemeManager) selectionForTime(now time.Time) (string, Theme, bool) {
 	light := isLightThemeTime(now)
 	name := Iif(light, m.lightName, m.darkName)
 	if name == `` {
 		name = Iif(m.lightName != ``, m.lightName, m.darkName)
 		light = m.lightName != ``
 	}
-	return name, Iif(light, defaultLightTheme(), defaultDarkTheme())
+	return name, Iif(light, defaultLightTheme(), defaultDarkTheme()), light
 }
 
 func (m *ThemeManager) SetAccent(raw string) error {
@@ -234,8 +286,8 @@ func (m *ThemeManager) SetAccent(raw string) error {
 	}
 	previous := m.accent
 	m.accent = &accent
-	name, base := m.selectionForTime(time.Now())
-	if err := m.apply(name, base); err != nil {
+	name, base, light := m.selectionForTime(time.Now())
+	if err := m.apply(name, base, light); err != nil {
 		m.accent = previous
 		return err
 	}
@@ -248,16 +300,16 @@ func (m *ThemeManager) ClearAccent() error {
 	}
 	previous := m.accent
 	m.accent = nil
-	name, base := m.selectionForTime(time.Now())
-	if err := m.apply(name, base); err != nil {
+	name, base, light := m.selectionForTime(time.Now())
+	if err := m.apply(name, base, light); err != nil {
 		m.accent = previous
 		return err
 	}
 	return nil
 }
 
-func (m *ThemeManager) apply(name string, base Theme) error {
-	theme, ok := m.resolved(name, base)
+func (m *ThemeManager) apply(name string, base Theme, light bool) error {
+	theme, ok := m.resolved(name, base, light)
 	if !ok {
 		return fmt.Errorf(`主题未注册：%s`, name)
 	}
@@ -293,13 +345,13 @@ func (m *ThemeManager) apply(name string, base Theme) error {
 }
 
 func (m *ThemeManager) applyForTime(now time.Time) error {
-	name, base := m.selectionForTime(now)
+	name, base, light := m.selectionForTime(now)
 
 	if name == `` || name == m.name {
 		return nil
 	}
 
-	return m.apply(name, base)
+	return m.apply(name, base, light)
 }
 
 func isLightThemeTime(now time.Time) bool {

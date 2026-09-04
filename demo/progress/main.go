@@ -16,6 +16,8 @@ func main() {
 	app := fbiw.NewApp(fbiw.WithSystemFont(os.DirFS(`..`), `regular.ttf`))
 	defer app.Close()
 
+	app.SetThemeAccent(`deeppink`)
+
 	doc := app.NewDesktop(embedded, `main.html`)
 	progresses := doc.QuerySelectorAll[*fbiw.ProgressBar](`progress`)
 	values := []float64{0.35, 0.68, 0.82, 1, 0}

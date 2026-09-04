@@ -124,7 +124,7 @@ func parseBooleanAttribute(name, value string) (bool, error) {
 
 var (
 	toggleTrackOffThemeColor = RegisterThemeColor(`--toggle-track-color`, `#656b76`, `#656b76`)
-	toggleTrackOnThemeColor  = RegisterThemeColor(`--toggle-checked-track-color`, `#36b766`, `#30a46c`)
+	toggleTrackOnThemeColor  = RegisterThemeColor(`--toggle-checked-track-color`, `var(--color-primary)`, `var(--color-primary)`)
 	toggleKnobThemeColor     = RegisterThemeColor(`--toggle-knob-color`, `#ffffff`, `#ffffff`)
 )
 
@@ -364,7 +364,7 @@ func (b *Toggle) OnChange(handler func(checked bool)) func() {
 
 var (
 	progressTrackThemeColor = RegisterThemeColor(`--progress-track-color`, `#656b76`, `#43484f`)
-	progressValueThemeColor = RegisterThemeColor(`--progress-value-color`, `#3358d4`, `#8da4ff`)
+	progressValueThemeColor = RegisterThemeColor(`--progress-value-color`, `var(--color-primary)`, `var(--color-primary)`)
 )
 
 // ProgressBar 是一个使用 [0,1] 表示完成比例的进度条。
