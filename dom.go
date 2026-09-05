@@ -51,8 +51,13 @@ type Document struct {
 	// 文档初始可用尺寸。
 	width, height int
 
-	// 默认样式总是用于初始化拷贝，所以不需要用指针，方便拷贝并覆盖。
-	defaultStyles Styles
+	// 由于<document>不是doc.root的父节点，所以<document>本身的样式单独存在这里。
+	//
+	// 比如文档全局的 color/background-color 都设置在这里。
+	//
+	// <document>本身不用于渲染，所以此值用于初始化拷贝，所以不需要用指针，方便拷贝并覆盖。
+	computedStyles Styles
+
 	// 文档内 <style> 元素提供的样式
 	styleSheet *Sheet
 
@@ -988,21 +993,35 @@ func (n _NodeTransformer) transformNode(box Box, node *html.Node, voidElement bo
 func (doc *Document) match(box Box, selector Selector) bool {
 	styler := _Styler{
 		defaultStyles:  DefaultStyles,
-		documentStyles: &doc.defaultStyles,
+		documentStyles: &doc.computedStyles,
 	}
 	return styler.match(box, selector)
 }
 
 // 为节点计算样式。
-func (doc *Document) style(box Box, descendents bool) error {
+func (doc *Document) style(box Box, descendants bool) error {
 	themeName, theme := doc.appTheme()
+
 	styler := _Styler{
 		defaultStyles:  DefaultStyles,
-		documentStyles: &doc.defaultStyles,
+		documentStyles: &doc.computedStyles,
 		theme:          theme,
 		themeName:      themeName,
 	}
-	return styler.Style(box, descendents, doc.styleSheet)
+
+	if err := styler.Style(box, descendants, doc.styleSheet); err != nil {
+		return err
+	}
+
+	// 虽然在 restyle 那边已经应用过一次了，但是如果 box 不小心为 doc.root，
+	// 则背景等又会因为重算而丢掉。
+	//
+	// 写这这里的一个不好是：每次都要判断一下，虽然性能不太受影响，但是觉得不好。
+	if doc.root != nil && box.Base() == doc.root.Base() {
+		doc.applyRootBackground()
+	}
+
+	return nil
 }
 
 func (doc *Document) appTheme() (string, Theme) {
@@ -1030,17 +1049,32 @@ func (doc *Document) validateTheme(name string, theme Theme) error {
 }
 
 func (doc *Document) restyle(themeName string, theme Theme) error {
-	if doc.root == nil {
-		return nil
-	}
 	docBox := _DocBox{Tag: `document`}
-	styler := _Styler{defaultStyles: DefaultStyles, theme: theme, themeName: themeName}
+	styler := _Styler{
+		defaultStyles: DefaultStyles,
+		theme:         theme,
+		themeName:     themeName,
+	}
 	if err := styler.Style(&docBox, false, doc.styleSheet); err != nil {
 		return err
 	}
-	doc.defaultStyles = docBox.computedStyles
-	styler.documentStyles = &doc.defaultStyles
-	return styler.Style(doc.root, true, doc.styleSheet)
+	doc.computedStyles = docBox.computedStyles
+
+	styler.documentStyles = &doc.computedStyles
+	if err := styler.Style(doc.root, true, doc.styleSheet); err != nil {
+		return err
+	}
+	doc.applyRootBackground()
+	return nil
+}
+
+// 根元素如果没有特地设置背景色，应该从 --color-background 应用。
+// 因为 background-color 是非继承属性，所以可以安全地放在最后来判断。
+func (doc *Document) applyRootBackground() {
+	rootStyles := doc.root.GetComputedStyles()
+	if !rootStyles.has(propertyBackgroundColor) && doc.computedStyles.has(propertyBackgroundColor) {
+		rootStyles.SetBackgroundColor(doc.computedStyles.BackgroundColor)
+	}
 }
 
 // 重新布局整个文档。

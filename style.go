@@ -628,21 +628,10 @@ func PaddingValue(top, right, bottom, left int) Padding {
 
 const paddingMask = uint64(0xffff)
 
-func (p Padding) PaddingTop() int {
-	return int(uint64(p) >> 48 & paddingMask)
-}
-
-func (p Padding) PaddingRight() int {
-	return int(uint64(p) >> 32 & paddingMask)
-}
-
-func (p Padding) PaddingBottom() int {
-	return int(uint64(p) >> 16 & paddingMask)
-}
-
-func (p Padding) PaddingLeft() int {
-	return int(uint64(p) & paddingMask)
-}
+func (p Padding) PaddingTop() int    { return int(uint64(p) >> 48 & paddingMask) }
+func (p Padding) PaddingRight() int  { return int(uint64(p) >> 32 & paddingMask) }
+func (p Padding) PaddingBottom() int { return int(uint64(p) >> 16 & paddingMask) }
+func (p Padding) PaddingLeft() int   { return int(uint64(p) & paddingMask) }
 
 // 0xAA_RR_GG_BB
 // 低32位与设备的像素格式匹配（低端序）
@@ -680,39 +669,15 @@ func ColorFromRGBA(r, g, b, a uint8) Color {
 	return Color(out)
 }
 
-func (c Color) IsNone() bool {
-	return c == ColorNone
-}
-func (c Color) IsClear() bool {
-	return c == ColorClear
-}
-func (c Color) R() uint8 {
-	return uint8(c >> 16)
-}
-func (c Color) G() uint8 {
-	return uint8(c >> 8)
-}
-func (c Color) B() uint8 {
-	return uint8(c >> 0)
-}
-func (c Color) A() uint8 {
-	return uint8(c >> 24)
-}
-func (c Color) NRGBA() color.NRGBA {
-	return color.NRGBA{
-		R: c.R(),
-		G: c.G(),
-		B: c.B(),
-		A: c.A(),
-	}
-}
-func (c Color) Value() uint32 {
-	return uint32(c)
-}
-
-func (c Color) String() string {
-	return fmt.Sprintf(`#%02x%02x%02x%02x`, c.R(), c.G(), c.B(), c.A())
-}
+func (c Color) IsNone() bool       { return c == ColorNone }
+func (c Color) IsClear() bool      { return c == ColorClear }
+func (c Color) R() uint8           { return uint8(c >> 16) }
+func (c Color) G() uint8           { return uint8(c >> 8) }
+func (c Color) B() uint8           { return uint8(c >> 0) }
+func (c Color) A() uint8           { return uint8(c >> 24) }
+func (c Color) NRGBA() color.NRGBA { return color.NRGBA{R: c.R(), G: c.G(), B: c.B(), A: c.A()} }
+func (c Color) Value() uint32      { return uint32(c) }
+func (c Color) String() string     { return fmt.Sprintf(`#%02x%02x%02x%02x`, c.R(), c.G(), c.B(), c.A()) }
 
 // 用结构体而不是直接type为[]string的原因是修改的时候不想重新赋值。
 type Class struct {
@@ -1350,7 +1315,7 @@ type _Styler struct {
 //  1. 从系统级样式表（User-Agent Styles）；
 //  2. 从 <document>，因为目前 doc 不是 root box 的父节点；
 //  3. 从 document html 文件内的 <style> 节点，即参数 `sheet`。
-func (s _Styler) Style(box Box, descendents bool, sheet *Sheet) (outErr error) {
+func (s _Styler) Style(box Box, descendants bool, sheet *Sheet) (outErr error) {
 	walkBox(box, func(box Box) bool {
 		// 因为默认样式的优先级 < 页面提供的样式（即便前者 spec 更高），
 		// 所以这里不能放在一起并被后面排序。
@@ -1365,7 +1330,7 @@ func (s _Styler) Style(box Box, descendents bool, sheet *Sheet) (outErr error) {
 			outErr = fmt.Errorf(`样式应用失败：%w`, err)
 			return false
 		}
-		return descendents
+		return descendants
 	})
 	return
 }
@@ -1415,6 +1380,7 @@ func (s _Styler) declarationsByPriority(rulesSet [][]RuleMatch) iter.Seq[Declara
 func (s _Styler) computeStyles(node Box, rules [][]RuleMatch) error {
 	// Cascade：内联样式优先，然后从高到低查找样式表声明。每个属性
 	// 一旦取得值，低优先级声明就不能再覆盖它。
+	// 这里是值拷贝出来的新样式。
 	styles := node.Base().inlineStyles
 	for _, declaration := range node.Base().inlineThemeColors {
 		raw, err := s.resolveDeclarationValue(declaration)
@@ -1459,6 +1425,7 @@ func (s _Styler) computeStyles(node Box, rules [][]RuleMatch) error {
 		property := stylePropertyByName(field.Name)
 		if !styles.has(property) {
 			setFromParent := false
+			// 先从祖先继承。
 			for parent := range node.Base().Ancestors() {
 				parentStyles := parent.GetComputedStyles()
 				parentValue := reflect.ValueOf(parentStyles)

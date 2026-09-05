@@ -87,6 +87,66 @@ func TestThemeColorResolution(t *testing.T) {
 	}
 }
 
+func TestDocumentRootUsesThemeBackground(t *testing.T) {
+	doc := _NewDocument(100, 100, fstest.MapFS{
+		`main.html`: &fstest.MapFile{Data: []byte(`<document><block id="root"><block id="child"></block></block></document>`)},
+	}, nil, nil)
+	if err := doc.load(`main.html`); err != nil {
+		t.Fatal(err)
+	}
+	want := defaultLightTheme().Colors[`--color-background`]
+	if got := doc.root.GetComputedStyles().BackgroundColor; got != want {
+		t.Fatalf(`根节点背景色 = %v，期望 %v`, got, want)
+	}
+	child := doc.GetBoxByID[Box](`child`)
+	if child.GetComputedStyles().has(propertyBackgroundColor) {
+		t.Fatal(`Document 背景色不应继承给根节点的后代`)
+	}
+
+	doc = _NewDocument(100, 100, fstest.MapFS{
+		`main.html`: &fstest.MapFile{Data: []byte(`<document><block background-color="none"></block></document>`)},
+	}, nil, nil)
+	if err := doc.load(`main.html`); err != nil {
+		t.Fatal(err)
+	}
+	if got := doc.root.GetComputedStyles().BackgroundColor; got != ColorNone {
+		t.Fatalf(`根节点显式背景未覆盖 Document：%v`, got)
+	}
+}
+
+func TestDocumentRootBackgroundSurvivesStyleUpdate(t *testing.T) {
+	for _, operation := range []string{`class`, `padding`} {
+		t.Run(operation, func(t *testing.T) {
+			doc := _NewDocument(100, 100, fstest.MapFS{
+				`main.html`: &fstest.MapFile{Data: []byte(`<document><block><block id="child"></block></block></document>`)},
+			}, nil, nil)
+			if err := doc.load(`main.html`); err != nil {
+				t.Fatal(err)
+			}
+			want := defaultLightTheme().Colors[`--color-background`]
+			if got := doc.root.GetComputedStyles(); !got.has(propertyBackgroundColor) || got.BackgroundColor != want {
+				t.Fatal(`根节点初始主题背景未生效`)
+			}
+
+			switch operation {
+			case `class`:
+				doc.root.Base().ClassAdd(`active`)
+			case `padding`:
+				if err := doc.root.SetProp(`padding`, `20`); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			if got := doc.root.GetComputedStyles(); !got.has(propertyBackgroundColor) || got.BackgroundColor != want {
+				t.Errorf(`动态更新后根节点默认背景丢失：has=%v color=%v，期望 %v`, got.has(propertyBackgroundColor), got.BackgroundColor, want)
+			}
+			if doc.GetBoxByID[Box](`child`).GetComputedStyles().has(propertyBackgroundColor) {
+				t.Error(`根节点背景不应继承给子节点`)
+			}
+		})
+	}
+}
+
 func TestThemeColorErrors(t *testing.T) {
 	for name, value := range map[string]string{
 		`缺失颜色`:     `var(--color-missing)`,

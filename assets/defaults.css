@@ -1,5 +1,6 @@
 document {
 	color: var(--color-text);
+	background-color: var(--color-background);
 	font-family: system;
 	font-size: 32;
 }

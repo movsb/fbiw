@@ -394,7 +394,7 @@ func TestStylerStyle(t *testing.T) {
 		}
 	})
 
-	t.Run(`descendents 为 false 时只处理当前节点`, func(t *testing.T) {
+	t.Run(`descendants 为 false 时只处理当前节点`, func(t *testing.T) {
 		parent, child := newTree()
 		sheet := Must1(ParseStyle(`* { width: 12; }`))
 

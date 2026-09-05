@@ -696,6 +696,9 @@ func (m *Meter) Draw(canvas *fbiw.Canvas) {
 同一来源内先比较选择器 specificity；specificity 相同时，源码中靠后的声明优先。
 
 颜色和字体相关属性会从父元素继承。
+`Document.root` 未显式设置背景时会采用 `document` 的 `--color-background`；该背景
+只应用到根节点，不会继承给后代。Popup 或 Overlay 需要透明根节点时可显式设置
+`background-color="none"`。
 
 ## 查询和绑定元素
 

@@ -631,7 +631,7 @@ func TestCalc(t *testing.T) {
 
 		// 清空默认样式方便测试。
 		if !tc.EnableDefaultStyles {
-			doc.defaultStyles = Styles{}
+			doc.computedStyles = Styles{}
 		}
 
 		doc.layout()
