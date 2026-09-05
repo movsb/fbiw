@@ -123,6 +123,15 @@ func (t Theme) ResolveColor(name string) (Color, bool) {
 	return color, ok
 }
 
+// ThemeMode 控制主题按时间自动切换或固定使用日间、夜间主题。
+type ThemeMode string
+
+const (
+	ThemeModeAuto  ThemeMode = "auto"
+	ThemeModeLight ThemeMode = "light"
+	ThemeModeDark  ThemeMode = "dark"
+)
+
 // ThemeManager 管理 App 的主题注册、日夜配置和自动切换。
 type ThemeManager struct {
 	app *App
@@ -137,6 +146,8 @@ type ThemeManager struct {
 	lightName string
 	darkName  string
 	accent    *Color
+	mode      ThemeMode
+	light     bool
 
 	timer *time.Timer
 }
@@ -144,6 +155,7 @@ type ThemeManager struct {
 func newThemeManager(app *App) *ThemeManager {
 	m := &ThemeManager{
 		app:       app,
+		mode:      ThemeModeAuto,
 		themes:    map[string]Theme{},
 		lightName: defaultLightThemeName,
 		darkName:  defaultDarkThemeName,
@@ -292,6 +304,11 @@ func accentForeground(accent Color) Color {
 
 func (m *ThemeManager) selectionForTime(now time.Time) (string, Theme, bool) {
 	light := isLightThemeTime(now)
+	if m.mode == ThemeModeLight {
+		light = true
+	} else if m.mode == ThemeModeDark {
+		light = false
+	}
 	name := Iif(light, m.lightName, m.darkName)
 	if name == `` {
 		name = Iif(m.lightName != ``, m.lightName, m.darkName)
@@ -344,8 +361,10 @@ func (m *ThemeManager) apply(name string, base Theme, light bool) error {
 
 	previous := m.theme
 	previousName := m.name
+	previousLight := m.light
 	m.theme = theme
 	m.name = name
+	m.light = light
 	updated := []*Document{}
 
 	for doc := range m.app.allDocuments() {
@@ -354,6 +373,7 @@ func (m *ThemeManager) apply(name string, base Theme, light bool) error {
 		if err != nil {
 			m.theme = previous
 			m.name = previousName
+			m.light = previousLight
 			_ = doc.restyle(previousName, previous)
 			for _, changed := range updated {
 				_ = changed.restyle(previousName, previous)
@@ -370,11 +390,37 @@ func (m *ThemeManager) apply(name string, base Theme, light bool) error {
 func (m *ThemeManager) applyForTime(now time.Time) error {
 	name, base, light := m.selectionForTime(now)
 
-	if name == `` || name == m.name {
+	if name == `` || name == m.name && light == m.light {
 		return nil
 	}
 
 	return m.apply(name, base, light)
+}
+
+// SetMode 切换主题模式；失败时保留之前的模式和主题。
+func (m *ThemeManager) SetMode(mode ThemeMode) error {
+	switch mode {
+	case ThemeModeAuto, ThemeModeLight, ThemeModeDark:
+	default:
+		return fmt.Errorf(`无效主题模式：%s`, mode)
+	}
+	previous := m.mode
+	m.mode = mode
+	if err := m.applyForTime(time.Now()); err != nil {
+		m.mode = previous
+		return err
+	}
+	return nil
+}
+
+// SetThemeMode 在 UI 线程设置自动、日间或夜间主题模式，立即生效。
+func (app *App) SetThemeMode(mode ThemeMode) error {
+	return app.themeManager.SetMode(mode)
+}
+
+// ThemeMode 返回当前配置的主题模式。
+func (app *App) ThemeMode() ThemeMode {
+	return app.themeManager.mode
 }
 
 func isLightThemeTime(now time.Time) bool {

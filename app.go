@@ -364,6 +364,8 @@ func (app *App) Quit() {
 
 func (app *App) Run() {
 	menuPressed := false
+	selectPressed := false
+	menuSelectedFirst := true
 	startPressed := false
 	pollEvents(
 		app.ctx, app.cancel,
@@ -390,11 +392,33 @@ func (app *App) Run() {
 				switch event.Stick.Name {
 				case Menu:
 					menuPressed = event.Type == StickDownEvent
+				case Select:
+					switch event.Type {
+					case StickDownEvent:
+						selectPressed = true
+					case StickUpEvent:
+						selectPressed = false
+						menuSelectedFirst = true
+					}
 				case Start:
 					startPressed = event.Type == StickDownEvent
 				}
 				if menuPressed && startPressed {
 					app.cancel()
+					return
+				}
+				if menuPressed && selectPressed && menuSelectedFirst {
+					menuSelectedFirst = false
+					mode := ThemeModeLight
+					switch app.ThemeMode() {
+					case ThemeModeLight:
+						mode = ThemeModeDark
+					case ThemeModeDark:
+						mode = ThemeModeAuto
+					}
+					if err := app.SetThemeMode(mode); err != nil {
+						log.Println(`切换主题失败：`, err)
+					}
 					return
 				}
 

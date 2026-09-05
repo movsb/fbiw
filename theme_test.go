@@ -7,6 +7,36 @@ import (
 	"time"
 )
 
+func TestAppThemeMode(t *testing.T) {
+	app := newDesktopTestApp()
+	for _, mode := range []ThemeMode{ThemeModeLight, ThemeModeDark, ThemeModeAuto} {
+		if err := app.SetThemeMode(mode); err != nil {
+			t.Fatal(err)
+		}
+		for _, hour := range []int{5, 6, 17, 18, 23} {
+			now := time.Date(2026, 9, 5, hour, 0, 0, 0, time.Local)
+			if err := app.themeManager.applyForTime(now); err != nil {
+				t.Fatal(err)
+			}
+			light := mode == ThemeModeLight || mode == ThemeModeAuto && isLightThemeTime(now)
+			want := defaultDarkThemeName
+			if light {
+				want = defaultLightThemeName
+			}
+			if app.ThemeName() != want || app.ThemeMode() != mode {
+				t.Fatalf(`mode=%s hour=%d: theme=%s`, mode, hour, app.ThemeName())
+			}
+		}
+	}
+	before := app.Theme()
+	if err := app.SetThemeMode("invalid"); err == nil {
+		t.Fatal(`无效模式未报错`)
+	}
+	if app.ThemeMode() != ThemeModeAuto || !reflect.DeepEqual(app.Theme(), before) {
+		t.Fatal(`无效模式改变了当前主题`)
+	}
+}
+
 func TestThemeSchedule(t *testing.T) {
 	location := time.FixedZone(`test`, 8*60*60)
 	date := func(hour, minute int) time.Time {

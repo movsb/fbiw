@@ -584,6 +584,20 @@ Nesting 仍只能使用上述选择器子集，不支持伪类、属性选择器
 
 ### 主题颜色
 
+App 默认按时间自动切换主题。同时按 `Menu`+`Select`可以按“日间 → 夜间 → 自动”循环切换；
+切回自动时立即按当前时间选择主题。
+
+也可通过 API 设置：
+
+```go
+err := app.SetThemeMode(fbiw.ThemeModeLight) // 固定日间
+err = app.SetThemeMode(fbiw.ThemeModeDark)   // 固定夜间
+err = app.SetThemeMode(fbiw.ThemeModeAuto)   // 恢复自动
+```
+
+`app.ThemeMode()` 返回当前模式。手动模式不会被每分钟的时间检查覆盖，
+`SetThemeLight` / `SetThemeDark` 仍分别配置两个模式使用的主题。
+
 样式表的 `color`、`background-color`、`border-color` 和 `outline-color`
 可以引用主题中的语义颜色：
 
