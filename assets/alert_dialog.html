@@ -1,20 +1,16 @@
 <document>
 <style>
-document {
-	color: white;
-}
-
 #backdrop {
-	background-color: #000000A8;
+	background-color: none;
 }
 
 #popup {
 	width: 680;
 	height: 500;
 	padding: 32;
-	background-color: #202124;
+	background-color: var(--color-background);
 	border-width: 2;
-	border-color: #5f6368;
+	border-color: var(--color-border);
 }
 
 #title {
@@ -27,7 +23,7 @@ document {
 }
 
 #description {
-	color: #c7c9cc;
+	color: var(--color-muted);
 	font-size: 0.9rem;
 }
 
@@ -41,7 +37,7 @@ document {
 }
 </style>
 
-<stack fill>
+<stack fill background-color="none">
 	<block id="backdrop"></block>
 	<inline align="both">
 		<block id="popup">
