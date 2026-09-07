@@ -362,6 +362,14 @@ type animationPaintBox struct {
 func (b *animationPaintBox) Draw(*Canvas)               { b.paint() }
 func (b *animationPaintBox) Calc(int, int, Constraints) { b.layout() }
 
+type _Display1 struct {
+	syncs *int
+}
+
+func (d *_Display1) GetSize() (int, int, int) { return 1, 1, 4 }
+func (d *_Display1) Sync(pixels []byte)       { *d.syncs++ }
+func (d *_Display1) Close()                   {}
+
 func TestAnimationSyncPaintBatch(t *testing.T) {
 	app, doc, f := newAnimationTestApp(t)
 	paints, syncs, state, layouts := 0, 0, 0, 0
@@ -381,7 +389,7 @@ func TestAnimationSyncPaintBatch(t *testing.T) {
 	}
 	doc.root = b
 	app.canvas = &Canvas{width: 1, height: 1, buffer: make([]byte, 4)}
-	app.display = &Display{sync: func([]byte) { syncs++ }}
+	app.display = &_Display1{&syncs}
 	doc.RequestAnimationFrame(func(time.Time) { state++; doc.RequestLayout() })
 	doc.RequestAnimationFrame(func(time.Time) { state++; doc.RequestLayout() })
 	f.now = f.now.Add(animationFrameInterval)

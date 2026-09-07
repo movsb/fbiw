@@ -36,6 +36,13 @@ func WithFont(family string, bold, italic bool, fsys fs.FS, path string) Option 
 	}
 }
 
+// 设置显示输出设备。
+func WithDisplay(display Display) Option {
+	return func(app *App) {
+		app.setDisplay(display)
+	}
+}
+
 // 应用程序实例。
 type App struct {
 	ctx    context.Context
@@ -51,7 +58,7 @@ type App struct {
 	pending []func()
 	unblock chan struct{}
 
-	display *Display
+	display Display
 	canvas  *Canvas
 
 	fpsCalc   _FPSCounter
@@ -99,13 +106,9 @@ type App struct {
 }
 
 func NewApp(options ...Option) *App {
-	display := openDisplay()
-
 	app := &App{
-		display: display,
-		canvas:  NewCanvas(display.Width, display.Height),
-		images:  NewImageManager(),
-		fonts:   NewFontManager(),
+		images: NewImageManager(),
+		fonts:  NewFontManager(),
 
 		// 容量一定为1，见前面定义时的说明。
 		unblock: make(chan struct{}, 1),
@@ -121,6 +124,10 @@ func NewApp(options ...Option) *App {
 		app.ctx = context.Background()
 	}
 
+	if app.display == nil {
+		app.setDisplay(OpenDisplay())
+	}
+
 	ctx, cancel := context.WithCancel(app.ctx)
 	app.ctx = ctx
 	app.cancel = cancel
@@ -133,6 +140,18 @@ func NewApp(options ...Option) *App {
 	app.themeManager.start()
 
 	return app
+}
+
+func (app *App) setDisplay(display Display) {
+	app.display = display
+	width, height, stride := display.GetSize()
+	if width <= 0 || height <= 0 {
+		panic(`无效显示尺寸。`)
+	}
+	if stride != width*4 {
+		panic(`暂时不支持Stride!=Width*4的显示设备。`)
+	}
+	app.canvas = NewCanvas(width, height)
 }
 
 func (app *App) Close() {

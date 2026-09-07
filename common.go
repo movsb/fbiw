@@ -67,27 +67,11 @@ func (k KeyName) String() string {
 	return `未知按键`
 }
 
-type Display struct {
-	// 屏幕的宽度和高度
-	Width, Height int
-
-	// 位深以及一行的字节数（带padding）
-	Bpp, Stride int
-
-	// 写完后调用此方法同步到屏幕。
-	sync func(pixels []byte)
-
-	close func()
-}
-
-// 把数据同步到屏幕显示。
-func (d *Display) Sync(pixels []byte) {
-	d.sync(pixels)
-}
-
-// 关闭屏幕（断开与屏幕的连接）。
-func (d *Display) Close() {
-	d.close()
+type Display interface {
+	// 返回固定宽、高、Stride。
+	GetSize() (int, int, int)
+	Sync(pixels []byte)
+	Close()
 }
 
 type EventType uint

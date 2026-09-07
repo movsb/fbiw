@@ -18,9 +18,32 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-func openDisplay() *Display {
-	d := &Display{}
+type _FramebufferDisplay struct {
+	width, height, stride int
 
+	fd     int
+	mapped []byte
+}
+
+func (d *_FramebufferDisplay) GetSize() (int, int, int) {
+	return d.width, d.height, d.stride
+}
+
+func (d *_FramebufferDisplay) Sync(pixels []byte) {
+	copy(d.mapped, pixels)
+	// 对fb来说，很难有用，非原子的。
+	waitForVSync(d.fd)
+	// 任何时候改offset都能导致直接从新的地方读，跟v sync无关，fb的缺陷。
+	// 有一点用：有些程序会切换到其它地方写，我接管后强制切回来。
+	setYOffset(d.fd, 0)
+}
+
+func (d *_FramebufferDisplay) Close() {
+	unix.Munmap(d.mapped)
+	unix.Close(d.fd)
+}
+
+func OpenDisplay() Display {
 	fd, err := unix.Open("/dev/fb0", unix.O_RDWR, 0)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "open:", err)
@@ -32,9 +55,6 @@ func openDisplay() *Display {
 
 	xRes, yRes, bpp := int(v[0]), int(v[1]), int(v[6])
 	fmt.Printf("xRes=%d yRes=%d bpp=%d\n", xRes, yRes, bpp)
-	d.Width = xRes
-	d.Height = yRes
-	d.Bpp = 32
 
 	stride := xRes * bpp / 8
 	s, _ := os.ReadFile("/sys/class/graphics/fb0/stride")
@@ -42,7 +62,6 @@ func openDisplay() *Display {
 		stride = int(n)
 	}
 	fmt.Printf("stride=%d\n", stride)
-	d.Stride = stride
 
 	mapSize := stride * yRes
 	fmt.Printf("mmap size=%d ... ", mapSize)
@@ -52,21 +71,14 @@ func openDisplay() *Display {
 	}
 	fmt.Println("OK!")
 
-	d.close = func() {
-		unix.Munmap(data)
-		unix.Close(fd)
-	}
+	return &_FramebufferDisplay{
+		width:  xRes,
+		height: yRes,
+		stride: stride,
 
-	d.sync = func(pixels []byte) {
-		copy(data, pixels)
-		// 对fb来说，很难有用，非原子的。
-		waitForVSync(fd)
-		// 任何时候改offset都能导致直接从新的地方读，跟v sync无关，fb的缺陷。
-		// 有一点用：有些程序会切换到其它地方写，我接管后强制切回来。
-		setYOffset(fd, 0)
+		fd:     fd,
+		mapped: data,
 	}
-
-	return d
 }
 
 type fbVarScreenInfo struct {

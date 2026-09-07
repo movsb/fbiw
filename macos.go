@@ -8,23 +8,43 @@ import (
 	"github.com/veandco/go-sdl2/sdl"
 )
 
-func openDisplay() *Display {
+type _SdlDisplay struct {
+	width, height int
+
+	window  *sdl.Window
+	surface *sdl.Surface
+	buffer  *sdl.Surface
+}
+
+func (d *_SdlDisplay) GetSize() (int, int, int) {
+	return d.width, d.height, d.width * 4
+}
+
+func (d *_SdlDisplay) Sync(pixels []byte) {
+	copy(d.buffer.Pixels(), pixels)
+
+	originRect := sdl.Rect{X: 0, Y: 0, W: int32(d.width), H: int32(d.height)}
+	scaledRect := sdl.Rect{X: 0, Y: 0, W: int32(d.width), H: int32(d.height)}
+
+	d.buffer.Blit(&originRect, d.surface, &scaledRect)
+	d.window.UpdateSurface()
+}
+
+func (d *_SdlDisplay) Close() {
+	d.window.Destroy()
+	sdl.Quit()
+}
+
+// 创建一个固定大小的基于SDL2的显示层。
+func OpenDisplay() Display {
 	const (
 		windowWidth  = 1024
 		windowHeight = 768
 	)
 
-	d := &Display{
-		Width:  windowWidth,
-		Height: windowHeight,
-		Bpp:    32,
-		Stride: windowWidth * 32 / 8,
-	}
-
 	if err := sdl.Init(sdl.INIT_EVERYTHING); err != nil {
 		panic(err)
 	}
-	// defer sdl.Quit()
 
 	// 启动即关闭输入法。
 	sdl.StopTextInput()
@@ -36,7 +56,6 @@ func openDisplay() *Display {
 	if err != nil {
 		panic(err)
 	}
-	// defer window.Destroy()
 
 	// wid, _ := window.GetID()
 
@@ -50,21 +69,13 @@ func openDisplay() *Display {
 		panic(err)
 	}
 
-	originRect := sdl.Rect{X: 0, Y: 0, W: windowWidth, H: windowHeight}
-	scaledRect := sdl.Rect{X: 0, Y: 0, W: windowWidth, H: windowHeight}
-
-	d.sync = func(pixels []byte) {
-		copy(buffer.Pixels(), pixels)
-		buffer.Blit(&originRect, surface, &scaledRect)
-		window.UpdateSurface()
+	return &_SdlDisplay{
+		width:   windowWidth,
+		height:  windowHeight,
+		window:  window,
+		surface: surface,
+		buffer:  buffer,
 	}
-
-	d.close = func() {
-		window.Destroy()
-		sdl.Quit()
-	}
-
-	return d
 }
 
 func pollEvents(
