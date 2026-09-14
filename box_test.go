@@ -808,6 +808,17 @@ func TestHorizontalMarqueeUsesParentWidth(t *testing.T) {
 	}
 }
 
+func TestHorizontalMarqueeInsideInlineUsesRemainingWidth(t *testing.T) {
+	doc := newFlexTestDocument(t, `<block width="50"><inline spacer><text id="text" marquee="horizontal">ABCDEFGHIJKL</text></inline></block>`, 100, 100)
+	text := doc.GetBoxByID[*Text](`text`)
+	if text.layoutBox.Width != 50 {
+		t.Fatalf(`inline horizontal marquee width = %d, want 50`, text.layoutBox.Width)
+	}
+	if len(text.textLines) != 1 || text.textLineMaxWidth <= text.layoutBox.Width {
+		t.Fatalf(`lines = %d, text width = %d, box width = %d; want single overflowing line`, len(text.textLines), text.textLineMaxWidth, text.layoutBox.Width)
+	}
+}
+
 func TestStoppingMarqueeResetsPosition(t *testing.T) {
 	doc := &Document{}
 	text := NewText(doc)

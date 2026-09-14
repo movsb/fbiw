@@ -686,9 +686,19 @@ func inlineCalc(b *BaseBox, availWidth, availHeight int, constraints Constraints
 			contentWidth += child.Base().HorizontalInsets()
 		} else {
 			if text, ok := child.(*Text); ok {
-				// 只处理了一行，如果要wrap，才能继续处理。
-				text.clearStates()
-				text.SegmentInline(contentAvailWidth-contentWidth, contentAvailHeight)
+				remainingWidth := contentAvailWidth - contentWidth
+				if text.marquee.axis != `` {
+					// marquee 需要完整测量内容、确定自己的视口并更新动画。
+					// 普通 inline 文本仍保留原来只切一行的布局语义。
+					text.Calc(remainingWidth, contentAvailHeight, Constraints{
+						ParentContentWidth:  max(0, remainingWidth),
+						ParentContentHeight: max(0, contentAvailHeight),
+					})
+				} else {
+					// 只处理了一行，如果要wrap，才能继续处理。
+					text.clearStates()
+					text.SegmentInline(remainingWidth, contentAvailHeight)
+				}
 			} else {
 				child.Calc(contentAvailWidth-contentWidth, contentAvailHeight, Constraints{
 					ParentContentWidth:  max(0, contentAvailWidth),
@@ -1301,8 +1311,8 @@ func NewText(doc *Document) *Text {
 	return &Text{
 		BaseBox: NewBaseBox(doc, `text`),
 		marquee: _TextMarquee{
-			speed:     30,
-			pause:     800 * time.Millisecond,
+			speed:     60,
+			pause:     time.Second,
 			running:   true,
 			direction: 1,
 		},
