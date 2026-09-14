@@ -785,6 +785,17 @@ func TestTextLineHorizontalOffset(t *testing.T) {
 	}
 }
 
+func TestHorizontalMarqueeDoesNotWrap(t *testing.T) {
+	doc := newFlexTestDocument(t, `<block><text id="text" width="30" marquee="horizontal">ABCDEFGHIJKL</text></block>`, 100, 100)
+	text := doc.GetBoxByID[*Text](`text`)
+	if len(text.textLines) != 1 {
+		t.Fatalf(`horizontal marquee lines = %d, want 1`, len(text.textLines))
+	}
+	if text.textLineMaxWidth <= text.layoutBox.Width-text.HorizontalInsets() {
+		t.Fatalf(`text width = %d, content width = %d; want overflow`, text.textLineMaxWidth, text.layoutBox.Width-text.HorizontalInsets())
+	}
+}
+
 func TestScrollMaxRowsHeight(t *testing.T) {
 	tests := []struct {
 		name  string

@@ -185,6 +185,22 @@ func TestDrawImageRegion(t *testing.T) {
 	}
 }
 
+func TestCanvasClipLimitsDrawing(t *testing.T) {
+	canvas := NewCanvas(10, 10)
+	clipped := canvas.Clip(2, 3, 4, 2)
+	clipped.FillRect(0, 0, 10, 10, ColorFromRGBA(255, 255, 255, 255))
+
+	for y := range 10 {
+		for x := range 10 {
+			painted := canvas.buffer[(y*10+x)*4+3] != 0
+			want := x >= 2 && x < 6 && y >= 3 && y < 5
+			if painted != want {
+				t.Fatalf(`pixel (%d,%d) painted=%t, want %t`, x, y, painted, want)
+			}
+		}
+	}
+}
+
 func TestDrawImage5Opaque(t *testing.T) {
 	// Opaque=true 时版本 5 会绕过混色直接复制，结果仍须与基线完全一致。
 	const width, height = 19, 13

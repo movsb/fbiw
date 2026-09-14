@@ -17,6 +17,21 @@ func TestParseBoxSupportsAnyBoxRoot(t *testing.T) {
 	}
 }
 
+func TestParseVerticalMarqueeText(t *testing.T) {
+	doc := &Document{}
+	box, err := parseBox(doc, strings.NewReader(`<text marquee="vertical" marquee-speed="42" marquee-pause="650">hello</text>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := box.(*Text)
+	if text.marquee.axis != `vertical` || text.marquee.speed != 42 || text.marquee.pause != 650*time.Millisecond {
+		t.Fatalf(`marquee axis=%q speed=%v pause=%v`, text.marquee.axis, text.marquee.speed, text.marquee.pause)
+	}
+	if _, err := parseBox(doc, strings.NewReader(`<text marquee-speed="0">hello</text>`)); err == nil {
+		t.Fatal(`零 marquee-speed 应返回错误`)
+	}
+}
+
 func TestParseBoxRejectsInvalidFragmentRoots(t *testing.T) {
 	tests := []string{
 		``,

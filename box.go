@@ -15,6 +15,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	_ "image/jpeg"
 	"image/png"
@@ -1235,6 +1236,18 @@ type _TextParts struct {
 	children []any // string | Box
 }
 
+// _TextMarquee 保存 Text 自动滚动的配置与运行时状态。
+type _TextMarquee struct {
+	axis       string
+	speed      float64
+	pause      time.Duration
+	offset     float64
+	direction  float64
+	last       time.Time
+	pauseUntil time.Time
+	cancel     func()
+}
+
 func (p *_TextParts) appendChildOrText(owner Box, child any) {
 	p.children = append(p.children, child)
 	if box, ok := child.(Box); ok {
@@ -1278,10 +1291,58 @@ type Text struct {
 
 	// 对于多行文本，表示当前绘制行的垂直滚动偏移行数。
 	textDrawLineOffset int
+
+	// 固定轴向尺寸且内容溢出时自动逐像素往返滚动。
+	marquee _TextMarquee
 }
 
 func NewText(doc *Document) *Text {
-	return &Text{BaseBox: NewBaseBox(doc, `text`)}
+	return &Text{
+		BaseBox: NewBaseBox(doc, `text`),
+		marquee: _TextMarquee{
+			speed:     30,
+			pause:     800 * time.Millisecond,
+			direction: 1,
+		},
+	}
+}
+
+func (t *Text) SetProp(key, value string) error {
+	switch key {
+	case `marquee`:
+		if value != `horizontal` && value != `vertical` && value != `` {
+			return fmt.Errorf(`marquee 属性只支持 horizontal 或 vertical：%s`, value)
+		}
+		t.marquee.axis = value
+		if t.marquee.axis == `` {
+			t.stopMarquee()
+			t.textDrawLineOffset = 0
+			t.marquee.offset = 0
+			t.marquee.direction = 1
+		}
+		t.document.RequestLayout()
+		return nil
+	case `marquee-speed`:
+		speed, err := strconv.ParseFloat(value, 64)
+		if err != nil || speed <= 0 {
+			return fmt.Errorf(`marquee-speed 属性必须是正数：%s`, value)
+		}
+		t.marquee.speed = speed
+		t.stopMarquee()
+		t.document.RequestLayout()
+		return nil
+	case `marquee-pause`:
+		milliseconds, err := strconv.Atoi(value)
+		if err != nil || milliseconds < 0 {
+			return fmt.Errorf(`marquee-pause 属性必须是非负整数毫秒：%s`, value)
+		}
+		t.marquee.pause = time.Duration(milliseconds) * time.Millisecond
+		t.stopMarquee()
+		t.document.RequestLayout()
+		return nil
+	default:
+		return t.Base().SetProp(key, value)
+	}
 }
 
 // 设置普通文本。
@@ -1291,6 +1352,9 @@ func (t *Text) SetText(text string) {
 	// 替换整段内容时从头开始显示。普通的重新排版不应该重置这个
 	// 偏移，否则无关的布局刷新也会把长文本滚回顶部。
 	t.textDrawLineOffset = 0
+	t.marquee.offset = 0
+	t.marquee.direction = 1
+	t.stopMarquee()
 	t.AppendChild(text)
 	t.expandTextNodes()
 }
@@ -1364,7 +1428,13 @@ func (t *Text) segmentBlock(availWidth, availHeight int, size resolvedDimensions
 	// availHeight 应该内部没有使用，至少会使用一行行高。
 	// availWidth 即使小于一个字符宽度（包括负数），SegmentInline 也会
 	// 返回 false，避免在没有消费字符的情况下死循环。
-	for t.segmentInline(availWidth, availHeight, size.Width) {
+	segmentWidth, widthStyle := availWidth, size.Width
+	if t.marquee.axis == `horizontal` {
+		// 水平滚动需要保留内容的固有宽度，不能按可视宽度自动折行。
+		// fixed.Int26_6 的整数部分约有 25 位，保留一位余量避免转换溢出。
+		segmentWidth, widthStyle = 1<<24, Length{}
+	}
+	for t.segmentInline(segmentWidth, availHeight, widthStyle) {
 	}
 
 	// 文本的宽度肯定是限制在可用宽度内的，目前超宽的始终折行。
@@ -1397,6 +1467,63 @@ func (t *Text) segmentBlock(availWidth, availHeight int, size resolvedDimensions
 	// 宽度或样式变化可能改变总行数。尽量保留原来的滚动位置，
 	// 但不能让偏移落到新的文本末尾之外。
 	t.clampDrawLineOffset()
+	t.updateMarquee()
+}
+
+func (t *Text) stopMarquee() {
+	if t.marquee.cancel != nil {
+		t.marquee.cancel()
+		t.marquee.cancel = nil
+	}
+	t.marquee.last = time.Time{}
+	t.marquee.pauseUntil = time.Time{}
+}
+
+func (t *Text) updateMarquee() {
+	contentWidth := t.layoutBox.Width - t.HorizontalInsets()
+	contentHeight := t.layoutBox.Height - t.VerticalInsets()
+	overflows := t.marquee.axis == `horizontal` && t.textLineMaxWidth > contentWidth ||
+		t.marquee.axis == `vertical` && t.blockHeight() > contentHeight
+	if t.marquee.axis == `` || !overflows || t.document == nil || t.document.app == nil {
+		t.stopMarquee()
+		if !overflows {
+			t.textDrawLineOffset = 0
+			t.marquee.offset = 0
+			t.marquee.direction = 1
+		}
+		return
+	}
+	if t.marquee.cancel != nil {
+		return
+	}
+	var frame func(time.Time)
+	frame = func(now time.Time) {
+		t.marquee.cancel = nil
+		if t.marquee.last.IsZero() {
+			t.marquee.pauseUntil = now.Add(t.marquee.pause)
+		} else if !now.Before(t.marquee.pauseUntil) {
+			currentContentWidth := t.layoutBox.Width - t.HorizontalInsets()
+			currentContentHeight := t.layoutBox.Height - t.VerticalInsets()
+			maxOffset := float64(t.blockHeight() - currentContentHeight)
+			if t.marquee.axis == `horizontal` {
+				maxOffset = float64(t.textLineMaxWidth - currentContentWidth)
+			}
+			t.marquee.offset += t.marquee.direction * t.marquee.speed * now.Sub(t.marquee.last).Seconds()
+			if t.marquee.offset >= maxOffset {
+				t.marquee.offset = maxOffset
+				t.marquee.direction = -1
+				t.marquee.pauseUntil = now.Add(t.marquee.pause)
+			} else if t.marquee.offset <= 0 {
+				t.marquee.offset = 0
+				t.marquee.direction = 1
+				t.marquee.pauseUntil = now.Add(t.marquee.pause)
+			}
+			t.document.RequestPaint()
+		}
+		t.marquee.last = now
+		t.marquee.cancel = t.document.RequestAnimationFrame(frame)
+	}
+	t.marquee.cancel = t.document.RequestAnimationFrame(frame)
 }
 
 // 文本排版很特殊：
@@ -1558,6 +1685,22 @@ func (t *Text) Draw(canvas *Canvas) {
 	// 文本盒子总体的宽度。用于计算每行的水平居中位置。
 	contentWidth := t.layoutBox.Width - t.HorizontalInsets()
 
+	verticalMarquee := t.marquee.axis == `vertical` && t.blockHeight() > contentMaxHeight
+	horizontalMarquee := t.marquee.axis == `horizontal` && t.textLineMaxWidth > contentWidth
+	if verticalMarquee || horizontalMarquee {
+		// 连续滚动会让首尾行暂时跨越边界，因此只允许内容区域内的
+		// 像素落到 framebuffer。
+		clipped := canvas.Clip(t.InsetLeft(), t.InsetTop(), contentWidth, contentMaxHeight)
+		startY := t.InsetTop()
+		if verticalMarquee {
+			startY -= int(t.marquee.offset)
+		} else {
+			clipped = clipped.Offset(-int(t.marquee.offset), 0)
+		}
+		t.drawTextLines(clipped, startY, contentWidth)
+		return
+	}
+
 	drawOffsetY := t.InsetTop()
 
 	for lineNo, line := range t.textLines {
@@ -1593,6 +1736,28 @@ func (t *Text) Draw(canvas *Canvas) {
 			drawOffsetX += rc.Width
 		}
 
+		drawOffsetY += line.MaxHeight
+	}
+}
+
+func (t *Text) drawTextLines(canvas *Canvas, drawOffsetY, contentWidth int) {
+	for _, line := range t.textLines {
+		drawOffsetX := t.InsetLeft() + line.horizontalOffset(contentWidth, t.computedStyles.Align)
+		for _, fragment := range line.Fragments {
+			rc := fragment.layoutBox
+			owner := fragment.Run.Owner
+			fragmentCanvas := canvas.Offset(drawOffsetX, drawOffsetY)
+
+			if cr := owner.Base().computedStyles.BackgroundColor; owner.Base().computedStyles.has(propertyBackgroundColor) && !cr.IsNone() {
+				fragmentCanvas.FillRect(0, 0, rc.Width, rc.Height, cr)
+			}
+			fragmentCanvas.DrawString(
+				fragment.Run.Data[fragment.Start:fragment.End],
+				t.document.LoadFaces(owner),
+				owner.Base().computedStyles.Color,
+			)
+			drawOffsetX += rc.Width
+		}
 		drawOffsetY += line.MaxHeight
 	}
 }

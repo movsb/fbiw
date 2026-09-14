@@ -41,6 +41,9 @@ type Canvas struct {
 
 	// buffer 的宽度和高度。
 	width, height int
+
+	// framebuffer 坐标系中的可绘制区域。
+	clip image.Rectangle
 }
 
 func NewCanvas(width, height int) *Canvas {
@@ -53,6 +56,7 @@ func NewCanvas(width, height int) *Canvas {
 		x:      0,
 		y:      0,
 		buffer: make([]byte, width*height*4),
+		clip:   image.Rect(0, 0, width, height),
 	}
 }
 
@@ -67,6 +71,21 @@ func (c *Canvas) SaveToFile(path string) {
 	}
 }
 
+// Clip 返回一个裁剪到当前局部矩形的新 Canvas，不修改原 Canvas。
+func (c *Canvas) Clip(x, y, width, height int) *Canvas {
+	clipped := *c
+	r := image.Rect(c.x+x, c.y+y, c.x+x+max(0, width), c.y+y+max(0, height))
+	clipped.clip = c.clipBounds().Intersect(r)
+	return &clipped
+}
+
+func (c *Canvas) clipBounds() image.Rectangle {
+	if c.clip.Empty() {
+		return image.Rect(0, 0, c.width, c.height)
+	}
+	return c.clip
+}
+
 // 提供局部平移 ——— 仅仅是把内部的起点 (x,y) 平移 (x,y) 个单位，并不承担任何裁剪功能。
 // 非常类似于常见的 translate 方法。
 func (c *Canvas) Offset(x, y int) *Canvas {
@@ -79,6 +98,7 @@ func (c *Canvas) Offset(x, y int) *Canvas {
 		y:      c.y + y,
 		width:  c.width,
 		height: c.height,
+		clip:   c.clip,
 	}
 }
 
@@ -100,6 +120,7 @@ type imageDrawRegion struct {
 // clipImageRegion 同时裁剪源图和 framebuffer；目标左上越界时，
 // 必须同步跳过源图左上的像素，否则不仅会切片 panic，图像也会错位。
 func (c *Canvas) clipImageRegion(img DecodedImage, srcX, srcY, width, height int) (imageDrawRegion, bool) {
+	clip := c.clipBounds()
 	r := imageDrawRegion{
 		dstX:   c.x,
 		dstY:   c.y,
@@ -120,20 +141,20 @@ func (c *Canvas) clipImageRegion(img DecodedImage, srcX, srcY, width, height int
 	}
 	r.width = min(r.width, img.Width-r.srcX)
 	r.height = min(r.height, img.Height-r.srcY)
-	if r.dstX < 0 {
-		delta := -r.dstX
-		r.dstX = 0
+	if r.dstX < clip.Min.X {
+		delta := clip.Min.X - r.dstX
+		r.dstX = clip.Min.X
 		r.srcX += delta
 		r.width -= delta
 	}
-	if r.dstY < 0 {
-		delta := -r.dstY
-		r.dstY = 0
+	if r.dstY < clip.Min.Y {
+		delta := clip.Min.Y - r.dstY
+		r.dstY = clip.Min.Y
 		r.srcY += delta
 		r.height -= delta
 	}
-	r.width = min(r.width, c.width-r.dstX)
-	r.height = min(r.height, c.height-r.dstY)
+	r.width = min(r.width, clip.Max.X-r.dstX)
+	r.height = min(r.height, clip.Max.Y-r.dstY)
 	return r, r.width > 0 && r.height > 0
 }
 
@@ -386,24 +407,25 @@ func (c *Canvas) FillRect(x, y, width, height int, color Color) {
 	y0 := c.y + y
 	x1 := x0 + width
 	y1 := y0 + height
+	clip := c.clipBounds()
 
-	if x0 < 0 {
-		x0 = 0
+	if x0 < clip.Min.X {
+		x0 = clip.Min.X
 	}
-	if x0 > c.width {
+	if x0 >= clip.Max.X {
 		return
 	}
-	if y0 < 0 {
-		y0 = 0
+	if y0 < clip.Min.Y {
+		y0 = clip.Min.Y
 	}
-	if y0 > c.height {
+	if y0 >= clip.Max.Y {
 		return
 	}
-	if x1 > c.width {
-		x1 = c.width
+	if x1 > clip.Max.X {
+		x1 = clip.Max.X
 	}
-	if y1 > c.height {
-		y1 = c.height
+	if y1 > clip.Max.Y {
+		y1 = clip.Max.Y
 	}
 
 	// 如果是完全不透明色，则直接覆盖。
@@ -653,9 +675,10 @@ func (c *Canvas) framebuffer() draw.Image {
 //
 // 如果写(0,0)，仍然写的是 canvas.(x,y)。
 func (c *Canvas) drawable() draw.Image {
+	bounds := c.clipBounds().Sub(image.Pt(c.x, c.y))
 	return _CanvasImage{
 		underlying: c,
-		bounds:     image.Rect(-c.x, -c.y, c.width-c.x, c.height-c.y),
+		bounds:     bounds,
 	}
 }
 
@@ -785,6 +808,7 @@ func (c *Canvas) drawStringDevice2(text string, faces []*FontFace, color Color) 
 	colorB := uint32(color.B())
 	colorG := uint32(color.G())
 	colorR := uint32(color.R())
+	clip := c.clipBounds()
 	for _, next := range text {
 		// 字偶距始终按主字体计算，以保持与原来的排版行为一致。
 		if prev >= 0 {
@@ -825,8 +849,8 @@ func (c *Canvas) drawStringDevice2(text string, faces []*FontFace, color Color) 
 		glyphHeight := int(glyph.Height)
 		sx0 := c.x + dstX
 		sy0 := c.y + dstY
-		x0, y0 := max(0, -sx0), max(0, -sy0)
-		x1, y1 := min(glyphWidth, c.width-sx0), min(glyphHeight, c.height-sy0)
+		x0, y0 := max(0, clip.Min.X-sx0), max(0, clip.Min.Y-sy0)
+		x1, y1 := min(glyphWidth, clip.Max.X-sx0), min(glyphHeight, clip.Max.Y-sy0)
 
 		if x0 < x1 && y0 < y1 {
 			for y := y0; y < y1; y++ {
