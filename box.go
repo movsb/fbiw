@@ -1251,6 +1251,8 @@ type _TextMarquee struct {
 	axis       string
 	speed      float64
 	pause      time.Duration
+	count      int
+	completed  int
 	running    bool
 	offset     float64
 	direction  float64
@@ -1325,6 +1327,10 @@ func (t *Text) SetMarqueeRunning(running bool) {
 	if t.marquee.running == running {
 		if !running {
 			t.resetMarqueePosition()
+		} else if t.marquee.count > 0 && t.marquee.completed >= t.marquee.count {
+			t.resetMarqueePosition()
+			t.updateMarquee()
+			t.document.RequestPaint()
 		}
 		return
 	}
@@ -1341,6 +1347,7 @@ func (t *Text) SetMarqueeRunning(running bool) {
 func (t *Text) resetMarqueePosition() {
 	t.marquee.offset = 0
 	t.marquee.direction = 1
+	t.marquee.completed = 0
 }
 
 func (t *Text) MarqueeRunning() bool {
@@ -1377,6 +1384,16 @@ func (t *Text) SetProp(key, value string) error {
 		}
 		t.marquee.pause = time.Duration(milliseconds) * time.Millisecond
 		t.stopMarquee()
+		t.document.RequestLayout()
+		return nil
+	case `marquee-count`:
+		count, err := strconv.Atoi(value)
+		if err != nil || count < 0 {
+			return fmt.Errorf(`marquee-count 属性必须是非负整数：%s`, value)
+		}
+		t.marquee.count = count
+		t.stopMarquee()
+		t.resetMarqueePosition()
 		t.document.RequestLayout()
 		return nil
 	default:
@@ -1526,7 +1543,8 @@ func (t *Text) updateMarquee() {
 	contentHeight := t.layoutBox.Height - t.VerticalInsets()
 	overflows := t.marquee.axis == `horizontal` && t.textLineMaxWidth > contentWidth ||
 		t.marquee.axis == `vertical` && t.blockHeight() > contentHeight
-	if !t.marquee.running || t.marquee.axis == `` || !overflows || t.document == nil || t.document.app == nil {
+	exhausted := t.marquee.count > 0 && t.marquee.completed >= t.marquee.count
+	if !t.marquee.running || exhausted || t.marquee.axis == `` || !overflows || t.document == nil || t.document.app == nil {
 		t.stopMarquee()
 		if !overflows {
 			t.textDrawLineOffset = 0
@@ -1557,11 +1575,16 @@ func (t *Text) updateMarquee() {
 			} else if t.marquee.offset <= 0 {
 				t.marquee.offset = 0
 				t.marquee.direction = 1
+				t.marquee.completed++
 				t.marquee.pauseUntil = now.Add(t.marquee.pause)
 			}
 			t.document.RequestPaint()
 		}
 		t.marquee.last = now
+		if t.marquee.count > 0 && t.marquee.completed >= t.marquee.count {
+			t.stopMarquee()
+			return
+		}
 		t.marquee.cancel = t.document.RequestAnimationFrame(frame)
 	}
 	t.marquee.cancel = t.document.RequestAnimationFrame(frame)

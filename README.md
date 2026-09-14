@@ -339,6 +339,7 @@ language.Activate()
     marquee="horizontal"
     marquee-speed="40"
     marquee-pause="800"
+    marquee-count="2"
 >这是一段会在左右两端停留并往返滚动的横向长文本</text>
 ```
 
@@ -361,10 +362,13 @@ language.Activate()
 | `marquee` | `horizontal`、`vertical` 或空值 | 空值 | 选择滚动轴向；空值表示关闭 |
 | `marquee-speed` | 正数 | `60` | 滚动速度，单位为像素/秒 |
 | `marquee-pause` | 非负整数 | `1000` | 在两端停留的毫秒数；`0` 表示不停留 |
+| `marquee-count` | 非负整数 | `0` | 完成“起点→末端→起点”的次数；`0` 表示不限次数 |
 
 只有内容在所选轴向上溢出时才会启动动画；内容能够完整显示时不会产生动画帧。
 修改文本、关闭 `marquee` 或关闭文档时，原动画会自动停止。滚动内容会被裁剪在
 `<text>` 的内容区域内，不会覆盖边框或相邻元素。
+达到 `marquee-count` 后，文本停在起点且不再申请动画帧；更新文本或重新启用
+marquee 会从零重新计数。
 
 ## 布局模型
 

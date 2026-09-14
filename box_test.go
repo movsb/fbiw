@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"github.com/goccy/go-yaml"
 	"golang.org/x/image/font"
@@ -831,6 +832,31 @@ func TestStoppingMarqueeResetsPosition(t *testing.T) {
 
 	if !canceled || text.MarqueeRunning() || text.marquee.offset != 0 || text.marquee.direction != 1 {
 		t.Fatalf(`stopped marquee = %+v, canceled=%t`, text.marquee, canceled)
+	}
+}
+
+func TestMarqueeCountStopsAfterRoundTrip(t *testing.T) {
+	app, doc, clock := newAnimationTestApp(t)
+	text := NewText(doc)
+	text.marquee.axis = `horizontal`
+	text.marquee.pause = 0
+	text.marquee.count = 1
+	text.layoutBox = Rect{Width: 10, Height: 13}
+	text.textLineMaxWidth = 20
+	text.textLines = []_TextLine{{MaxHeight: 13}}
+
+	text.updateMarquee()
+	clock.now = clock.now.Add(animationFrameInterval)
+	animationStep(app)
+	clock.now = clock.now.Add(time.Second)
+	animationStep(app)
+	if text.marquee.offset != 10 || text.marquee.direction != -1 {
+		t.Fatalf(`marquee at end: offset=%v direction=%v`, text.marquee.offset, text.marquee.direction)
+	}
+	clock.now = clock.now.Add(time.Second)
+	animationStep(app)
+	if text.marquee.offset != 0 || text.marquee.completed != 1 || text.marquee.cancel != nil {
+		t.Fatalf(`completed marquee = %+v`, text.marquee)
 	}
 }
 
