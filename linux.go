@@ -166,16 +166,27 @@ func pollEvents(
 }
 
 func _pollKeyboardEvents(ctx context.Context, handler func(*Event)) {
-	matches, err := filepath.Glob("/dev/input/event*")
-	if err != nil {
-		panic(err)
+	// 系统服务启动较早时虚拟手柄还不存在，持续等待，不能因为一次 glob 结果
+	// 不足四项就退出甚至访问 matches[3] 越界。
+	device := ""
+	for device == "" {
+		names, _ := filepath.Glob("/sys/class/input/event*/device/name")
+		for _, namePath := range names {
+			name, _ := os.ReadFile(namePath)
+			if strings.TrimSpace(string(name)) == "TRIMUI Player1" {
+				event := filepath.Base(filepath.Dir(filepath.Dir(namePath)))
+				device = filepath.Join("/dev/input", event)
+				break
+			}
+		}
+		if device == "" {
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(500 * time.Millisecond):
+			}
+		}
 	}
-	if len(matches) == 0 {
-		fmt.Println("未检测到输入事件设备")
-		return
-	}
-
-	device := matches[3]
 	fmt.Println("发现设备：", device)
 
 	f, err := os.Open(device)
