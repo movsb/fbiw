@@ -2420,7 +2420,10 @@ func (b *_ScrollChild) bindData() {
 	if b.dataIndex() < b.scroll.count {
 		dataIndex := b.dataIndex()
 		changed := b.boundDataIndex != dataIndex
-		if changed && b.selected() {
+		if !changed {
+			return
+		}
+		if b.selected() {
 			b.notifySelection(false)
 		}
 		// 提前绑定上去才能提供数据、提供计算支撑。
@@ -2432,7 +2435,7 @@ func (b *_ScrollChild) bindData() {
 		// 队列满了的话，会不会死在这里？
 		b.scroll.bind(b.user, dataIndex)
 		b.boundDataIndex = dataIndex
-		if changed && b.selected() {
+		if b.selected() {
 			b.notifySelection(true)
 		}
 	}

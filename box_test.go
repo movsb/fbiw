@@ -1173,6 +1173,9 @@ func TestScrollSelectionAwareAndVirtualRebind(t *testing.T) {
 	scroll.SetIndex(0, 0, 0)
 	scroll.navigate(&Event{Type: StickDownEvent, Stick: KeyEventArgs{Name: Down}})
 	scroll.navigate(&Event{Type: StickDownEvent, Stick: KeyEventArgs{Name: Down}})
+	// 同一数据索引的重复布局不得再次 bind，否则 SetText 等绑定逻辑会
+	// 意外重置列表项内部的动画状态。
+	scroll.children[1].(*_ScrollChild).bindData()
 	scroll.Deselect()
 
 	if !slices.Equal(items[0].events, []bool{false, true, false}) {
