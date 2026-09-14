@@ -329,8 +329,8 @@ language.Activate()
 `<text>` 可以在内容超出固定尺寸时进行逐像素往返滚动。滚动到另一端后会
 停留一段时间，再反向滚回起点并再次停留。
 
-横向滚动使用固定宽度，并关闭由可视宽度引起的自动换行；文本中的显式换行符
-仍会保留：
+横向滚动使用固定宽度，并关闭由可视宽度引起的自动换行；未显式设置 `width`
+时会采用父布局提供的可视宽度。文本中的显式换行符仍会保留：
 
 ```html
 <text
@@ -790,6 +790,11 @@ type Item struct {
     text *fbiw.Text `css:"text"`
 }
 
+func (item *Item) ScrollSelectionChanged(selected bool) {
+    // 一个列表项包含多个文本时，可以只控制需要滚动的标题。
+    item.text.SetMarqueeRunning(selected)
+}
+
 item := doc.Unmarshal[Item](`
     <block background-color="tan">
         <text></text>
@@ -869,6 +874,22 @@ scroll.SetItems(
 
 scroll.Activate()
 ```
+
+`SetItems` 返回的 `user` 可以选择实现 `ScrollSelectionAware`。`Scroll` 会在
+列表项选中、取消选中以及虚拟槽位换绑数据时调用它；没有实现时静默忽略：
+
+```go
+type ScrollSelectionAware interface {
+    ScrollSelectionChanged(selected bool)
+}
+```
+
+`Text.SetMarqueeRunning(false)` 会停止动画并让文本回到起点，再传入 `true` 时从
+起点的停留阶段开始滚动。列表项可在回调中精确选择要控制的 `<text>`，不需要让
+所有后代文本都响应 `.selected`。
+
+每个虚拟列表槽位也会裁剪其子内容；超宽文本、图片或其它子元素不会绘制到相邻
+列表项之外。槽位自身的选中轮廓不受该裁剪影响。
 
 被选中的可视槽位会自动获得 `.selected` class，可以通过样式显示选中状态：
 

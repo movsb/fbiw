@@ -1241,6 +1241,7 @@ type _TextMarquee struct {
 	axis       string
 	speed      float64
 	pause      time.Duration
+	running    bool
 	offset     float64
 	direction  float64
 	last       time.Time
@@ -1302,9 +1303,38 @@ func NewText(doc *Document) *Text {
 		marquee: _TextMarquee{
 			speed:     30,
 			pause:     800 * time.Millisecond,
+			running:   true,
 			direction: 1,
 		},
 	}
+}
+
+// SetMarqueeRunning 启动或停止自动滚动。停止时回到起点；再次启动时从
+// 起点的停留阶段开始。内容未溢出或未配置 marquee 时不会申请动画帧。
+func (t *Text) SetMarqueeRunning(running bool) {
+	if t.marquee.running == running {
+		if !running {
+			t.resetMarqueePosition()
+		}
+		return
+	}
+	t.marquee.running = running
+	if running {
+		t.updateMarquee()
+	} else {
+		t.stopMarquee()
+		t.resetMarqueePosition()
+	}
+	t.document.RequestPaint()
+}
+
+func (t *Text) resetMarqueePosition() {
+	t.marquee.offset = 0
+	t.marquee.direction = 1
+}
+
+func (t *Text) MarqueeRunning() bool {
+	return t.marquee.running
 }
 
 func (t *Text) SetProp(key, value string) error {
@@ -1317,8 +1347,7 @@ func (t *Text) SetProp(key, value string) error {
 		if t.marquee.axis == `` {
 			t.stopMarquee()
 			t.textDrawLineOffset = 0
-			t.marquee.offset = 0
-			t.marquee.direction = 1
+			t.resetMarqueePosition()
 		}
 		t.document.RequestLayout()
 		return nil
@@ -1352,8 +1381,7 @@ func (t *Text) SetText(text string) {
 	// 替换整段内容时从头开始显示。普通的重新排版不应该重置这个
 	// 偏移，否则无关的布局刷新也会把长文本滚回顶部。
 	t.textDrawLineOffset = 0
-	t.marquee.offset = 0
-	t.marquee.direction = 1
+	t.resetMarqueePosition()
 	t.stopMarquee()
 	t.AppendChild(text)
 	t.expandTextNodes()
@@ -1440,6 +1468,10 @@ func (t *Text) segmentBlock(availWidth, availHeight int, size resolvedDimensions
 	// 文本的宽度肯定是限制在可用宽度内的，目前超宽的始终折行。
 	if w := size.Width; w.IsNumber() {
 		t.layoutBox.Width = int(w.Number())
+	} else if t.marquee.axis == `horizontal` {
+		// 水平 marquee 的固有内容宽度用于计算滚动距离，盒子本身则
+		// 使用父布局提供的可视宽度。列表项因此不必重复声明槽位宽度。
+		t.layoutBox.Width = max(0, availWidth)
 	} else {
 		t.layoutBox.Width = t.textLineMaxWidth + t.HorizontalInsets()
 	}
@@ -1484,12 +1516,11 @@ func (t *Text) updateMarquee() {
 	contentHeight := t.layoutBox.Height - t.VerticalInsets()
 	overflows := t.marquee.axis == `horizontal` && t.textLineMaxWidth > contentWidth ||
 		t.marquee.axis == `vertical` && t.blockHeight() > contentHeight
-	if t.marquee.axis == `` || !overflows || t.document == nil || t.document.app == nil {
+	if !t.marquee.running || t.marquee.axis == `` || !overflows || t.document == nil || t.document.app == nil {
 		t.stopMarquee()
 		if !overflows {
 			t.textDrawLineOffset = 0
-			t.marquee.offset = 0
-			t.marquee.direction = 1
+			t.resetMarqueePosition()
 		}
 		return
 	}
@@ -2196,6 +2227,12 @@ var (
 	ScrollSelectionChange = RegisterEventType()
 )
 
+// ScrollSelectionAware 可由 SetItems 返回的 user 实现。Scroll 会在对应
+// 列表项被选中或取消选中时同步通知；未实现该接口时不会执行额外操作。
+type ScrollSelectionAware interface {
+	ScrollSelectionChanged(selected bool)
+}
+
 type _ScrollState struct {
 	// 列表的数据总量。
 	count int
@@ -2338,16 +2375,28 @@ type _ScrollChild struct {
 	// rowIndex*cols + colIndex + topIndex == item数据
 	rowIndex int
 	colIndex int
+
+	boundDataIndex int
 }
 
 func _NewScrollChild(doc *Document) *_ScrollChild {
-	box := &_ScrollChild{BaseBox: NewBaseBox(doc, `scroll-child`)}
+	box := &_ScrollChild{BaseBox: NewBaseBox(doc, `scroll-child`), boundDataIndex: -1}
 	box._EventTarget.box = box
 	return box
 }
 
 func (b *_ScrollChild) Draw(canvas *Canvas) {
-	b.Base().Draw(canvas)
+	// 槽位自身的 outline 可以画到边界外，但列表项内容必须限制在
+	// 槽位内，避免超宽文本或其它子内容覆盖相邻列表项。
+	b.Base().draw(canvas, false)
+	clipped := canvas.Clip(0, 0, b.layoutBox.Width, b.layoutBox.Height)
+	for _, child := range b.children {
+		if !displaying(child) {
+			continue
+		}
+		layout := child.Base().layoutBox
+		child.Draw(clipped.Offset(layout.X, layout.Y))
+	}
 	// canvas.SaveToFile(fmt.Sprintf(`%d.png`, b.itemIndex()))
 }
 
@@ -2359,6 +2408,11 @@ func (b *_ScrollChild) bindData() {
 	// 没有数据的项实际是被隐藏的，被隐藏的项不会参与计算。
 	// 所以如果代码运行到了这里，那一定是出现了内部逻辑错误。
 	if b.dataIndex() < b.scroll.count {
+		dataIndex := b.dataIndex()
+		changed := b.boundDataIndex != dataIndex
+		if changed && b.selected() {
+			b.notifySelection(false)
+		}
 		// 提前绑定上去才能提供数据、提供计算支撑。
 		// TODO 现在是处理 calc 中，如果限定了尺寸的话，
 		// 其实是不需要此刻 bind 的，Draw 的时候 bind 才比较好。
@@ -2366,8 +2420,31 @@ func (b *_ScrollChild) bindData() {
 		//
 		// 而且，如果项目过多，可能导致bind触发过多的RequestPaint阻塞队列？
 		// 队列满了的话，会不会死在这里？
-		b.scroll.bind(b.user, b.dataIndex())
+		b.scroll.bind(b.user, dataIndex)
+		b.boundDataIndex = dataIndex
+		if changed && b.selected() {
+			b.notifySelection(true)
+		}
 	}
+}
+
+func (b *_ScrollChild) selected() bool {
+	return b.ClassContains(`selected`)
+}
+
+func (b *_ScrollChild) notifySelection(selected bool) {
+	if aware, ok := b.user.(ScrollSelectionAware); ok {
+		aware.ScrollSelectionChanged(selected)
+	}
+}
+
+func (b *_ScrollChild) setSelected(selected bool) {
+	if selected {
+		b.ClassAdd(`selected`)
+	} else {
+		b.ClassRemove(`selected`)
+	}
+	b.notifySelection(selected)
 }
 
 func (b *_ScrollChild) forceCalc(x, y int, contentAvailWidth, avgHeight int, prefersMaxWidth bool) {
@@ -2434,6 +2511,9 @@ func (b *Scroll) SetItems[T any](count int, create func() (root Box, user T), bi
 }
 
 func (b *Scroll) _setItems(count int, create func() (root Box, user any), bind func(user any, index int)) {
+	if child := b.selectedChild(b._ScrollState); child != nil {
+		child.setSelected(false)
+	}
 	b.children = nil
 	b.count = count
 	b.bind = bind
@@ -2452,6 +2532,7 @@ func (b *Scroll) _setItems(count int, create func() (root Box, user any), bind f
 			wrapper.rowIndex = r
 			wrapper.colIndex = c
 			wrapper.AppendChild(box)
+			wrapper.notifySelection(false)
 			b.AppendChild(wrapper)
 		}
 	}
@@ -2469,20 +2550,31 @@ func (b *Scroll) navigate(event *Event) {
 		return
 	}
 
-	// 取消选中原来的
-	if childIndex := oldState.rowIndex*oldState.cols + oldState.colIndex; childIndex >= 0 && childIndex <= len(b.children)-1 {
-		b.children[childIndex].Base().ClassRemove(`selected`)
-	}
-
-	// 更新选中
-	if childIndex := b.rowIndex*b.cols + b.colIndex; childIndex >= 0 && childIndex <= len(b.children)-1 {
-		b.children[childIndex].Base().ClassAdd(`selected`)
-	}
+	b.selectionChanged(oldState)
 
 	b.document.RequestPaint()
 	event.StopPropagation()
 	// 发送状态变化事件。
 	b.Dispatch(ScrollSelectionChange, nil)
+}
+
+func (b *Scroll) selectedChild(state _ScrollState) *_ScrollChild {
+	childIndex := state.rowIndex*state.cols + state.colIndex
+	if state.rowIndex < 0 || childIndex < 0 || childIndex >= len(b.children) {
+		return nil
+	}
+	return b.children[childIndex].(*_ScrollChild)
+}
+
+func (b *Scroll) selectionChanged(oldState _ScrollState) {
+	if child := b.selectedChild(oldState); child != nil {
+		child.setSelected(false)
+	}
+	if child := b.selectedChild(b._ScrollState); child != nil {
+		// 虚拟槽位可能已经代表另一条数据；先换绑，再通知选中。
+		child.bindData()
+		child.setSelected(true)
+	}
 }
 
 // navigate 计算一次导航后的选中状态。
@@ -2611,12 +2703,14 @@ func (b *Scroll) SetIndex(rowIndex, colIndex, dataIndexOffset int) {
 		return
 	}
 
+	oldState := b._ScrollState
 	b.rowIndex = rowIndex
 	b.colIndex = colIndex
 	b.itemOffset = dataIndexOffset
 
-	childIndex := rowIndex*b.cols + b.colIndex
-	b.children[childIndex].ClassAdd(`selected`)
+	if oldState != b._ScrollState {
+		b.selectionChanged(oldState)
+	}
 
 	b.document.RequestPaint()
 }
@@ -2637,14 +2731,12 @@ func (b *Scroll) DataRowIndex() int {
 
 // 取消选中当前的选中项。
 func (b *Scroll) Deselect() {
-	childIndex := b.rowIndex*b.cols + b.colIndex
-	if childIndex >= 0 && childIndex <= len(b.children)-1 {
-		b.children[childIndex].ClassRemove(`selected`)
-	}
+	oldState := b._ScrollState
 	b.rowIndex = -1
 	b.colIndex = 0
 	// 好像可以不用归位？
 	b.itemOffset = 0
+	b.selectionChanged(oldState)
 
 	b.document.RequestPaint()
 }
@@ -2662,10 +2754,10 @@ func (b *Scroll) SetState(state any) {
 		panic(`无效状态`)
 	}
 
+	oldState := b._ScrollState
 	b._ScrollState = st
-	childIndex := b.rowIndex*b.cols + b.colIndex
-	if childIndex >= 0 && childIndex <= len(b.children)-1 {
-		b.children[childIndex].ClassAdd(`selected`)
+	if oldState != b._ScrollState {
+		b.selectionChanged(oldState)
 	}
 
 	b.Dispatch(ScrollSelectionChange, nil)

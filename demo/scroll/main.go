@@ -13,6 +13,15 @@ import (
 //go:embed main.html
 var embedded embed.FS
 
+type _Item struct {
+	root fbiw.Box
+	text *fbiw.Text `css:"text"`
+}
+
+func (i *_Item) ScrollSelectionChanged(selected bool) {
+	i.text.SetMarqueeRunning(selected)
+}
+
 func main() {
 	app := fbiw.NewApp(fbiw.WithSystemFont(os.DirFS(`..`), `regular.ttf`))
 	defer app.Close()
@@ -21,18 +30,13 @@ func main() {
 
 	scroll := doc.GetBoxByID[*fbiw.Scroll](`scroll`)
 
-	type _Item struct {
-		root fbiw.Box
-		text *fbiw.Text `css:"text"`
-	}
-
 	scroll.SetItems(7,
 		func() (fbiw.Box, *_Item) {
 			item := doc.Instantiate[_Item](`item`)
 			return item.root, item
 		},
 		func(item *_Item, index int) {
-			item.text.SetText(fmt.Sprint(index))
+			item.text.SetText(fmt.Sprintf(`项目 %d：这是一段只有选中后才会往返滚动的长长长长长长长长长长长长长标题`, index))
 		},
 	)
 

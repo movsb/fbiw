@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -796,6 +797,32 @@ func TestHorizontalMarqueeDoesNotWrap(t *testing.T) {
 	}
 }
 
+func TestHorizontalMarqueeUsesParentWidth(t *testing.T) {
+	doc := newFlexTestDocument(t, `<block width="30"><text id="text" marquee="horizontal">ABCDEFGHIJKL</text></block>`, 100, 100)
+	text := doc.GetBoxByID[*Text](`text`)
+	if text.layoutBox.Width != 30 {
+		t.Fatalf(`horizontal marquee width = %d, want parent width 30`, text.layoutBox.Width)
+	}
+	if text.textLineMaxWidth <= text.layoutBox.Width {
+		t.Fatalf(`text width = %d, box width = %d; want overflow`, text.textLineMaxWidth, text.layoutBox.Width)
+	}
+}
+
+func TestStoppingMarqueeResetsPosition(t *testing.T) {
+	doc := &Document{}
+	text := NewText(doc)
+	text.marquee.offset = 17.5
+	text.marquee.direction = -1
+	canceled := false
+	text.marquee.cancel = func() { canceled = true }
+
+	text.SetMarqueeRunning(false)
+
+	if !canceled || text.MarqueeRunning() || text.marquee.offset != 0 || text.marquee.direction != 1 {
+		t.Fatalf(`stopped marquee = %+v, canceled=%t`, text.marquee, canceled)
+	}
+}
+
 func TestScrollMaxRowsHeight(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -1100,5 +1127,70 @@ func TestScrollStateNavigate(t *testing.T) {
 				t.Errorf(`changed = %t, want %t`, changed, tt.changed)
 			}
 		})
+	}
+}
+
+type scrollSelectionAwareTestItem struct {
+	events []bool
+	bound  []int
+}
+
+func (i *scrollSelectionAwareTestItem) ScrollSelectionChanged(selected bool) {
+	i.events = append(i.events, selected)
+}
+
+func TestScrollSelectionAwareAndVirtualRebind(t *testing.T) {
+	doc := &Document{}
+	scroll := NewScroll(doc)
+	scroll._EventTarget.box = scroll
+	scroll.rows = 2
+	items := []*scrollSelectionAwareTestItem{}
+	scroll._setItems(3,
+		func() (Box, any) {
+			item := &scrollSelectionAwareTestItem{}
+			items = append(items, item)
+			root := NewBlock(doc)
+			root._EventTarget.box = root
+			return root, item
+		},
+		func(user any, index int) {
+			item := user.(*scrollSelectionAwareTestItem)
+			item.bound = append(item.bound, index)
+		},
+	)
+
+	scroll.SetIndex(0, 0, 0)
+	scroll.navigate(&Event{Type: StickDownEvent, Stick: KeyEventArgs{Name: Down}})
+	scroll.navigate(&Event{Type: StickDownEvent, Stick: KeyEventArgs{Name: Down}})
+	scroll.Deselect()
+
+	if !slices.Equal(items[0].events, []bool{false, true, false}) {
+		t.Fatalf(`first item selection events = %v`, items[0].events)
+	}
+	if !slices.Equal(items[1].events, []bool{false, true, false, true, false}) {
+		t.Fatalf(`reused item selection events = %v`, items[1].events)
+	}
+	if !slices.Equal(items[1].bound, []int{1, 2}) {
+		t.Fatalf(`reused item bindings = %v`, items[1].bound)
+	}
+}
+
+func TestScrollChildClipsOverflowingContent(t *testing.T) {
+	doc := &Document{}
+	wrapper := _NewScrollChild(doc)
+	wrapper.layoutBox = Rect{Width: 10, Height: 6}
+	child := NewBlock(doc)
+	child._EventTarget.box = child
+	child.layoutBox = Rect{Width: 20, Height: 6}
+	wrapper.AppendChild(child)
+	child.computedStyles.SetBackgroundColor(ColorFromRGBA(255, 255, 255, 255))
+
+	canvas := NewCanvas(20, 6)
+	wrapper.Draw(canvas)
+	for x := 0; x < 20; x++ {
+		painted := canvas.buffer[x*4+3] != 0
+		if painted != (x < 10) {
+			t.Fatalf(`pixel x=%d painted=%t, want %t`, x, painted, x < 10)
+		}
 	}
 }
