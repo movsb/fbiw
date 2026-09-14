@@ -352,14 +352,7 @@ func parseDocument(owner *Document, content io.Reader) (*_ParsedDocumentData, er
 
 // Instantiate 根据指定 ID 创建模板实例并绑定到结构体。
 //
-//   - 如果有一个 `root fbiw.Box` 元素，用来保存根节点。
-//
-//   - 其它的写法形如： txtStatus *fbiw.Text `css:"text"`，
-//     表示在文档中基于css的选择器找到元素并赋值给 txtStatus。
-//
-//     名字不需要是已导出的字段（即不需要大写字母开头）。
-//
-// 返回指针类型。
+// 参考 [Bind] 方法。
 func (doc *Document) Instantiate[T any](id string) *T {
 	t, ok := doc.templates[id]
 	if !ok {
@@ -423,7 +416,16 @@ func parseBox(owner *Document, content io.Reader) (Box, error) {
 
 // 根据to结构体中的css tags从box中查找对应的盒子并设置到to中。
 //
-// 支持单个元素和切片。
+// `to`应为结构体指针。其成员的css选择器可用于单个元素或切片，分别用于选择单个元素或者一组元素。
+//
+// 结构体体中成员形如： txtStatus *fbiw.Text `css:"text"`，
+// 表示在文档中基于css的选择器找到元素并赋值给 txtStatus。
+//
+// 如果有一个 `root fbiw.Box` 元素，用来保存根节点（即box）。
+// 此根节点通常应该是文档根节点，也可能是模板根节点。
+// 此root元素不能指定css选择器。
+//
+// 名字不需要是已导出的字段（即不需要大写字母开头）。
 func Bind(to any, box Box) {
 	doc := box.Document()
 	rv := reflect.ValueOf(to).Elem()
@@ -431,6 +433,9 @@ func Bind(to any, box Box) {
 		if field.Name == `root` {
 			if field.Type != reflect.TypeFor[Box]() {
 				panic(`root必须是Box类型`)
+			}
+			if field.Tag.Get(`css`) != `` {
+				panic(`root不能指定css`)
 			}
 			ptr := reflect.NewAt(field.Type, unsafe.Pointer(fieldValue.UnsafeAddr()))
 			ptr.Elem().Set(reflect.ValueOf(box))
