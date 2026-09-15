@@ -4,6 +4,8 @@ package fbiw
 
 import (
 	"context"
+	"log"
+	"sync/atomic"
 
 	"github.com/veandco/go-sdl2/sdl"
 )
@@ -86,6 +88,52 @@ func pollEvents(
 	unblock chan struct{}, unblockHandler func(),
 	sync func(), eventHandler func(*Event),
 ) {
+	wakeEvent := sdl.RegisterEvents(1)
+	if wakeEvent == ^uint32(0) {
+		panic("无法注册 SDL 唤醒事件。")
+	}
+	pollSDLEvents(
+		ctx, cancel,
+		unblock, unblockHandler,
+		sync, eventHandler,
+		sdl.WaitEventTimeout,
+		func() {
+			filtered, err := sdl.PushEvent(&sdl.UserEvent{Type: wakeEvent})
+			if err != nil || filtered {
+				log.Printf("SDL 唤醒事件未入队：filtered=%v, error=%v", filtered, err)
+			}
+		},
+	)
+}
+
+// wait 必须在 UI 主线程执行；push 可以在其它线程执行。
+// 一秒超时仅兜底事件被过滤或队列满的情况，正常唤醒由自定义事件即时触发。
+func pollSDLEvents(
+	ctx context.Context, cancel context.CancelFunc,
+	unblock <-chan struct{}, unblockHandler func(),
+	sync func(), eventHandler func(*Event),
+	wait func(int) sdl.Event, push func(),
+) {
+	var pending atomic.Bool
+	stopped, joined := make(chan struct{}), make(chan struct{})
+	go func() {
+		defer close(joined)
+		for {
+			select {
+			case <-stopped:
+				return
+			case <-ctx.Done():
+				push() // Quit 可以从其它线程调用，须唤醒正在等待的 UI 主线程。
+				return
+			case <-unblock:
+				if !pending.Swap(true) {
+					push()
+				}
+			}
+		}
+	}()
+	// 保证退出消息循环后，不再有桥接线程访问 SDL。
+	defer func() { close(stopped); <-joined }()
 	sendKey := func(name KeyName, pressed, repeat bool) {
 		eventHandler(&Event{
 			Type: Iif(pressed, StickDownEvent, StickUpEvent),
@@ -113,14 +161,21 @@ func pollEvents(
 	}
 
 	for {
-		select {
-		case <-ctx.Done():
+		if ctx.Err() != nil {
 			return
-		case <-unblock:
-			unblockHandler()
-		default:
 		}
-		switch event := sdl.PollEvent().(type) {
+		event := wait(1000)
+		if ctx.Err() != nil {
+			return
+		}
+		// 先释放合并标记；处理期间的新任务会再次入队唤醒，不会丢失。
+		if pending.Swap(false) {
+			unblockHandler()
+		}
+		if ctx.Err() != nil {
+			return
+		}
+		switch event := event.(type) {
 		case *sdl.QuitEvent:
 			cancel()
 			return
