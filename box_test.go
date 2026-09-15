@@ -731,6 +731,124 @@ func TestSegmentBlockKeepsLineHeightWhenAvailableHeightIsSmaller(t *testing.T) {
 	}
 }
 
+type richTextStringer int
+
+func (value richTextStringer) String() string {
+	return fmt.Sprintf(`value-%d`, value)
+}
+
+func TestSetRichSupportsNumberedArguments(t *testing.T) {
+	doc := &Document{}
+	box, err := parseBox(doc, strings.NewReader(`<text>old</text>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := box.(*Text)
+	text.textDrawLineOffset = 3
+	text.marquee.offset = 12
+	text.marquee.direction = -1
+	doc.layoutDirty = false
+
+	args := make([]any, 10)
+	for index := range args {
+		args[index] = index + 1
+	}
+	args[0] = richTextStringer(7)
+	if err := text.SetRich(`<b>{$10}</b>:<i>{$1}</i>:{$1}:{$2}:{$3}:{$4}:{$5}:{$6}:{$7}:{$8}:{$9}`, args...); err != nil {
+		t.Fatal(err)
+	}
+
+	if got, want := text.GetText(), `10:value-7:value-7:2:3:4:5:6:7:8:9`; got != want {
+		t.Fatalf(`GetText() = %q, want %q`, got, want)
+	}
+	if len(text.children) != 2 {
+		t.Fatalf(`rich children = %d, want 2`, len(text.children))
+	}
+	if _, ok := text.children[0].(*BoldText); !ok {
+		t.Fatalf(`first rich child = %T, want *BoldText`, text.children[0])
+	}
+	if _, ok := text.children[1].(*ItalicText); !ok {
+		t.Fatalf(`second rich child = %T, want *ItalicText`, text.children[1])
+	}
+	for _, child := range text.children {
+		if child.Parent() != text.Base() {
+			t.Fatalf(`rich child parent = %T, want target text`, child.Parent())
+		}
+	}
+	if !text.children[0].GetComputedStyles().FontBold || !text.children[1].GetComputedStyles().FontItalic {
+		t.Fatalf(`rich styles not applied: bold=%t italic=%t`, text.children[0].GetComputedStyles().FontBold, text.children[1].GetComputedStyles().FontItalic)
+	}
+	if text.textDrawLineOffset != 0 || text.marquee.offset != 0 || text.marquee.direction != 1 {
+		t.Fatal(`successful SetRich() did not reset scrolling state`)
+	}
+	if !doc.layoutDirty {
+		t.Fatal(`successful SetRich() did not request layout`)
+	}
+}
+
+func TestSetRichEscapesArgumentsAndPreservesOrdinaryBraces(t *testing.T) {
+	doc := &Document{}
+	text := NewText(doc)
+	if err := text.SetRich(`{ordinary} {{$1} <b>{$1}</b> {$2} {$3}`, `<i>&"'</i>`, true, 42); err != nil {
+		t.Fatal(err)
+	}
+
+	if got, want := text.GetText(), `{ordinary} {$1}<i>&"'</i>true 42`; got != want {
+		t.Fatalf(`GetText() = %q, want %q`, got, want)
+	}
+	if len(text.children) != 1 {
+		t.Fatalf(`rich children = %d, want only the literal template b element`, len(text.children))
+	}
+	if _, ok := text.children[0].(*BoldText); !ok {
+		t.Fatalf(`rich child = %T, want *BoldText`, text.children[0])
+	}
+}
+
+func TestSetRichRejectsInvalidInputAtomically(t *testing.T) {
+	tests := []struct {
+		name string
+		tmpl string
+		args []any
+	}{
+		{name: `zero index`, tmpl: `{$0}`},
+		{name: `missing index`, tmpl: `{$}`, args: []any{1}},
+		{name: `invalid index`, tmpl: `{$x}`, args: []any{1}},
+		{name: `unclosed`, tmpl: `{$1`, args: []any{1}},
+		{name: `out of range`, tmpl: `{$2}`, args: []any{1}},
+		{name: `unused argument`, tmpl: `{$1}`, args: []any{1, 2}},
+		{name: `unsupported element`, tmpl: `<br>`, args: nil},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			doc := &Document{}
+			box, err := parseBox(doc, strings.NewReader(`<text>old<b>content</b></text>`))
+			if err != nil {
+				t.Fatal(err)
+			}
+			text := box.(*Text)
+			oldChild := text.children[0]
+			oldParent := oldChild.Parent()
+			text.textDrawLineOffset = 3
+			text.marquee.offset = 12
+			text.marquee.direction = -1
+
+			if err := text.SetRich(tt.tmpl, tt.args...); err == nil {
+				t.Fatal(`SetRich() returned nil error`)
+			}
+			if got := text.GetText(); got != `oldcontent` {
+				t.Fatalf(`GetText() after error = %q, want old content`, got)
+			}
+			if len(text.children) != 1 || text.children[0] != oldChild || oldChild.Parent() != oldParent {
+				t.Fatal(`SetRich() changed children after error`)
+			}
+			if text.textDrawLineOffset != 3 || text.marquee.offset != 12 || text.marquee.direction != -1 {
+				t.Fatal(`SetRich() changed scrolling state after error`)
+			}
+		})
+	}
+}
+
 func TestShouldDrawTextLine(t *testing.T) {
 	tests := []struct {
 		name             string

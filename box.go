@@ -1418,6 +1418,124 @@ func (t *Text) SetTextFormat(format string, args ...any) {
 	t.SetText(fmt.Sprintf(format, args...))
 }
 
+// SetRich 使用从 1 开始编号的 {$n} 位置参数设置富文本。模板只支持
+// <b> 和 <i> 标签；参数始终作为普通文本转义，不能注入标签。同一个参数
+// 可以重复使用，{{ 用于输出字面的 {。
+//
+// 替换是原子的：模板或富文本解析失败时，Text 的原内容保持不变。
+func (t *Text) SetRich(tmpl string, args ...any) error {
+	content, err := interpolateRichText(tmpl, args)
+	if err != nil {
+		return err
+	}
+
+	box, err := parseBox(t.document, strings.NewReader(`<text>`+content+`</text>`))
+	if err != nil {
+		return fmt.Errorf(`富文本解析失败：%w`, err)
+	}
+	parsed := box.(*Text)
+
+	for _, child := range t.children {
+		child.Base().parent = nil
+		child.Base().PrevSibling = nil
+		child.Base().NextSibling = nil
+	}
+
+	t.textParts = parsed.textParts
+	t.children = parsed.children
+	for _, child := range t.children {
+		child.Base().parent = t.Base()
+	}
+
+	t.textDrawLineOffset = 0
+	t.resetMarqueePosition()
+	t.stopMarquee()
+	t.expandTextNodes()
+	if t.document != nil {
+		// 文档样式在加载时已经校验；与 BaseBox.AppendChild 保持一致，
+		// 运行时挂接新节点时重新应用样式并请求布局。
+		_ = t.document.style(t, true)
+		t.document.RequestLayout()
+	}
+	return nil
+}
+
+func interpolateRichText(tmpl string, args []any) (string, error) {
+	var out strings.Builder
+	used := make([]bool, len(args))
+
+	for index := 0; index < len(tmpl); {
+		if tmpl[index] != '{' {
+			out.WriteByte(tmpl[index])
+			index++
+			continue
+		}
+		if index+1 < len(tmpl) && tmpl[index+1] == '{' {
+			out.WriteByte('{')
+			index += 2
+			continue
+		}
+		if index+1 >= len(tmpl) || tmpl[index+1] != '$' {
+			out.WriteByte('{')
+			index++
+			continue
+		}
+
+		end := index + 2
+		digitsStart := end
+		for end < len(tmpl) && '0' <= tmpl[end] && tmpl[end] <= '9' {
+			end++
+		}
+		if digitsStart == end {
+			return ``, fmt.Errorf(`富文本参数占位符缺少编号，位置 %d`, index)
+		}
+		if end >= len(tmpl) || tmpl[end] != '}' {
+			return ``, fmt.Errorf(`富文本参数占位符未正确闭合，位置 %d`, index)
+		}
+
+		position, err := strconv.Atoi(tmpl[digitsStart:end])
+		if err != nil {
+			return ``, fmt.Errorf(`富文本参数编号无效，位置 %d：%w`, index, err)
+		}
+		if position == 0 {
+			return ``, fmt.Errorf(`富文本参数编号必须从 1 开始，位置 %d`, index)
+		}
+		if position > len(args) {
+			return ``, fmt.Errorf(`富文本参数 {$%d} 越界：仅传入 %d 个参数`, position, len(args))
+		}
+
+		appendEscapedRichText(&out, fmt.Sprint(args[position-1]))
+		used[position-1] = true
+		index = end + 1
+	}
+
+	for index, referenced := range used {
+		if !referenced {
+			return ``, fmt.Errorf(`富文本参数 {$%d} 未被使用`, index+1)
+		}
+	}
+	return out.String(), nil
+}
+
+func appendEscapedRichText(out *strings.Builder, text string) {
+	for i := range len(text) {
+		switch text[i] {
+		case '&':
+			out.WriteString(`&amp;`)
+		case '<':
+			out.WriteString(`&lt;`)
+		case '>':
+			out.WriteString(`&gt;`)
+		case '\'':
+			out.WriteString(`&#39;`)
+		case '"':
+			out.WriteString(`&#34;`)
+		default:
+			out.WriteByte(text[i])
+		}
+	}
+}
+
 // 获取普通文件。
 func (t *Text) GetText() string {
 	sb := strings.Builder{}
