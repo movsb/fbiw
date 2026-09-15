@@ -585,7 +585,8 @@ type ProgressBar struct {
 	indeterminatePhase   float64
 	indeterminateForward bool
 
-	cancelAnimation func()
+	valueTransition     *Transition[float64]
+	cancelIndeterminate func()
 }
 
 func init() {
@@ -693,31 +694,25 @@ func (b *ProgressBar) SetValue(value float64) error {
 		return nil
 	}
 	b.value = value
-	if b.indeterminate {
-		b.displayValue = value
-		return nil
+	transition := b.progressTransition()
+	if b.indeterminate || !b.painted {
+		transition.SetValue(value)
+	} else {
+		transition.SetTarget(value)
 	}
-	if b.cancelAnimation != nil {
-		b.cancelAnimation()
-		b.cancelAnimation = nil
-	}
-	if !b.painted || b.displayValue == value {
-		b.displayValue = value
-		b.document.RequestPaint()
-		return nil
-	}
-	valueAt := NumberAnimator(b.displayValue, value)
-	b.cancelAnimation = b.document.Animate(AnimationOptions{
-		Duration: progressAnimationDuration,
-		Easing:   EaseOut,
-		OnUpdate: func(progress float64) {
-			b.displayValue = valueAt(progress)
-			b.document.RequestPaint()
-		},
-		OnComplete: func() { b.cancelAnimation = nil },
-	})
 	b.document.RequestPaint()
 	return nil
+}
+
+// 按需创建确定进度过渡；不确定模式的循环与停留独立管理。
+func (b *ProgressBar) progressTransition() *Transition[float64] {
+	if b.valueTransition == nil {
+		b.valueTransition = b.document.NewTransition(b.displayValue, TransitionOptions[float64]{
+			Duration: progressAnimationDuration, Easing: EaseOut, Animator: NumberAnimator,
+			OnUpdate: func(value float64) { b.displayValue = value; b.document.RequestPaint() },
+		})
+	}
+	return b.valueTransition
 }
 
 // Indeterminate 返回进度条是否处于不确定模式。
@@ -731,15 +726,20 @@ func (b *ProgressBar) SetIndeterminate(indeterminate bool) {
 	if b.indeterminate == indeterminate {
 		return
 	}
-	if b.cancelAnimation != nil {
-		b.cancelAnimation()
-		b.cancelAnimation = nil
+	if b.cancelIndeterminate != nil {
+		b.cancelIndeterminate()
+		b.cancelIndeterminate = nil
+	}
+	if b.valueTransition != nil {
+		b.valueTransition.Cancel()
 	}
 	b.indeterminate = indeterminate
 	b.indeterminatePhase = 0
 	b.indeterminateForward = true
 	if indeterminate {
 		b.animateIndeterminate()
+	} else {
+		b.progressTransition().SetValue(b.value)
 	}
 	b.document.RequestPaint()
 }
@@ -754,7 +754,7 @@ func (b *ProgressBar) animateIndeterminate() {
 		from, to = to, from
 	}
 	phaseAt := NumberAnimator(from, to)
-	b.cancelAnimation = b.document.Animate(AnimationOptions{
+	b.cancelIndeterminate = b.document.Animate(AnimationOptions{
 		Duration: progressIndeterminateDuration,
 		Easing:   EaseInOut,
 		OnUpdate: func(progress float64) {
@@ -762,13 +762,13 @@ func (b *ProgressBar) animateIndeterminate() {
 			b.document.RequestPaint()
 		},
 		OnComplete: func() {
-			b.cancelAnimation = nil
+			b.cancelIndeterminate = nil
 			if !b.indeterminate {
 				return
 			}
 			// 到达端点后停止动画帧，只保留一次生命周期绑定的定时器。
-			b.cancelAnimation = b.document.SetTimeout(progressIndeterminatePause, func() {
-				b.cancelAnimation = nil
+			b.cancelIndeterminate = b.document.SetTimeout(progressIndeterminatePause, func() {
+				b.cancelIndeterminate = nil
 				if !b.indeterminate {
 					return
 				}

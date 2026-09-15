@@ -563,7 +563,7 @@ func TestProgressAnimation(t *testing.T) {
 	}
 	clock.now = clock.now.Add(progressAnimationDuration / 2)
 	animationStep(app)
-	if progress.displayValue != 0.4 || progress.cancelAnimation != nil || app.animation.stop != nil {
+	if progress.displayValue != 0.4 || progress.valueTransition.cancel != nil || app.animation.stop != nil {
 		t.Fatal("进度动画没有正确结束")
 	}
 }
@@ -574,7 +574,7 @@ func TestProgressAnimationBeforeFirstPaint(t *testing.T) {
 	if err := progress.SetValue(0.8); err != nil {
 		t.Fatal(err)
 	}
-	if progress.displayValue != 0.8 || progress.cancelAnimation != nil || len(app.animation.requests) != 0 {
+	if progress.displayValue != 0.8 || progress.valueTransition.cancel != nil || len(app.animation.requests) != 0 {
 		t.Fatal("首次绘制前不应启动动画")
 	}
 }
@@ -582,7 +582,7 @@ func TestProgressAnimationBeforeFirstPaint(t *testing.T) {
 func TestProgressIndeterminateAnimation(t *testing.T) {
 	app, doc, progress, clock := newAnimatedProgress(t,
 		`<document><block><progress indeterminate value="0.3"></progress></block></document>`, true)
-	if !progress.Indeterminate() || progress.cancelAnimation == nil {
+	if !progress.Indeterminate() || progress.cancelIndeterminate == nil {
 		t.Fatal("不确定模式首次绘制后没有启动动画")
 	}
 	doc.layoutDirty, doc.paintDirty = false, false
@@ -594,7 +594,7 @@ func TestProgressIndeterminateAnimation(t *testing.T) {
 	clock.now = clock.now.Add(progressIndeterminateDuration / 2)
 	animationStep(app)
 	if progress.indeterminatePhase != 1 || !progress.indeterminateForward ||
-		len(doc.timeline.animations) != 0 || app.animation.stop != nil || progress.cancelAnimation == nil {
+		len(doc.timeline.animations) != 0 || app.animation.stop != nil || progress.cancelIndeterminate == nil {
 		t.Fatal("到达右端后没有停止动画并等待")
 	}
 	// 直接触发生命周期定时器，避免测试依赖真实等待。
@@ -628,7 +628,7 @@ func TestProgressIndeterminateValueAndStop(t *testing.T) {
 		t.Fatal("不确定模式没有保存确定进度")
 	}
 	progress.SetIndeterminate(false)
-	if progress.Indeterminate() || progress.cancelAnimation != nil || len(app.animation.requests) != 0 {
+	if progress.Indeterminate() || progress.cancelIndeterminate != nil || len(app.animation.requests) != 0 {
 		t.Fatal("退出不确定模式后仍有循环动画")
 	}
 	clock.now = clock.now.Add(time.Second)
@@ -1136,4 +1136,50 @@ func TestAlertDialogInvalidOpenerPanic(t *testing.T) {
 	}()
 	app, _ := newAlertDialogTestApp()
 	app.ShowAlertDialog(&Document{}, AlertDialogOptions{Title: `提示`})
+}
+
+func TestProgressTransitionModeChanges(t *testing.T) {
+	app, doc, progress, clock := newAnimatedProgress(t,
+		`<document><block><progress value="0.2"></progress></block></document>`, true)
+	progress.SetValue(0.8)
+	clock.now = clock.now.Add(progressAnimationDuration / 2)
+	animationStep(app)
+	shown := progress.displayValue
+	if progress.valueTransition == nil || shown != 0.65 {
+		t.Fatal("progress did not use value transition")
+	}
+	old := doc.timeline.animations[0]
+	progress.SetValue(0.8)
+	if doc.timeline.animations[0] != old {
+		t.Fatal("repeated progress restarted transition")
+	}
+	if err := progress.SetValue(2); err == nil || doc.timeline.animations[0] != old {
+		t.Fatal("invalid progress cancelled transition")
+	}
+	progress.SetIndeterminate(true)
+	if progress.valueTransition.cancel != nil || len(doc.timeline.animations) != 1 {
+		t.Fatal("mode switch retained value animation")
+	}
+	clock.now = clock.now.Add(progressIndeterminateDuration / 2)
+	animationStep(app)
+	if progress.displayValue != shown {
+		t.Fatal("cancelled value transition updated during indeterminate animation")
+	}
+	progress.SetIndeterminate(false)
+	if progress.displayValue != 0.8 || progress.valueTransition.Value() != 0.8 || len(doc.timeline.animations) != 0 {
+		t.Fatal("mode switch did not restore logical progress")
+	}
+	progress.SetValue(0.4)
+	clock.now = clock.now.Add(progressAnimationDuration / 2)
+	animationStep(app)
+	if math.Abs(progress.displayValue-0.5) > 1e-12 {
+		t.Fatal("transition resumed from stale value")
+	}
+	doc.Close()
+	value := progress.displayValue
+	clock.now = clock.now.Add(time.Second)
+	animationStep(app)
+	if progress.displayValue != value || len(app.animation.requests) != 0 {
+		t.Fatal("closed progress retained updates")
+	}
 }
