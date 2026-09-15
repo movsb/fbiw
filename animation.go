@@ -464,3 +464,117 @@ func (doc *Document) Animate(options AnimationOptions) (cancel func()) {
 	})
 	return cancel
 }
+
+// TransitionOptions 配置单次值过渡。
+//
+//   - Animator 负责端点验证与插值。
+//   - OnUpdate 负责应用显示值并按需请求重绘或布局。
+type TransitionOptions[T comparable] struct {
+	Duration time.Duration
+	Easing   Easing
+	Animator func(from, to T) func(progress float64) T
+	OnUpdate func(value T)
+	// OnComplete 只在自然完成后调用；取消或立即赋值不触发。
+	OnComplete func()
+}
+
+// Transition 保存当前显示值和目标值。只能在 UI 主线程使用，不能复制。
+// 文档生命周期与后台行为沿用 Document.Animate。
+type Transition[T comparable] struct {
+	doc     *Document
+	options TransitionOptions[T]
+	value   T
+	target  T
+	cancel  func()
+	version uint64
+}
+
+// NewTransition 创建可反复设置目标的过渡对象，不启动动画或调用 OnUpdate。
+// Duration 不能为负，初始值通过 Animator 验证。
+func (doc *Document) NewTransition[T comparable](initial T, options TransitionOptions[T]) *Transition[T] {
+	if doc == nil || options.Duration < 0 || options.Easing > EaseInOut || options.Animator == nil || options.OnUpdate == nil {
+		panic("NewTransition: 无效的文档、时长、缓动或回调。")
+	}
+	t := &Transition[T]{
+		doc:     doc,
+		options: options,
+		value:   initial,
+		target:  initial,
+	}
+	t.animator(initial, initial)
+	return t
+}
+
+func (t *Transition[T]) animator(from, to T) func(float64) T {
+	interpolate := t.options.Animator(from, to)
+	if interpolate == nil {
+		panic("Transition: Animator 返回了空插值函数。")
+	}
+	return interpolate
+}
+
+// Value 返回最近交付给 OnUpdate 的显示值，未更新时返回初始值。
+func (t *Transition[T]) Value() T { return t.value }
+
+// Cancel 停在当前显示值，可重复调用；之后仍可设置新目标。
+func (t *Transition[T]) Cancel() {
+	t.version++
+	cancel := t.cancel
+	t.cancel = nil
+	t.target = t.value
+	if cancel != nil {
+		cancel()
+	}
+}
+
+// SetValue 取消旧动画，立即设置显示值与目标值并调用 OnUpdate。
+func (t *Transition[T]) SetValue(value T) {
+	t.animator(value, value)
+	t.Cancel()
+	t.value, t.target = value, value
+	t.options.OnUpdate(value)
+}
+
+// SetTarget 从当前显示值向目标过渡。相同活动目标不会重启动画。
+// 新目标的验证在取消旧动画之前进行；零时长在下一帧完成。
+func (t *Transition[T]) SetTarget(target T) {
+	interpolate := t.animator(t.value, target)
+	if t.cancel != nil && t.target == target {
+		return
+	}
+	t.Cancel()
+	t.target = target
+	if t.value == target {
+		return
+	}
+	version := t.version
+	t.cancel = t.doc.Animate(AnimationOptions{
+		Duration:   t.options.Duration,
+		Easing:     t.options.Easing,
+		Iterations: 1,
+		OnUpdate: func(progress float64) {
+			if t.version != version {
+				return
+			}
+			value := target
+			if progress != 1 {
+				value = interpolate(progress)
+			}
+			// 插值函数本身也可能重入。
+			if t.version != version {
+				return
+			}
+			t.value = value
+			t.options.OnUpdate(value)
+		},
+		OnComplete: func() {
+			if t.version != version {
+				return
+			}
+			t.cancel = nil
+			if t.options.OnComplete != nil {
+				t.options.OnComplete()
+			}
+		},
+	})
+}

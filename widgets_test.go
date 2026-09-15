@@ -324,7 +324,7 @@ func TestToggleAnimationPaintOnly(t *testing.T) {
 	}
 	clock.now = clock.now.Add(toggleAnimationDuration / 2)
 	animationStep(app)
-	if toggle.knobProgress != 1 || toggle.cancelAnimation != nil || app.animation.stop != nil || changes != 1 {
+	if toggle.knobProgress != 1 || toggle.knobTransition.cancel != nil || app.animation.stop != nil || changes != 1 {
 		t.Fatal("动画结束状态或事件次数不正确")
 	}
 }
@@ -365,7 +365,7 @@ func TestToggleAnimationReentrantChange(t *testing.T) {
 		}
 	})
 	toggle.SetChecked(true)
-	if toggle.Checked() || toggle.knobProgress != 0 || toggle.cancelAnimation != nil || len(app.animation.requests) != 0 || !slices.Equal(states, []bool{true, false}) {
+	if toggle.Checked() || toggle.knobProgress != 0 || toggle.knobTransition.cancel != nil || len(app.animation.requests) != 0 || !slices.Equal(states, []bool{true, false}) {
 		t.Fatal("状态事件中反向切换后仍残留旧动画")
 	}
 }
@@ -400,7 +400,7 @@ func TestToggleAnimationAttributeAndLifecycle(t *testing.T) {
 	if err := toggle.SetProp("checked", "true"); err != nil {
 		t.Fatal(err)
 	}
-	if toggle.cancelAnimation != nil {
+	if toggle.knobTransition.cancel != nil {
 		t.Fatal("关闭后的状态设置仍保留动画")
 	}
 }

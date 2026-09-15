@@ -1176,26 +1176,59 @@ stop := picture.Rotate(fbiw.RotationOptions{
 
 运行示例（在 `demo/rotation` 目录）：`GOEXPERIMENT=simd go run .`。
 
-图片还支持 `SetScale` 中心缩放，可与旋转叠加。交互状态和动画由调用方管理，
-图片不会自动监听激活或按键事件。例如在按键处理代码里：
+## 通用值过渡
+
+`Document.NewTransition` 创建可重复设置目标的泛型过渡对象。调用方管理交互状态，
+过渡对象保存显示值、取消旧动画，并通过公共 `Document.Animate` 平滑更新：
 
 ```go
-// scale 为调用方保存的当前显示倍数；先取消此前的缩放动画。
-if cancelScale != nil { cancelScale() }
-interpolate := fbiw.NumberAnimator(scale, 1.1)
-cancelScale = doc.Animate(fbiw.AnimationOptions{
+scale := doc.NewTransition(1.0, fbiw.TransitionOptions[float64]{
     Duration: 200 * time.Millisecond,
     Easing: fbiw.EaseOut,
-    OnUpdate: func(progress float64) {
-        scale = interpolate(progress)
-        picture.SetScale(scale)
-    },
+    Animator: fbiw.NumberAnimator,
+    OnUpdate: picture.SetScale,
 })
+scale.SetTarget(1.1) // 选中时
+scale.SetTarget(1)   // 取消选中时，从当前显示值恢复
 ```
 
-切换选中图片时，以相同方式让旧图片恢复到 `1`，新图片过渡到目标倍数。
-缩放不改变布局与命中区域，并遵守旋转配置中的 `Overflow`。
-缩放倍数必须是大于零的有限数值；所有状态更新在 UI 主线程执行。
+`SetTarget` 对相同活动目标不重启动画，改变目标时使用新的完整过渡时长。
+`Value()` 返回最近交付的显示值；`Cancel()` 停在当前值，之后可继续设置目标；
+`SetValue(value)` 取消动画并立即更新。构造时不调用更新回调，初始值由调用方呈现。
+可选 `OnComplete` 只在自然结束后调用；零时长在下一帧完成。
+所有操作在 UI 主线程执行，后台恢复和文档关闭行为沿用 Animate。
+更新回调负责重绘或布局，时长不能为负，Animator 和 OnUpdate 不能为空。
+Animator 负责验证端点，无效的新目标不会取消旧动画。
+
+颜色使用相同的对象与现有颜色插值器：
+
+```go
+color := doc.NewTransition(fromColor, fbiw.TransitionOptions[fbiw.Color]{
+    Duration: 200 * time.Millisecond,
+    Animator: fbiw.ColorAnimator,
+    OnUpdate: func(value fbiw.Color) { /* 应用颜色并请求重绘 */ },
+})
+color.SetTarget(toColor)
+```
+
+类型必须可比较。自定义坐标等结构体可以提供自己的插值器：
+
+```go
+type Point struct { X, Y float64 }
+position := doc.NewTransition(Point{}, fbiw.TransitionOptions[Point]{
+    Duration: 200 * time.Millisecond,
+    Animator: func(from, to Point) func(float64) Point {
+        x, y := fbiw.NumberAnimator(from.X, to.X), fbiw.NumberAnimator(from.Y, to.Y)
+        return func(progress float64) Point { return Point{x(progress), y(progress)} }
+    },
+    OnUpdate: func(value Point) { /* 应用坐标并请求重绘或布局 */ },
+})
+position.SetTarget(Point{100, 200})
+```
+
+图片的 `SetScale` 支持中心缩放并可与旋转叠加，不改变布局和命中区域，
+遵守旋转配置中的 `Overflow`。倍数必须是大于零的有限数值。
+图片不会自动监听激活或按键事件；旋转 demo 的按键代码使用过渡对象设置目标。
 
 ## 异步更新
 

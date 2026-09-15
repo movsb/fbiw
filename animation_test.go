@@ -965,3 +965,261 @@ func TestAnimateInvalidIterations(t *testing.T) {
 		}()
 	}
 }
+
+func TestTransitionTargetsAndValues(t *testing.T) {
+	app, doc, f := newAnimationTestApp(t)
+	var updates []float64
+	completes := 0
+	tr := doc.NewTransition(0.0, TransitionOptions[float64]{Duration: time.Second, Animator: NumberAnimator,
+		OnUpdate: func(v float64) { updates = append(updates, v) }, OnComplete: func() { completes++ },
+	})
+	if tr.Value() != 0 || len(updates) != 0 || doc.timeline != nil {
+		t.Fatal("constructor started animation")
+	}
+	tr.SetTarget(0)
+	if doc.timeline != nil {
+		t.Fatal("unchanged value scheduled animation")
+	}
+	tr.SetTarget(10)
+	f.now = f.now.Add(500 * time.Millisecond)
+	animationStep(app)
+	if tr.Value() != 5 {
+		t.Fatal("missing intermediate value")
+	}
+	old := doc.timeline.animations[0]
+	tr.SetTarget(10)
+	if doc.timeline.animations[0] != old {
+		t.Fatal("same target restarted")
+	}
+	tr.SetTarget(1)
+	if tr.Value() != 5 || len(doc.timeline.animations) != 1 {
+		t.Fatal("retarget jumped or retained old animation")
+	}
+	f.now = f.now.Add(500 * time.Millisecond)
+	animationStep(app)
+	if tr.Value() != 3 {
+		t.Fatal("retarget did not start at displayed value")
+	}
+	tr.Cancel()
+	tr.Cancel()
+	if tr.Value() != 3 || completes != 0 || len(doc.timeline.animations) != 0 {
+		t.Fatal("cancel failed")
+	}
+	// 取消后同一目标仍须恢复动画。
+	tr.SetTarget(1)
+	f.now = f.now.Add(time.Second)
+	animationStep(app)
+	if tr.Value() != 1 || completes != 1 || tr.cancel != nil {
+		t.Fatal("resume failed")
+	}
+	tr.SetTarget(8)
+	tr.SetValue(4)
+	if tr.Value() != 4 || updates[len(updates)-1] != 4 || completes != 1 || len(doc.timeline.animations) != 0 {
+		t.Fatal("immediate value failed")
+	}
+	tr.SetTarget(9)
+	tr.SetTarget(4)
+	if len(doc.timeline.animations) != 0 {
+		t.Fatal("setting displayed value retained old animation")
+	}
+}
+
+func TestTransitionColorAndCustomType(t *testing.T) {
+	app, doc, f := newAnimationTestApp(t)
+	from, to := ColorFromRGBA(0, 20, 40, 255), ColorFromRGBA(100, 120, 140, 255)
+	color := doc.NewTransition(from, TransitionOptions[Color]{Duration: time.Second, Animator: ColorAnimator, OnUpdate: func(Color) {}})
+	color.SetTarget(to)
+	type point struct{ X, Y float64 }
+	position := doc.NewTransition(point{}, TransitionOptions[point]{Duration: time.Second,
+		Animator: func(from, to point) func(float64) point {
+			x, y := NumberAnimator(from.X, to.X), NumberAnimator(from.Y, to.Y)
+			return func(p float64) point { return point{x(p), y(p)} }
+		}, OnUpdate: func(point) {},
+	})
+	position.SetTarget(point{10, 20})
+	f.now = f.now.Add(500 * time.Millisecond)
+	animationStep(app)
+	if color.Value() != ColorAnimator(from, to)(.5) || position.Value() != (point{5, 10}) {
+		t.Fatal("typed interpolation failed")
+	}
+	f.now = f.now.Add(500 * time.Millisecond)
+	animationStep(app)
+	if color.Value() != to || position.Value() != (point{10, 20}) {
+		t.Fatal("typed target delivery failed")
+	}
+}
+
+func TestTransitionReentrantUpdates(t *testing.T) {
+	for _, mode := range []string{"target", "value", "cancel", "complete", "interpolate"} {
+		t.Run(mode, func(t *testing.T) {
+			app, doc, f := newAnimationTestApp(t)
+			var tr *Transition[float64]
+			triggered, completes := false, 0
+			intervene := func() {
+				if triggered {
+					return
+				}
+				triggered = true
+				switch mode {
+				case "target", "complete", "interpolate":
+					tr.SetTarget(20)
+				case "value":
+					tr.SetValue(7)
+				case "cancel":
+					tr.Cancel()
+				}
+			}
+			animator := NumberAnimator
+			if mode == "interpolate" {
+				animator = func(from, to float64) func(float64) float64 {
+					interpolate := NumberAnimator(from, to)
+					return func(p float64) float64 { intervene(); return interpolate(p) }
+				}
+			}
+			tr = doc.NewTransition(0.0, TransitionOptions[float64]{Duration: time.Second, Animator: animator,
+				OnUpdate: func(float64) {
+					if mode != "complete" && mode != "interpolate" {
+						intervene()
+					}
+				},
+				OnComplete: func() {
+					completes++
+					if mode == "complete" {
+						intervene()
+					}
+				},
+			})
+			tr.SetTarget(10)
+			f.now = f.now.Add(time.Second / 2)
+			if mode == "complete" {
+				f.now = f.now.Add(time.Second / 2)
+			}
+			animationStep(app)
+			f.now = f.now.Add(time.Second)
+			animationStep(app)
+			switch mode {
+			case "target", "interpolate":
+				if tr.Value() != 20 || completes != 1 {
+					t.Fatal("old update overwrote new target")
+				}
+			case "complete":
+				if tr.Value() != 20 || completes != 2 {
+					t.Fatal("completion erased new animation")
+				}
+			case "value":
+				if tr.Value() != 7 || completes != 0 {
+					t.Fatal("old animation overwrote immediate value")
+				}
+			case "cancel":
+				if tr.Value() != 5 || completes != 0 {
+					t.Fatal("cancellation failed")
+				}
+			}
+		})
+	}
+}
+
+func TestTransitionFinalUpdateReentrancy(t *testing.T) {
+	app, doc, f := newAnimationTestApp(t)
+	var tr *Transition[float64]
+	completes := 0
+	tr = doc.NewTransition(0.0, TransitionOptions[float64]{Duration: time.Second, Animator: NumberAnimator,
+		OnUpdate: func(v float64) {
+			if v == 10 {
+				tr.SetTarget(20)
+			}
+		}, OnComplete: func() { completes++ },
+	})
+	tr.SetTarget(10)
+	f.now = f.now.Add(time.Second)
+	animationStep(app)
+	if completes != 0 || tr.cancel == nil {
+		t.Fatal("stale completion triggered after final update retarget")
+	}
+	f.now = f.now.Add(time.Second)
+	animationStep(app)
+	if tr.Value() != 20 || completes != 1 {
+		t.Fatal("new animation lost")
+	}
+}
+
+func TestTransitionLifecycleAndZeroDuration(t *testing.T) {
+	app, doc, f := newAnimationTestApp(t)
+	calls := 0
+	tr := doc.NewTransition(0.0, TransitionOptions[float64]{Animator: NumberAnimator, OnUpdate: func(float64) { calls++ }})
+	tr.SetTarget(10)
+	if tr.Value() != 0 || calls != 0 {
+		t.Fatal("zero duration updated synchronously")
+	}
+	f.now = f.now.Add(animationFrameInterval)
+	animationStep(app)
+	if tr.Value() != 10 || calls != 1 {
+		t.Fatal("zero duration did not finish next frame")
+	}
+	tr = doc.NewTransition(0.0, TransitionOptions[float64]{Duration: time.Second, Animator: NumberAnimator, OnUpdate: func(float64) { calls++ }})
+	tr.SetTarget(10)
+	app.Detach()
+	f.now = f.now.Add(500 * time.Millisecond)
+	animationStep(app)
+	if tr.Value() != 0 {
+		t.Fatal("detached document updated")
+	}
+	app.Attach()
+	f.now = f.now.Add(animationFrameInterval)
+	animationStep(app)
+	if tr.Value() <= 5 || tr.Value() >= 10 {
+		t.Fatal("resume did not catch up")
+	}
+	doc.Close()
+	value := tr.Value()
+	f.now = f.now.Add(time.Second)
+	animationStep(app)
+	if tr.Value() != value || len(app.animation.requests) != 0 {
+		t.Fatal("closed document retained updates")
+	}
+	tr.Cancel()
+}
+
+func TestTransitionValidationPreservesAnimation(t *testing.T) {
+	app, doc, f := newAnimationTestApp(t)
+	mustPanic := func(fn func()) {
+		t.Helper()
+		func() {
+			defer func() {
+				if recover() == nil {
+					t.Error("invalid configuration accepted")
+				}
+			}()
+			fn()
+		}()
+	}
+	valid := TransitionOptions[float64]{Duration: time.Second, Animator: NumberAnimator, OnUpdate: func(float64) {}}
+	for _, change := range []func(*TransitionOptions[float64]){
+		func(o *TransitionOptions[float64]) { o.Duration = -1 }, func(o *TransitionOptions[float64]) { o.Easing = Easing(255) },
+		func(o *TransitionOptions[float64]) { o.Animator = nil }, func(o *TransitionOptions[float64]) { o.OnUpdate = nil },
+		func(o *TransitionOptions[float64]) {
+			o.Animator = func(float64, float64) func(float64) float64 { return nil }
+		},
+	} {
+		o := valid
+		change(&o)
+		mustPanic(func() { doc.NewTransition(0.0, o) })
+	}
+	mustPanic(func() { doc.NewTransition(math.NaN(), valid) })
+	tr := doc.NewTransition(0.0, valid)
+	tr.SetTarget(10)
+	old := doc.timeline.animations[0]
+	mustPanic(func() { tr.SetTarget(math.Inf(1)) })
+	mustPanic(func() { tr.SetValue(math.NaN()) })
+	if doc.timeline.animations[0] != old {
+		t.Fatal("invalid value cancelled animation")
+	}
+	f.now = f.now.Add(time.Second)
+	animationStep(app)
+	if tr.Value() != 10 {
+		t.Fatal("valid animation was lost")
+	}
+	mustPanic(func() {
+		doc.NewTransition(ColorNone, TransitionOptions[Color]{Animator: ColorAnimator, OnUpdate: func(Color) {}})
+	})
+}
