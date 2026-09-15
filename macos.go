@@ -24,9 +24,9 @@ func (d *_SdlDisplay) Sync(pixels []byte) {
 	copy(d.buffer.Pixels(), pixels)
 
 	originRect := sdl.Rect{X: 0, Y: 0, W: int32(d.width), H: int32(d.height)}
-	scaledRect := sdl.Rect{X: 0, Y: 0, W: int32(d.width), H: int32(d.height)}
+	scaledRect := sdl.Rect{X: 0, Y: 0, W: d.surface.W, H: d.surface.H}
 
-	d.buffer.Blit(&originRect, d.surface, &scaledRect)
+	d.buffer.BlitScaled(&originRect, d.surface, &scaledRect)
 	d.window.UpdateSurface()
 }
 
@@ -38,8 +38,11 @@ func (d *_SdlDisplay) Close() {
 // 创建一个固定大小的基于SDL2的显示层。
 func OpenDisplay() Display {
 	const (
-		windowWidth  = 1024
-		windowHeight = 768
+		scale        = 1
+		renderWidth  = 1024
+		renderHeight = 768
+		windowWidth  = renderWidth * scale
+		windowHeight = renderHeight * scale
 	)
 
 	if err := sdl.Init(sdl.INIT_EVERYTHING); err != nil {
@@ -64,14 +67,14 @@ func OpenDisplay() Display {
 		panic(err)
 	}
 
-	buffer, err := sdl.CreateRGBSurface(0, windowWidth, windowHeight, 32, 0, 0, 0, 0)
+	buffer, err := sdl.CreateRGBSurface(0, renderWidth, renderHeight, 32, 0, 0, 0, 0)
 	if err != nil {
 		panic(err)
 	}
 
 	return &_SdlDisplay{
-		width:   windowWidth,
-		height:  windowHeight,
+		width:   renderWidth,
+		height:  renderHeight,
 		window:  window,
 		surface: surface,
 		buffer:  buffer,
