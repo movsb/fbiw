@@ -508,6 +508,13 @@ func (app *App) DetachAsync() {
 	})
 }
 
+// 返回当前是否处理脱离状态。
+//
+// 需要在主线程调用。
+func (app *App) Detached() bool {
+	return app.detached > 0
+}
+
 // 重新夺取操作系统事件交互，比如屏幕、键盘。
 // 需要在主线程中调用。
 // 用于Linux系统独占，MacOS无效。
