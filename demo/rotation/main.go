@@ -33,6 +33,53 @@ func main() {
 	defer stop()
 	finite := doc.GetBoxByID[*fbiw.Image]("finite")
 	finite.SetImage(source)
+	pictures := []*fbiw.Image{spinning, finite}
+	activeScales := []float64{1.5, .5}
+	scales := []float64{1, 1}
+	cancels := make([]func(), len(pictures))
+	defer func() {
+		for _, cancel := range cancels {
+			if cancel != nil {
+				cancel()
+			}
+		}
+	}()
+	scaleTo := func(index int, target float64) {
+		if cancels[index] != nil {
+			cancels[index]()
+			cancels[index] = nil
+		}
+		interpolate := fbiw.NumberAnimator(scales[index], target)
+		cancels[index] = doc.Animate(fbiw.AnimationOptions{
+			Duration: 200 * time.Millisecond, Easing: fbiw.EaseOut,
+			OnUpdate: func(progress float64) {
+				scales[index] = interpolate(progress)
+				pictures[index].SetScale(scales[index])
+			},
+			OnComplete: func() { cancels[index] = nil },
+		})
+	}
+	selected := 0
+	spinning.Activate()
+	scaleTo(selected, activeScales[selected])
+	doc.Listen(fbiw.StickDownEvent, func(event *fbiw.Event) {
+		next := selected
+		switch event.Stick.Name {
+		case fbiw.Up:
+			next = 0
+		case fbiw.Down:
+			next = 1
+		default:
+			return
+		}
+		if next == selected {
+			return
+		}
+		scaleTo(selected, 1)
+		selected = next
+		pictures[selected].Activate()
+		scaleTo(selected, activeScales[selected])
+	})
 	finite.Rotate(fbiw.RotationOptions{Duration: time.Second, Iterations: 5, Reverse: true})
 	app.Run()
 }

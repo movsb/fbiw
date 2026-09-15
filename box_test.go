@@ -1641,3 +1641,106 @@ func TestRotationDirection(t *testing.T) {
 		})
 	}
 }
+
+func TestImageScaleDrawing(t *testing.T) {
+	_, doc, _ := newAnimationTestApp(t)
+	img := NewImage(doc)
+	img.status = imageLoadStatusScaled
+	img.decodedImage = DecodedImage{Width: 3, Height: 3, Pixels: make([]byte, 36)}
+	for i := range img.decodedImage.Pixels {
+		img.decodedImage.Pixels[i] = 255
+	}
+	img.layoutBox.Width, img.layoutBox.Height = 3, 3
+	layout := img.layoutBox
+	stop := img.Rotate(RotationOptions{Duration: time.Second, Overflow: true})
+	stop()
+	img.SetScale(2)
+	for _, angle := range []float64{0, 90} {
+		img.SetRotation(angle)
+		c := NewCanvas(9, 9)
+		img.Draw(c.Offset(3, 3))
+		if c.buffer[(4*9+4)*4] != 255 {
+			t.Fatal("center shifted")
+		}
+		if c.buffer[(4*9+2)*4] == 0 {
+			t.Fatal("scale did not expand drawing")
+		}
+		parent := NewCanvas(9, 9)
+		img.Draw(parent.Clip(3, 3, 3, 3).Offset(3, 3))
+		if parent.buffer[(4*9+2)*4] != 0 {
+			t.Fatal("scale escaped parent clip")
+		}
+	}
+	if img.layoutBox != layout {
+		t.Fatal("scale changed layout")
+	}
+	stop = img.Rotate(RotationOptions{Duration: time.Second})
+	stop()
+	c := NewCanvas(9, 9)
+	img.Draw(c.Offset(3, 3))
+	if c.buffer[(4*9+2)*4] != 0 {
+		t.Fatal("scale escaped component clip")
+	}
+	for _, scale := range []float64{0, -1, math.NaN(), math.Inf(1)} {
+		for _, set := range []func(float64){img.SetScale} {
+			func() {
+				defer func() {
+					if recover() == nil {
+						t.Error("invalid scale accepted")
+					}
+				}()
+				set(scale)
+			}()
+		}
+	}
+}
+
+func TestImageScaleWithPublicAnimation(t *testing.T) {
+	app, doc, f := newAnimationTestApp(t)
+	img := NewImage(doc)
+	img.Activate()
+	if img.scale != 1 || doc.timeline != nil {
+		t.Fatal("activation started scale animation")
+	}
+	scale := 1.0
+	var cancel func()
+	scaleTo := func(target float64) {
+		if cancel != nil {
+			cancel()
+		}
+		interpolate := NumberAnimator(scale, target)
+		cancel = doc.Animate(AnimationOptions{Duration: 200 * time.Millisecond, Easing: EaseOut,
+			OnUpdate: func(progress float64) { scale = interpolate(progress); img.SetScale(scale) },
+		})
+	}
+	scaleTo(1.1)
+	f.now = f.now.Add(100 * time.Millisecond)
+	animationStep(app)
+	if math.Abs(img.scale-1.075) > 1e-12 {
+		t.Fatalf("scale = %v", img.scale)
+	}
+	NewImage(doc).Activate()
+	if math.Abs(img.scale-1.075) > 1e-12 {
+		t.Fatal("activation changed scale")
+	}
+	scaleTo(1)
+	if math.Abs(img.scale-1.075) > 1e-12 {
+		t.Fatal("retarget jumped")
+	}
+	f.now = f.now.Add(200 * time.Millisecond)
+	animationStep(app)
+	if img.scale != 1 || len(doc.timeline.animations) != 0 {
+		t.Fatal("scale did not restore")
+	}
+	scaleTo(1.1)
+	f.now = f.now.Add(200 * time.Millisecond)
+	animationStep(app)
+	if img.scale != 1.1 {
+		t.Fatal("scale did not reach target")
+	}
+	scaleTo(1)
+	doc.Close()
+	if !doc.timeline.closed {
+		t.Fatal("close retained animation")
+	}
+}

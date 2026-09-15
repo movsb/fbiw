@@ -1176,6 +1176,27 @@ stop := picture.Rotate(fbiw.RotationOptions{
 
 运行示例（在 `demo/rotation` 目录）：`GOEXPERIMENT=simd go run .`。
 
+图片还支持 `SetScale` 中心缩放，可与旋转叠加。交互状态和动画由调用方管理，
+图片不会自动监听激活或按键事件。例如在按键处理代码里：
+
+```go
+// scale 为调用方保存的当前显示倍数；先取消此前的缩放动画。
+if cancelScale != nil { cancelScale() }
+interpolate := fbiw.NumberAnimator(scale, 1.1)
+cancelScale = doc.Animate(fbiw.AnimationOptions{
+    Duration: 200 * time.Millisecond,
+    Easing: fbiw.EaseOut,
+    OnUpdate: func(progress float64) {
+        scale = interpolate(progress)
+        picture.SetScale(scale)
+    },
+})
+```
+
+切换选中图片时，以相同方式让旧图片恢复到 `1`，新图片过渡到目标倍数。
+缩放不改变布局与命中区域，并遵守旋转配置中的 `Overflow`。
+缩放倍数必须是大于零的有限数值；所有状态更新在 UI 主线程执行。
+
 ## 异步更新
 
 UI 修改应在主事件线程执行。从其他 goroutine 更新界面时，可使用：

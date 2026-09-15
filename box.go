@@ -2112,6 +2112,8 @@ type Image struct {
 	rotationOverflow bool
 	rotation         float64
 	rotationCancel   func()
+	// 缩放相关参数
+	scale float64
 }
 
 type _ImageTempFile struct {
@@ -2120,7 +2122,7 @@ type _ImageTempFile struct {
 }
 
 func NewImage(doc *Document) *Image {
-	return &Image{BaseBox: NewBaseBox(doc, `img`)}
+	return &Image{BaseBox: NewBaseBox(doc, `img`), scale: 1}
 }
 
 // SetRotation 设置图片绕中心顺时针旋转的角度。必须在 UI 主线程调用。
@@ -2130,6 +2132,16 @@ func (b *Image) SetRotation(degrees float64) {
 		panic("SetRotation: 无效的角度。")
 	}
 	b.rotation = math.Mod(degrees, 360)
+	b.document.RequestPaint()
+}
+
+// SetScale 设置绕图片中心的缩放倍数，必须是大于零的有限数值。
+// 不改变布局和命中区域，缩放可与旋转叠加；遵守当前 Overflow 配置。
+func (b *Image) SetScale(scale float64) {
+	if scale <= 0 || math.IsNaN(scale) || math.IsInf(scale, 0) {
+		panic("SetScale: 无效的倍数。")
+	}
+	b.scale = scale
 	b.document.RequestPaint()
 }
 
@@ -2400,7 +2412,7 @@ func (b *Image) Draw(canvas *Canvas) {
 
 	switch b.status {
 	case imageLoadStatusScaled:
-		if b.rotation != 0 || b.rotationOverflow {
+		if b.rotation != 0 || b.rotationOverflow || b.scale != 1 {
 			b.drawImageRotated(canvas)
 		} else {
 			b.drawImageNormal(canvas)
@@ -2444,12 +2456,12 @@ func (b *Image) drawImageRotated(canvas *Canvas) {
 		}
 		clipped = canvas.Clip(0, 0, b.layoutBox.Width, b.layoutBox.Height)
 	}
-	if b.rotation == 0 {
+	if b.rotation == 0 && b.scale == 1 {
 		canvas.Offset((b.layoutBox.Width-b.decodedImage.Width)/2,
 			(b.layoutBox.Height-b.decodedImage.Height)/2).DrawImage(b.decodedImage)
 		return
 	}
-	clipped.drawImageRotatedCenter(b.decodedImage, b.rotation,
+	clipped.drawImageTransformedCenter(b.decodedImage, b.rotation, b.scale,
 		float64(canvas.x)+float64(b.layoutBox.Width)/2,
 		float64(canvas.y)+float64(b.layoutBox.Height)/2,
 	)

@@ -125,10 +125,15 @@ func (c *Canvas) DrawImageRotated(img DecodedImage, degrees float64) {
 }
 
 func (c *Canvas) drawImageRotatedCenter(img DecodedImage, degrees, cx, cy float64) {
+	c.drawImageTransformedCenter(img, degrees, 1, cx, cy)
+}
+
+func (c *Canvas) drawImageTransformedCenter(img DecodedImage, degrees, scale, cx, cy float64) {
 	sin, cos := math.Sincos(degrees * math.Pi / 180)
 	// 多留一个采样像素，覆盖双线性插值在透明边界的贡献。
-	rx := (math.Abs(cos)*float64(img.Width)+math.Abs(sin)*float64(img.Height))/2 + 1
-	ry := (math.Abs(sin)*float64(img.Width)+math.Abs(cos)*float64(img.Height))/2 + 1
+	rx := (math.Abs(cos)*float64(img.Width)+math.Abs(sin)*float64(img.Height))*scale/2 + scale
+	ry := (math.Abs(sin)*float64(img.Width)+math.Abs(cos)*float64(img.Height))*scale/2 + scale
+	sin, cos = sin/scale, cos/scale
 	clip := c.clipBounds().Intersect(image.Rect(0, 0, c.width, c.height))
 	minX, maxX := max(clip.Min.X, int(math.Floor(cx-rx))), min(clip.Max.X, int(math.Ceil(cx+rx)))
 	minY, maxY := max(clip.Min.Y, int(math.Floor(cy-ry))), min(clip.Max.Y, int(math.Ceil(cy+ry)))
