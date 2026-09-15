@@ -10,6 +10,7 @@ import (
 	"io"
 	"io/fs"
 	"log"
+	"math"
 	"os"
 	"simd/archsimd"
 	"sync/atomic"
@@ -104,6 +105,78 @@ func (c *Canvas) Offset(x, y int) *Canvas {
 
 func (c *Canvas) DrawImage(img DecodedImage) {
 	c.drawImage5Region(img, 0, 0, img.Width, img.Height)
+}
+
+// DrawImageRotated 绕图片中心顺时针旋转 degrees 度并绘制。
+// 使用当前原点和裁剪范围；零角度复用 DrawImage。
+func (c *Canvas) DrawImageRotated(img DecodedImage, degrees float64) {
+	if math.IsNaN(degrees) || math.IsInf(degrees, 0) {
+		panic("DrawImageRotated: 无效的角度。")
+	}
+	degrees = math.Mod(degrees, 360)
+	if degrees == 0 {
+		c.DrawImage(img)
+		return
+	}
+	if img.Width <= 0 || img.Height <= 0 {
+		return
+	}
+	c.drawImageRotatedCenter(img, degrees, float64(c.x)+float64(img.Width)/2, float64(c.y)+float64(img.Height)/2)
+}
+
+func (c *Canvas) drawImageRotatedCenter(img DecodedImage, degrees, cx, cy float64) {
+	sin, cos := math.Sincos(degrees * math.Pi / 180)
+	// 多留一个采样像素，覆盖双线性插值在透明边界的贡献。
+	rx := (math.Abs(cos)*float64(img.Width)+math.Abs(sin)*float64(img.Height))/2 + 1
+	ry := (math.Abs(sin)*float64(img.Width)+math.Abs(cos)*float64(img.Height))/2 + 1
+	clip := c.clipBounds().Intersect(image.Rect(0, 0, c.width, c.height))
+	minX, maxX := max(clip.Min.X, int(math.Floor(cx-rx))), min(clip.Max.X, int(math.Ceil(cx+rx)))
+	minY, maxY := max(clip.Min.Y, int(math.Floor(cy-ry))), min(clip.Max.Y, int(math.Ceil(cy+ry)))
+	for y := minY; y < maxY; y++ {
+		dx, dy := float64(minX)+0.5-cx, float64(y)+0.5-cy
+		sx := cos*dx + sin*dy + float64(img.Width)/2 - 0.5
+		sy := -sin*dx + cos*dy + float64(img.Height)/2 - 0.5
+		for x := minX; x < maxX; x++ {
+			ix, iy := int(math.Floor(sx)), int(math.Floor(sy))
+			fx, fy := sx-float64(ix), sy-float64(iy)
+			var a, blue, green, red float64
+			for oy := 0; oy < 2; oy++ {
+				py := iy + oy
+				if py < 0 || py >= img.Height {
+					continue
+				}
+				wy := 1 - fy
+				if oy == 1 {
+					wy = fy
+				}
+				for ox := 0; ox < 2; ox++ {
+					px := ix + ox
+					if px < 0 || px >= img.Width {
+						continue
+					}
+					wx := 1 - fx
+					if ox == 1 {
+						wx = fx
+					}
+					p := img.Pixels[(py*img.Width+px)*4:][:4]
+					weightAlpha := wx * wy * float64(p[3]) / 255
+					a += weightAlpha
+					blue += weightAlpha * float64(p[0])
+					green += weightAlpha * float64(p[1])
+					red += weightAlpha * float64(p[2])
+				}
+			}
+			if a > 0 {
+				p := c.buffer[(y*c.width+x)*4:][:4]
+				p[0] = uint8(math.Round(min(255, blue+(1-a)*float64(p[0]))))
+				p[1] = uint8(math.Round(min(255, green+(1-a)*float64(p[1]))))
+				p[2] = uint8(math.Round(min(255, red+(1-a)*float64(p[2]))))
+				p[3] = 255 // framebuffer 与现有 DrawImage 一样保存不透明混色结果。
+			}
+			sx += cos
+			sy -= sin
+		}
+	}
 }
 
 // DrawImageRegion 把图片的指定区域绘制到 Canvas 当前原点。

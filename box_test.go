@@ -1,7 +1,9 @@
 package fbiw
 
 import (
+	"bytes"
 	"fmt"
+	"math"
 	"os"
 	"reflect"
 	"slices"
@@ -1350,5 +1352,292 @@ func TestScrollChildClipsOverflowingContent(t *testing.T) {
 		if painted != (x < 10) {
 			t.Fatalf(`pixel x=%d painted=%t, want %t`, x, painted, x < 10)
 		}
+	}
+}
+
+func TestRotationTimeline(t *testing.T) {
+	app, doc, f := newAnimationTestApp(t)
+	img := NewImage(doc)
+	img.SetRotation(30)
+	stop := img.Rotate(RotationOptions{Duration: time.Second, Iterations: 2})
+	f.now = f.now.Add(250 * time.Millisecond)
+	animationStep(app)
+	if img.rotation != 120 {
+		t.Fatalf("quarter turn: %v", img.rotation)
+	}
+	stop()
+	stop()
+	f.now = f.now.Add(time.Second)
+	animationStep(app)
+	if img.rotation != 120 {
+		t.Fatal("cancel changed angle")
+	}
+	old := img.Rotate(RotationOptions{Duration: time.Second})
+	img.Rotate(RotationOptions{Duration: 2 * time.Second, Iterations: 1})
+	old()
+	f.now = f.now.Add(time.Second)
+	animationStep(app)
+	if img.rotation != 300 {
+		t.Fatalf("restart speed: %v", img.rotation)
+	}
+	f.now = f.now.Add(5 * time.Second)
+	animationStep(app)
+	if img.rotation != 120 || len(doc.timeline.animations) != 0 {
+		t.Fatal("finite loop failed")
+	}
+	img.Rotate(RotationOptions{Duration: time.Second})
+	f.now = f.now.Add(100*time.Second + 250*time.Millisecond)
+	animationStep(app)
+	if img.rotation != 210 {
+		t.Fatal("infinite loop lost elapsed time")
+	}
+	doc.Close()
+	if !doc.timeline.closed {
+		t.Fatal("close did not clean timeline")
+	}
+}
+
+func TestRotationInvalidOptions(t *testing.T) {
+	_, doc, _ := newAnimationTestApp(t)
+	img := NewImage(doc)
+	for _, fn := range []func(){
+		func() { img.SetRotation(math.NaN()) }, func() { img.SetRotation(math.Inf(1)) },
+		func() { img.Rotate(RotationOptions{}) },
+		func() { img.Rotate(RotationOptions{Duration: time.Second, Iterations: -1}) },
+	} {
+		func() {
+			defer func() {
+				if recover() == nil {
+					t.Error("invalid value accepted")
+				}
+			}()
+			fn()
+		}()
+	}
+}
+
+func TestRotatedRectangleAndClip(t *testing.T) {
+	img := DecodedImage{Width: 3, Height: 1, Pixels: []byte{0, 0, 255, 255, 0, 255, 0, 255, 255, 0, 0, 255}}
+	c := NewCanvas(7, 7)
+	c.Offset(2, 3).DrawImageRotated(img, 90)
+	for y, want := range [][]byte{{0, 0, 255, 255}, {0, 255, 0, 255}, {255, 0, 0, 255}} {
+		got := c.buffer[((y+2)*7+3)*4:][:4]
+		if !bytes.Equal(got, want) {
+			t.Fatalf("pixel %d: %v", y, got)
+		}
+	}
+	clipped := NewCanvas(7, 7)
+	clipped.Clip(3, 3, 1, 1).Offset(2, 3).DrawImageRotated(img, 90)
+	for y := 0; y < 7; y++ {
+		for x := 0; x < 7; x++ {
+			if (x != 3 || y != 3) && !bytes.Equal(clipped.buffer[(y*7+x)*4:][:4], make([]byte, 4)) {
+				t.Fatal("escaped clip")
+			}
+		}
+	}
+	zero := NewCanvas(7, 7)
+	plain := NewCanvas(7, 7)
+	zero.Offset(2, 3).DrawImageRotated(img, 360)
+	plain.Offset(2, 3).DrawImage(img)
+	if !bytes.Equal(zero.buffer, plain.buffer) {
+		t.Fatal("zero path differs")
+	}
+}
+
+func TestRotatedTransparentSampling(t *testing.T) {
+	// 隐藏的蓝色不能污染半透明红色的插值。
+	img := DecodedImage{Width: 2, Height: 1, Pixels: []byte{0, 0, 255, 128, 255, 0, 0, 0}}
+	c := NewCanvas(5, 5)
+	c.Offset(1, 2).DrawImageRotated(img, 45)
+	found := false
+	for i := 0; i < len(c.buffer); i += 4 {
+		if c.buffer[i] != 0 {
+			t.Fatal("transparent color leaked")
+		}
+		if c.buffer[i+2] > 0 {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("missing visible pixels")
+	}
+}
+
+func BenchmarkDrawImageRotated(b *testing.B) {
+	for _, size := range []int{128, 256, 512} {
+		b.Run(strconv.Itoa(size), func(b *testing.B) {
+			img := DecodedImage{Width: size, Height: size, Pixels: make([]byte, size*size*4)}
+			for i := range img.Pixels {
+				img.Pixels[i] = 255
+			}
+			c := NewCanvas(size, size)
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				c.DrawImageRotated(img, 37)
+			}
+		})
+	}
+}
+
+func TestRotationBackgroundAndFiniteBoundary(t *testing.T) {
+	app, doc, f := newAnimationTestApp(t)
+	bg := &Desktop{app: app}
+	app.desktops.PushBack(bg)
+	addDesktopTestDocument(app, bg)
+	img := NewImage(doc)
+	img.Rotate(RotationOptions{Duration: time.Second, Iterations: 2})
+	f.now = f.now.Add(time.Second)
+	animationStep(app)
+	if len(doc.timeline.animations) != 1 || img.rotation != 0 {
+		t.Fatal("completed before second turn")
+	}
+	app.SwitchTo(bg)
+	f.now = f.now.Add(750 * time.Millisecond)
+	animationStep(app)
+	if img.rotation != 0 {
+		t.Fatal("background updated")
+	}
+	app.SwitchTo(doc.desktop)
+	animationStep(app)
+	if img.rotation != 270 {
+		t.Fatalf("resume: %v", img.rotation)
+	}
+	f.now = f.now.Add(250 * time.Millisecond)
+	animationStep(app)
+	if len(doc.timeline.animations) != 0 || img.rotation != 0 {
+		t.Fatal("second turn did not finish")
+	}
+}
+
+func TestImageRotationClipsAndKeepsLayout(t *testing.T) {
+	_, doc, _ := newAnimationTestApp(t)
+	img := NewImage(doc)
+	img.status = imageLoadStatusScaled
+	img.decodedImage = DecodedImage{Width: 1, Height: 1, Pixels: []byte{0, 0, 255, 255}}
+	img.layoutBox.Width = 3
+	img.layoutBox.Height = 3
+	original := img.layoutBox
+	img.SetRotation(90)
+	c := NewCanvas(5, 5)
+	img.Draw(c.Offset(1, 1))
+	if c.buffer[(2*5+2)*4+2] != 255 {
+		t.Fatal("center moved")
+	}
+	if img.layoutBox != original {
+		t.Fatal("rotation changed layout")
+	}
+	offscreen := NewCanvas(5, 5)
+	img.Draw(offscreen.Clip(0, 0, 1, 1).Offset(2, 2))
+	if !bytes.Equal(offscreen.buffer, make([]byte, len(offscreen.buffer))) {
+		t.Fatal("empty intersection escaped clip")
+	}
+}
+
+func TestImageRotationOverflow(t *testing.T) {
+	_, doc, _ := newAnimationTestApp(t)
+	img := NewImage(doc)
+	img.status = imageLoadStatusScaled
+	img.decodedImage = DecodedImage{Width: 5, Height: 5, Pixels: make([]byte, 100)}
+	for i := range img.decodedImage.Pixels {
+		img.decodedImage.Pixels[i] = 255
+	}
+	img.layoutBox.Width, img.layoutBox.Height = 5, 5
+	original := img.layoutBox
+	img.SetRotation(45)
+	draw := func(allow bool) *Canvas {
+		stop := img.Rotate(RotationOptions{Duration: time.Second, Overflow: allow})
+		stop()
+		c := NewCanvas(11, 11)
+		img.Draw(c.Offset(3, 3))
+		return c
+	}
+	clipped, overflow := draw(false), draw(true)
+	if clipped.buffer[(2*11+5)*4+3] != 0 || overflow.buffer[(2*11+5)*4+3] == 0 {
+		t.Fatal("overflow toggle failed")
+	}
+	if img.layoutBox != original {
+		t.Fatal("overflow changed layout")
+	}
+	if !bytes.Equal(clipped.buffer, draw(false).buffer) {
+		t.Fatal("disabling overflow did not restore clipping")
+	}
+	stop := img.Rotate(RotationOptions{Duration: time.Second, Overflow: true})
+	stop()
+	parent := NewCanvas(11, 11)
+	img.Draw(parent.Clip(4, 4, 3, 3).Offset(3, 3))
+	for y := 0; y < 11; y++ {
+		for x := 0; x < 11; x++ {
+			if (x < 4 || x >= 7 || y < 4 || y >= 7) && parent.buffer[(y*11+x)*4+3] != 0 {
+				t.Fatal("escaped parent clip")
+			}
+		}
+	}
+	// 组件本身在父裁剪范围外，其旋转后的溢出仍可见。
+	edge := NewCanvas(11, 11)
+	img.Draw(edge.Clip(5, 2, 1, 1).Offset(3, 3))
+	if edge.buffer[(2*11+5)*4+3] == 0 {
+		t.Fatal("culled visible overflow")
+	}
+	// 图片大于组件时，零角度也保持溢出策略。
+	img.layoutBox.Width, img.layoutBox.Height = 3, 3
+	img.SetRotation(0)
+	zero := draw(true)
+	if zero.buffer[(2*11+2)*4+3] == 0 {
+		t.Fatal("zero angle lost overflow")
+	}
+	// 屏幕边界安全裁剪。
+	img.SetRotation(45)
+	img.Draw(NewCanvas(2, 2).Offset(-1, -1))
+}
+
+func TestRotationDirection(t *testing.T) {
+	for _, reverse := range []bool{false, true} {
+		name := "clockwise"
+		if reverse {
+			name = "counterclockwise"
+		}
+		t.Run(name, func(t *testing.T) {
+			app, doc, f := newAnimationTestApp(t)
+			img := NewImage(doc)
+			img.SetRotation(120)
+			stop := img.Rotate(RotationOptions{Duration: time.Second, Iterations: 2, Reverse: reverse})
+			f.now = f.now.Add(250 * time.Millisecond)
+			animationStep(app)
+			want := 210.0
+			if reverse {
+				want = 30
+			}
+			if img.rotation != want {
+				t.Fatalf("quarter turn = %v, want %v", img.rotation, want)
+			}
+			f.now = f.now.Add(time.Second)
+			animationStep(app)
+			if img.rotation != want {
+				t.Fatal("loop changed direction")
+			}
+			f.now = f.now.Add(750 * time.Millisecond)
+			animationStep(app)
+			if img.rotation != 120 || len(doc.timeline.animations) != 0 {
+				t.Fatal("finite rotation failed to finish at initial orientation")
+			}
+			stop()
+			stop()
+			// 从当前角度反向重启，不跳变；旧停止函数不影响新动画。
+			img.Rotate(RotationOptions{Duration: time.Second, Reverse: !reverse})
+			stop()
+			if img.rotation != 120 {
+				t.Fatal("restart changed angle synchronously")
+			}
+			f.now = f.now.Add(250 * time.Millisecond)
+			animationStep(app)
+			want = 30
+			if reverse {
+				want = 210
+			}
+			if img.rotation != want {
+				t.Fatalf("reverse restart = %v, want %v", img.rotation, want)
+			}
+		})
 	}
 }

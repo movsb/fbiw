@@ -2107,6 +2107,11 @@ type Image struct {
 	// 如果失败？
 	err     error
 	tmpFile *_ImageTempFile
+
+	// 旋转相关参数
+	rotationOverflow bool
+	rotation         float64
+	rotationCancel   func()
 }
 
 type _ImageTempFile struct {
@@ -2116,6 +2121,69 @@ type _ImageTempFile struct {
 
 func NewImage(doc *Document) *Image {
 	return &Image{BaseBox: NewBaseBox(doc, `img`)}
+}
+
+// SetRotation 设置图片绕中心顺时针旋转的角度。必须在 UI 主线程调用。
+// 不改变布局；按最近一次 Rotate 的 Overflow 设置裁剪，默认为组件范围内。
+func (b *Image) SetRotation(degrees float64) {
+	if math.IsNaN(degrees) || math.IsInf(degrees, 0) {
+		panic("SetRotation: 无效的角度。")
+	}
+	b.rotation = math.Mod(degrees, 360)
+	b.document.RequestPaint()
+}
+
+// RotationOptions 描述匀速中心旋转。
+type RotationOptions struct {
+	// 为每圈时长，必须大于零；
+	Duration time.Duration
+
+	// 圈数，零表示无限循环，不能为负。
+	Iterations int
+
+	// Reverse 为 true 时逆时针旋转，默认顺时针。
+	Reverse bool
+
+	// 允许图片画到组件范围外，默认 false。始终遵守父容器
+	// 与屏幕裁剪，不改变布局或命中区域；停止或结束后保留此设置。
+	Overflow bool
+}
+
+// Rotate 从当前角度开始旋转，替换该图片之前的旋转动画。
+// 返回可重复调用的停止函数，停止后保持当前角度。
+// 注册、停止和更新均在 UI 主线程执行。后台暂停回调但不暂停时间。
+func (b *Image) Rotate(options RotationOptions) func() {
+	if options.Duration <= 0 || options.Iterations < 0 {
+		panic("Rotate: 无效的时长或圈数。")
+	}
+	if b.rotationCancel != nil {
+		b.rotationCancel()
+	}
+	initial := b.rotation
+	turn := 360.0
+	if options.Reverse {
+		turn = -turn
+	}
+	iterations := options.Iterations
+	if iterations == 0 {
+		iterations = -1
+	}
+	cancel := b.document.Animate(AnimationOptions{
+		Duration:   options.Duration,
+		Iterations: iterations,
+		OnUpdate: func(progress float64) {
+			if progress == 1 {
+				b.SetRotation(initial)
+				return
+			}
+			b.SetRotation(initial + turn*progress)
+		},
+		OnComplete: func() { b.rotationCancel = nil },
+	})
+	b.rotationOverflow = options.Overflow
+	b.document.RequestPaint()
+	b.rotationCancel = cancel
+	return cancel
 }
 
 func (b *Image) SetProp(key string, val string) error {
@@ -2332,29 +2400,59 @@ func (b *Image) Draw(canvas *Canvas) {
 
 	switch b.status {
 	case imageLoadStatusScaled:
-		// TODO 没处理border和padding
-		// 图片的宽高不一定等于容器。contain 会在容器内居中；
-		// cover/none 可能超出容器，此时从图片中心裁出可见部分。
-		imageWidth := b.decodedImage.Width
-		imageHeight := b.decodedImage.Height
-		visibleWidth := min(imageWidth, max(0, b.layoutBox.Width))
-		visibleHeight := min(imageHeight, max(0, b.layoutBox.Height))
-		if visibleWidth <= 0 || visibleHeight <= 0 {
-			return
+		if b.rotation != 0 || b.rotationOverflow {
+			b.drawImageRotated(canvas)
+		} else {
+			b.drawImageNormal(canvas)
 		}
-		srcX := max(0, (imageWidth-b.layoutBox.Width)/2)
-		srcY := max(0, (imageHeight-b.layoutBox.Height)/2)
-		dstX := max(0, (b.layoutBox.Width-imageWidth)/2)
-		dstY := max(0, (b.layoutBox.Height-imageHeight)/2)
-		canvas.Offset(dstX, dstY).DrawImageRegion(
-			b.decodedImage, srcX, srcY, visibleWidth, visibleHeight,
-		)
 	case imageLoadStatusFailed:
 		if b.err != nil {
 			// 暂时！没有换行，没有border、padding……
 			canvas.DrawString(b.err.Error(), b.document.LoadFaces(b), ColorFromRGBA(0xFF, 0, 0, 0xFF))
 		}
 	}
+}
+
+// TODO 没处理border和padding
+// 图片的宽高不一定等于容器。contain 会在容器内居中；
+// cover/none 可能超出容器，此时从图片中心裁出可见部分。
+func (b *Image) drawImageNormal(canvas *Canvas) {
+	imageWidth := b.decodedImage.Width
+	imageHeight := b.decodedImage.Height
+	visibleWidth := min(imageWidth, max(0, b.layoutBox.Width))
+	visibleHeight := min(imageHeight, max(0, b.layoutBox.Height))
+	if visibleWidth <= 0 || visibleHeight <= 0 {
+		return
+	}
+	srcX := max(0, (imageWidth-b.layoutBox.Width)/2)
+	srcY := max(0, (imageHeight-b.layoutBox.Height)/2)
+	dstX := max(0, (b.layoutBox.Width-imageWidth)/2)
+	dstY := max(0, (b.layoutBox.Height-imageHeight)/2)
+	canvas.Offset(dstX, dstY).DrawImageRegion(
+		b.decodedImage, srcX, srcY, visibleWidth, visibleHeight,
+	)
+}
+
+func (b *Image) drawImageRotated(canvas *Canvas) {
+	if b.layoutBox.Width <= 0 || b.layoutBox.Height <= 0 {
+		return
+	}
+	clipped := canvas
+	if !b.rotationOverflow {
+		if canvas.clipBounds().Intersect(image.Rect(canvas.x, canvas.y, canvas.x+b.layoutBox.Width, canvas.y+b.layoutBox.Height)).Empty() {
+			return
+		}
+		clipped = canvas.Clip(0, 0, b.layoutBox.Width, b.layoutBox.Height)
+	}
+	if b.rotation == 0 {
+		canvas.Offset((b.layoutBox.Width-b.decodedImage.Width)/2,
+			(b.layoutBox.Height-b.decodedImage.Height)/2).DrawImage(b.decodedImage)
+		return
+	}
+	clipped.drawImageRotatedCenter(b.decodedImage, b.rotation,
+		float64(canvas.x)+float64(b.layoutBox.Width)/2,
+		float64(canvas.y)+float64(b.layoutBox.Height)/2,
+	)
 }
 
 type Scroll struct {

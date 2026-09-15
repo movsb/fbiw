@@ -1115,6 +1115,10 @@ cancelAnimation := doc.Animate(fbiw.AnimationOptions{
 
 - 从调用时开始计时，回调不会同步执行；首帧按实际经过时间计算，不保证恰好交付
   `From`。需要立即显示起点时，应先设置组件状态。帧回调内创建的 Animate 使用本帧统一时间戳作为起点。
+- `Iterations` 为总次数：省略或设为 `0` / `1` 时单次，正整数指定次数，`-1` 无限循环。
+  `Duration` 是每次时长；每次循环独立应用缓动，中间循环边界进度为 `0`，
+  所有循环结束时交付 `1` 并只调用一次 `OnComplete`。后台恢复直接追上当前循环，
+  不补发错过的循环。无限循环的时长必须大于零；有限零时长动画下一帧直接完成。
 - 默认 `EaseLinear` 为匀速；`EaseIn`、`EaseOut`、`EaseInOut` 使用二次曲线，
   不等同于 CSS 同名关键字的三次贝塞尔曲线。
 - `OnUpdate` 必填，时长不能为负。零时长在下一帧直接交付进度 1。
@@ -1138,8 +1142,39 @@ Animator 负责具体值的插值。直接使用 `RequestAnimationFrame`
 的回调仍是独立请求；与这些动画混用时，Timeline 中的动画按文档成批推进，
 不保证它们与独立帧回调交错的注册顺序。
 
-目前不提供 CSS Transition、循环、倍速或倒放；Toggle 使用一个进度同时完成
+通用 Animate 目前不提供 CSS Transition、倍速或倒放；Toggle 使用一个进度同时完成
 滑块位置和轨道颜色动画，其他组件尚未自动添加动效。
+
+## 图片旋转
+
+`Image.SetRotation(degrees)` 设置图片绕中心顺时针旋转的角度，并自动请求重绘。
+旋转保持布局尺寸，默认裁剪在图片组件范围内，背景和边框不旋转。
+在 `RotationOptions` 中设置 `Overflow: true` 可允许图片溢出组件范围，仍遵守
+父容器和屏幕边界的裁剪；布局和命中区域不变，溢出的内容可能覆盖相邻组件。
+每次 `Rotate` 应用新的溢出设置，停止或结束后保留；默认 `false` 恢复裁剪。
+
+```go
+picture.SetRotation(30)
+stop := picture.Rotate(fbiw.RotationOptions{
+    Duration: 3 * time.Second, // 每圈时长，必须大于零
+    Iterations: 0,            // 无限循环；正整数表示圈数
+    Overflow: true,           // 允许溢出组件范围（默认 false）
+    Reverse: true,            // 逆时针（默认顺时针）
+})
+// stop() // 停止并保持当前角度，可重复调用
+```
+
+动画从当前角度开始匀速旋转，默认顺时针，`Reverse: true` 为逆时针；
+新旋转自动替换同一图片的旧旋转。
+有限循环结束时回到起始朝向。注册、设置角度和停止均在 UI 主线程执行；
+后台暂停回调但不暂停时间，恢复时追上进度，关闭文档时自动清理。
+角度必须为有限数值，圈数不能为负，无效参数会 panic。
+`Image.Rotate` 通过公共 `Document.Animate` 实现循环；自定义组件也可以使用
+`AnimationOptions.Iterations`，无需访问文档内部 Timeline。注意旋转接口的 `0`
+表示无限循环，而通用 Animate 的 `0` 保留默认单次语义。
+`Canvas.DrawImageRotated` 提供同样的中心旋转绘制，遵守当前原点与裁剪范围。
+
+运行示例（在 `demo/rotation` 目录）：`GOEXPERIMENT=simd go run .`。
 
 ## 异步更新
 

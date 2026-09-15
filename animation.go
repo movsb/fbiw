@@ -386,11 +386,15 @@ func ColorAnimator(from, to Color) func(progress float64) Color {
 	}
 }
 
-// AnimationOptions 描述一次从 0 到 1 的时间进度动画。
+// AnimationOptions 描述从 0 到 1 的时间进度动画，可指定循环次数。
 // Duration 不能为负；零时长在下一帧直接更新为 1。
 type AnimationOptions struct {
 	Duration time.Duration
 	Easing   Easing
+
+	// Iterations 为总次数：0 或 1 表示单次（默认），正整数指定次数，
+	// -1 表示无限循环。无限循环要求 Duration 大于零。
+	Iterations int
 
 	// OnUpdate 接收当前进度，不能为空。布局和重绘仍由调用者按需请求。
 	OnUpdate func(progress float64)
@@ -401,13 +405,21 @@ type AnimationOptions struct {
 
 // progress 只计算当前时刻的进度，不修改样式，也不参与帧调度。
 func (o AnimationOptions) progress(elapsed time.Duration) (progress float64, complete bool) {
-	if elapsed >= o.Duration {
+	if o.Duration == 0 {
 		return 1, true
 	}
 	if elapsed <= 0 {
 		return 0, false
 	}
-	return o.Easing.apply(float64(elapsed) / float64(o.Duration)), false
+	iterations := o.Iterations
+	if iterations == 0 {
+		iterations = 1
+	}
+	// 用商判断完成，避免总次数与每次时长相乘溢出。
+	if iterations > 0 && elapsed/o.Duration >= time.Duration(iterations) {
+		return 1, true
+	}
+	return o.Easing.apply(float64(elapsed%o.Duration) / float64(o.Duration)), false
 }
 
 // Animate 从调用时开始计时，通过统一帧时钟更新 0 到 1 的进度，
@@ -415,10 +427,11 @@ func (o AnimationOptions) progress(elapsed time.Duration) (progress float64, com
 // 需要立即显示起点时由调用者设置。
 //
 // 注册、取消和回调均在 UI 主线程执行。后台暂停回调但不暂停时间，
-// 恢复时直接追上当前进度。完成时精确交付 1，不补发错过的中间帧。
+// 恢复时直接追上当前循环的进度，不补发错过的帧或循环。
+// 中间循环边界交付 0，所有循环完成时精确交付 1，之后只调用一次 OnComplete。
 func (doc *Document) Animate(options AnimationOptions) (cancel func()) {
-	if options.OnUpdate == nil || options.Duration < 0 || options.Easing > EaseInOut {
-		panic("Animate: 无效的回调、时长或缓动。")
+	if options.OnUpdate == nil || options.Duration < 0 || options.Easing > EaseInOut || options.Iterations < -1 || (options.Iterations == -1 && options.Duration == 0) {
+		panic("Animate: 无效的回调、时长、缓动或循环次数。")
 	}
 	if doc.app.ctx.Err() != nil || doc.app.animation.closed {
 		panic("Animate: 文档绑定的动画时钟已停止。")

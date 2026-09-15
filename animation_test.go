@@ -876,3 +876,92 @@ func TestTimelineCloseReleasesCallbacks(t *testing.T) {
 		})
 	}
 }
+
+func TestAnimateIterationProgress(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		options  AnimationOptions
+		elapsed  time.Duration
+		want     float64
+		complete bool
+	}{
+		{"default", AnimationOptions{Duration: time.Second}, time.Second, 1, true},
+		{"boundary", AnimationOptions{Duration: time.Second, Iterations: 2}, time.Second, 0, false},
+		{"second", AnimationOptions{Duration: time.Second, Iterations: 2}, 1500 * time.Millisecond, .5, false},
+		{"finish", AnimationOptions{Duration: time.Second, Iterations: 2}, 2 * time.Second, 1, true},
+		{"skip", AnimationOptions{Duration: time.Second, Iterations: 2}, 9 * time.Second, 1, true},
+		{"infinite", AnimationOptions{Duration: time.Second, Iterations: -1}, 100250 * time.Millisecond, .25, false},
+		{"easing", AnimationOptions{Duration: time.Second, Iterations: 3, Easing: EaseIn}, 1500 * time.Millisecond, .25, false},
+		{"zero", AnimationOptions{Iterations: 3}, 0, 1, true},
+		{"overflow", AnimationOptions{Duration: time.Duration(1 << 62), Iterations: 4}, time.Duration(1 << 62), 0, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p, c := tc.options.progress(tc.elapsed)
+			if p != tc.want || c != tc.complete {
+				t.Fatalf("got %v, %v", p, c)
+			}
+		})
+	}
+}
+
+func TestAnimateFiniteIterationsCompleteOnce(t *testing.T) {
+	app, doc, f := newAnimationTestApp(t)
+	var values []float64
+	completions := 0
+	doc.Animate(AnimationOptions{Duration: time.Second, Iterations: 2,
+		OnUpdate: func(p float64) { values = append(values, p) },
+		OnComplete: func() {
+			if values[len(values)-1] != 1 {
+				t.Error("completion preceded final update")
+			}
+			completions++
+		},
+	})
+	for _, delta := range []time.Duration{time.Second, 500 * time.Millisecond, 500 * time.Millisecond, time.Second} {
+		f.now = f.now.Add(delta)
+		animationStep(app)
+	}
+	if !slices.Equal(values, []float64{0, .5, 1}) || completions != 1 {
+		t.Fatalf("values=%v completions=%d", values, completions)
+	}
+}
+
+func TestAnimateInfiniteIterationsCancel(t *testing.T) {
+	app, doc, f := newAnimationTestApp(t)
+	calls := 0
+	cancel := doc.Animate(AnimationOptions{Duration: time.Second, Iterations: -1,
+		OnUpdate: func(p float64) {
+			calls++
+			if p != .25 {
+				t.Errorf("progress %v", p)
+			}
+		},
+		OnComplete: func() { t.Error("infinite animation completed") },
+	})
+	f.now = f.now.Add(100250 * time.Millisecond)
+	animationStep(app)
+	cancel()
+	cancel()
+	f.now = f.now.Add(time.Second)
+	animationStep(app)
+	if calls != 1 || len(doc.timeline.animations) != 0 {
+		t.Fatal("cancel did not drain loop")
+	}
+}
+
+func TestAnimateInvalidIterations(t *testing.T) {
+	_, doc, _ := newAnimationTestApp(t)
+	for _, o := range []AnimationOptions{
+		{Duration: time.Second, Iterations: -2}, {Iterations: -1},
+	} {
+		o.OnUpdate = func(float64) {}
+		func() {
+			defer func() {
+				if recover() == nil {
+					t.Error("invalid iterations accepted")
+				}
+			}()
+			doc.Animate(o)
+		}()
+	}
+}
