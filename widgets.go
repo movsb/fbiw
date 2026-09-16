@@ -1817,6 +1817,7 @@ type Scroll struct {
 	target _ScrollPosition
 
 	offsetTransition *Transition[_ScrollPosition]
+	scrolling        bool
 }
 
 type _ScrollPosition struct{ X, Y int }
@@ -1834,7 +1835,14 @@ type ScrollChangeArgs struct {
 	X, Y int
 }
 
-var ScrollChange = RegisterEventType()
+type ScrollEndArgs struct {
+	X, Y int
+}
+
+var (
+	ScrollChange = RegisterEventType()
+	ScrollEnd    = RegisterEventType()
+)
 
 func NewScroll(doc *Document) *Scroll {
 	scroll := &Scroll{
@@ -1953,8 +1961,14 @@ func (b *Scroll) Calc(availWidth, availHeight int, constraints Constraints) {
 	if b.offsetTransition != nil && (displayClamped || oldTarget != b.target) {
 		b.offsetTransition.SetValue(clampedOffset)
 		if b.Smooth() && clampedOffset != b.target {
+			b.scrolling = true
 			b.offsetTransition.SetTarget(b.target)
+		} else {
+			b.finishScroll()
 		}
+	} else if displayClamped {
+		b.scrolling = true
+		b.finishScroll()
 	}
 }
 
@@ -2011,9 +2025,17 @@ func (b *Scroll) scrollTo(x, y int) bool {
 	}
 	b.target = target
 	if b.offsetTransition != nil {
-		b.offsetTransition.SetTarget(target)
+		b.scrolling = true
+		if b.offset == target {
+			b.offsetTransition.SetValue(target)
+			b.finishScroll()
+		} else {
+			b.offsetTransition.SetTarget(target)
+		}
 	} else {
+		b.scrolling = true
 		b.setDisplayedOffset(target)
+		b.finishScroll()
 	}
 	return true
 }
@@ -2029,8 +2051,12 @@ func (b *Scroll) SetSmooth(smooth bool) {
 	if smooth {
 		b.offsetTransition = b.newScrollTransition()
 	} else {
+		wasScrolling := b.scrolling
 		b.offsetTransition.SetValue(b.target)
 		b.offsetTransition = nil
+		if wasScrolling {
+			b.finishScroll()
+		}
 	}
 }
 
@@ -2050,7 +2076,8 @@ func (b *Scroll) newScrollTransition() *Transition[_ScrollPosition] {
 					}
 				}
 			},
-			OnUpdate: b.setDisplayedOffset,
+			OnUpdate:   b.setDisplayedOffset,
+			OnComplete: b.finishScroll,
 		},
 	)
 }
@@ -2065,6 +2092,14 @@ func (b *Scroll) setDisplayedOffset(position _ScrollPosition) {
 		b.document.RequestPaint()
 	}
 	b.Dispatch(ScrollChange, ScrollChangeArgs{X: position.X, Y: position.Y})
+}
+
+func (b *Scroll) finishScroll() {
+	if !b.scrolling {
+		return
+	}
+	b.scrolling = false
+	b.Dispatch(ScrollEnd, ScrollEndArgs{X: b.offset.X, Y: b.offset.Y})
 }
 
 func (b *Scroll) handleStickDown(event *Event) {

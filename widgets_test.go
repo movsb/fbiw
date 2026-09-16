@@ -1193,6 +1193,13 @@ func TestScrollMeasuresContentAndClampsOffsets(t *testing.T) {
 	if maxX, maxY := scroll.ScrollRange(); maxX != 0 || maxY != 20 {
 		t.Fatalf(`scroll range = (%d,%d), want (0,20)`, maxX, maxY)
 	}
+	ends := 0
+	scroll.Listen(ScrollEnd, func(event *Event) {
+		ends++
+		if got := event.Data[ScrollEndArgs](); got != (ScrollEndArgs{X: 0, Y: scroll.offset.Y}) {
+			t.Fatalf(`scroll end data = %+v, offset = %+v`, got, scroll.offset)
+		}
+	})
 
 	scroll.ScrollTo(100, 100)
 	if x, y := scroll.ScrollOffset(); x != 0 || y != 20 {
@@ -1201,6 +1208,10 @@ func TestScrollMeasuresContentAndClampsOffsets(t *testing.T) {
 	scroll.ScrollBy(0, -10)
 	if x, y := scroll.ScrollOffset(); x != 0 || y != 10 {
 		t.Fatalf(`relative offset = (%d,%d), want (0,10)`, x, y)
+	}
+	scroll.ScrollTo(0, 10)
+	if ends != 2 {
+		t.Fatalf(`immediate scroll end count = %d, want 2`, ends)
 	}
 }
 
@@ -1268,6 +1279,13 @@ func TestScrollSmoothTransitionAndRetarget(t *testing.T) {
 	}
 	doc.layout()
 	scroll := doc.GetBoxByID[*Scroll](`scroll`)
+	ends := 0
+	scroll.Listen(ScrollEnd, func(event *Event) {
+		ends++
+		if got := event.Data[ScrollEndArgs](); got.X != 0 || got.Y != scroll.offset.Y {
+			t.Fatalf(`smooth scroll end data = %+v, offset = %+v`, got, scroll.offset)
+		}
+	})
 	if scroll.maxY != 20 {
 		t.Fatalf(`smooth scroll range y = %d, want 20`, scroll.maxY)
 	}
@@ -1295,6 +1313,9 @@ func TestScrollSmoothTransitionAndRetarget(t *testing.T) {
 	if _, y := scroll.ScrollOffset(); y != 11 {
 		t.Fatalf(`retargeted halfway y = %d, want 11`, y)
 	}
+	if ends != 0 {
+		t.Fatalf(`intermediate smooth targets fired %d scroll end events`, ends)
+	}
 
 	scroll.SetSmooth(false)
 	if scroll.Smooth() {
@@ -1302,6 +1323,31 @@ func TestScrollSmoothTransitionAndRetarget(t *testing.T) {
 	}
 	if x, y := scroll.ScrollOffset(); x != 0 || y != 10 {
 		t.Fatalf(`disabling smooth did not finish at target: (%d,%d)`, x, y)
+	}
+	if ends != 1 {
+		t.Fatalf(`disabling smooth fired %d scroll end events, want 1`, ends)
+	}
+}
+
+func TestScrollEndAfterSmoothCompletion(t *testing.T) {
+	app, doc, clock := newAnimationTestApp(t)
+	doc.width, doc.height = 20, 20
+	doc.fsys = fstest.MapFS{
+		`main.html`: &fstest.MapFile{Data: []byte(`<document><block><scroll id="scroll" smooth width="20" height="20"><block height="40"></block></scroll></block></document>`)},
+	}
+	doc.fontManager = NewFontManager()
+	if err := doc.load(`main.html`); err != nil {
+		t.Fatal(err)
+	}
+	doc.layout()
+	scroll := doc.GetBoxByID[*Scroll](`scroll`)
+	ends := 0
+	scroll.Listen(ScrollEnd, func(*Event) { ends++ })
+	scroll.ScrollTo(0, 20)
+	clock.now = clock.now.Add(scrollSmoothDuration)
+	animationStep(app)
+	if _, y := scroll.ScrollOffset(); y != 20 || ends != 1 {
+		t.Fatalf(`completed smooth scroll: y=%d ends=%d, want y=20 ends=1`, y, ends)
 	}
 }
 

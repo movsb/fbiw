@@ -887,7 +887,7 @@ x, y := scroll.ScrollOffset()
 maxX, maxY := scroll.ScrollRange()
 ```
 
-开启 `smooth` 后，连续的 `ScrollBy` 和方向键输入会累计目标偏移，并从当前显示位置平滑转向最新目标；`ScrollOffset` 返回当前帧实际显示的偏移。每次显示偏移变化都会派发 `ScrollChange`，事件数据为 `ScrollChangeArgs{X, Y}`。内容或视口尺寸变化后，显示位置和动画目标都会自动限制在新的合法范围。当前不提供滚动条、鼠标/触摸、惯性滚动或自动将后代焦点移入视口。
+开启 `smooth` 后，连续的 `ScrollBy` 和方向键输入会累计目标偏移，并从当前显示位置平滑转向最新目标；`ScrollOffset` 返回当前帧实际显示的偏移。每次显示偏移变化都会派发 `ScrollChange`，事件数据为 `ScrollChangeArgs{X, Y}`；最终目标完成后派发一次 `ScrollEnd`，事件数据为 `ScrollEndArgs{X, Y}`。连续重定向不会为中间目标派发 `ScrollEnd`，非平滑滚动则在位置更新后立即派发。内容或视口尺寸变化后，显示位置和动画目标都会自动限制在新的合法范围。当前不提供滚动条、鼠标/触摸、惯性滚动或自动将后代焦点移入视口。
 
 ## 虚拟列表
 
