@@ -249,6 +249,102 @@ func TestFlexWidgetAllocation(t *testing.T) {
 	}
 }
 
+func TestUnboundedBlockMeasuresFullContentHeight(t *testing.T) {
+	doc := newFlexTestDocument(t, `<block id="content"><text>ABCDEF</text><block height="10"></block></block>`, 14, 20)
+	content := doc.GetBoxByID[*Block](`content`)
+	content.Calc(14, 20, Constraints{
+		ParentContentWidth:  14,
+		ParentContentHeight: 20,
+		PrefersMaxWidth:     true,
+		UnboundedHeight:     true,
+	})
+	if got, want := content.layoutBox.Height, 49; got != want {
+		t.Fatalf(`unbounded block height = %d, want %d`, got, want)
+	}
+	if got, want := content.children[0].GetLayoutBox().Height, 39; got != want {
+		t.Fatalf(`unbounded text height = %d, want %d`, got, want)
+	}
+}
+
+func TestUnboundedInlineMeasuresFullContentWidth(t *testing.T) {
+	doc := newFlexTestDocument(t, `<inline id="content"><text>ABCDEF</text><block width="10"></block></inline>`, 20, 20)
+	content := doc.GetBoxByID[*Inline](`content`)
+	content.Calc(20, 20, Constraints{
+		ParentContentWidth:  20,
+		ParentContentHeight: 20,
+		UnboundedWidth:      true,
+	})
+	if got, want := content.layoutBox.Width, 52; got != want {
+		t.Fatalf(`unbounded inline width = %d, want %d`, got, want)
+	}
+}
+
+func TestUnboundedAxisKeepsPercentageReferenceAndDisablesGrowth(t *testing.T) {
+	doc := newFlexTestDocument(t, `<flex id="content" flex-direction="column"><block id="percent" height="50%"></block><block height="10" flex-grow="1"></block></flex>`, 100, 100)
+	content := doc.GetBoxByID[*Flex](`content`)
+	content.Calc(100, 100, Constraints{
+		ParentContentWidth:  100,
+		ParentContentHeight: 100,
+		PrefersMaxWidth:     true,
+		PrefersMaxHeight:    true,
+		UnboundedHeight:     true,
+	})
+	if got, want := doc.GetBoxByID[*Block](`percent`).layoutBox.Height, 50; got != want {
+		t.Fatalf(`percentage height = %d, want viewport-relative %d`, got, want)
+	}
+	if got, want := content.layoutBox.Height, 60; got != want {
+		t.Fatalf(`unbounded flex height = %d, want natural %d`, got, want)
+	}
+}
+
+func TestUnboundedAxisClearsPreviousSpacerGrowth(t *testing.T) {
+	doc := newFlexTestDocument(t, `<block id="content"><block height="10"></block><spacer></spacer></block>`, 100, 100)
+	content := doc.GetBoxByID[*Block](`content`)
+	content.Calc(100, 100, Constraints{
+		ParentContentWidth:  100,
+		ParentContentHeight: 100,
+		PrefersMaxHeight:    true,
+	})
+	if got := content.children[1].GetLayoutBox().Height; got != 90 {
+		t.Fatalf(`bounded spacer height = %d, want 90`, got)
+	}
+	content.Calc(100, 100, Constraints{
+		ParentContentWidth:  100,
+		ParentContentHeight: 100,
+		PrefersMaxHeight:    true,
+		UnboundedHeight:     true,
+	})
+	if got := content.children[1].GetLayoutBox().Height; got != 0 {
+		t.Fatalf(`unbounded spacer retained height %d, want 0`, got)
+	}
+	if got := content.layoutBox.Height; got != 10 {
+		t.Fatalf(`unbounded block height = %d, want 10`, got)
+	}
+}
+
+func TestUnboundedStackMeasuresLargestChild(t *testing.T) {
+	doc := newFlexTestDocument(t, `<stack id="content"><block width="50" height="10"></block></stack>`, 20, 20)
+	content := doc.GetBoxByID[*Stack](`content`)
+	content.Calc(20, 20, Constraints{
+		ParentContentWidth:  20,
+		ParentContentHeight: 20,
+		UnboundedWidth:      true,
+	})
+	if got := content.layoutBox.Width; got != 50 {
+		t.Fatalf(`unbounded stack width = %d, want 50`, got)
+	}
+}
+
+func TestUnboundedLeafKeepsIntrinsicSize(t *testing.T) {
+	doc := newFlexTestDocument(t, `<block><toggle id="toggle"></toggle></block>`, 20, 20)
+	toggle := doc.GetBoxByID[*Toggle](`toggle`)
+	toggle.Calc(20, 20, Constraints{UnboundedWidth: true, UnboundedHeight: true})
+	wantWidth, wantHeight := toggle.intrinsicSize()
+	if got := toggle.layoutBox; got.Width != wantWidth || got.Height != wantHeight {
+		t.Fatalf(`unbounded toggle size = %+v, want %dx%d`, got, wantWidth, wantHeight)
+	}
+}
+
 func TestFixedDimensionsOverrideStyles(t *testing.T) {
 	b := NewBlock(nil)
 	b.computedStyles.SetWidth(PercentageLength(50))

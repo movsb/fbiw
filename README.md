@@ -398,8 +398,10 @@ Go 布局接口中的尺寸偏好含义如下：
 | --- | --- | --- |
 | `PrefersMaxWidth` | 当前节点优先使用父节点提供的全部可用宽度 | 当前节点按内容所需宽度收缩 |
 | `PrefersMaxHeight` | 当前节点优先使用父节点提供的全部可用高度 | 当前节点按内容所需高度收缩 |
+| `UnboundedWidth` | 可用宽度只作为百分比和排版参考，自然宽度不被它截断 | 自然宽度受可用宽度限制 |
+| `UnboundedHeight` | 可用高度只作为百分比和排版参考，自然高度不被它截断 | 自然高度受可用高度限制 |
 
-`Constraints` 约束的是正在执行 `Calc` 的节点自身，而不是它的子节点排列方向。尺寸优先级为 `FixedWidth/FixedHeight` > 样式 `width/height` > `PrefersMax*` 尺寸偏好或内容尺寸。`FixedWidth/FixedHeight` 使用 `NumberLength(n)` 表示父布局分配的最终 border-box 尺寸，空值表示不强制；不得将分配结果写回样式。自定义 `Calc` 也应遵守这个约定。
+`Constraints` 约束的是正在执行 `Calc` 的节点自身，而不是它的子节点排列方向。尺寸优先级为 `FixedWidth/FixedHeight` > 样式 `width/height` > `PrefersMax*` 尺寸偏好或内容尺寸。无界轴会忽略 `PrefersMax*`，Spacer 和 `flex-grow` 也不会在该轴分配剩余空间；百分比仍相对于 `ParentContentWidth/ParentContentHeight`。`FixedWidth/FixedHeight` 使用 `NumberLength(n)` 表示父布局分配的最终 border-box 尺寸，空值表示不强制；不得将分配结果写回样式。自定义 `Calc` 也应遵守这个约定。
 
 ```html
 <block height="300">

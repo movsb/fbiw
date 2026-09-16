@@ -98,6 +98,12 @@ type Constraints struct {
 	PrefersMaxWidth  bool
 	PrefersMaxHeight bool
 
+	// UnboundedWidth/Height 表示该轴只提供排版参考尺寸，不限制自然内容尺寸。
+	// 百分比仍使用 ParentContentWidth/Height 解析；显式尺寸和 Fixed* 仍然优先。
+	// 无界轴不会因为 PrefersMax*、Spacer 或 flex-grow 被扩展到“全部可用空间”。
+	UnboundedWidth  bool
+	UnboundedHeight bool
+
 	// 百分比参考父容器的完整内容区，不是兄弟元素占用后的剩余空间。
 	ParentContentWidth  int
 	ParentContentHeight int
@@ -580,21 +586,32 @@ func blockCalc(b *BaseBox, availWidth, availHeight int, constraints Constraints)
 			continue
 		}
 
-		if spacer, ok := child.(*Spacer); ok && spacer.computedStyles.Height.Empty() {
+		if spacer, ok := child.(*Spacer); ok && spacer.computedStyles.Height.Empty() && !constraints.UnboundedHeight {
 			zeroSpacers = append(zeroSpacers, spacer)
 			contentHeight += spacer.VerticalInsets()
-		} else if child.Base().computedStyles.Spacer {
+		} else if child.Base().computedStyles.Spacer && !constraints.UnboundedHeight {
 			zeroSpacers = append(zeroSpacers, child)
 			contentHeight += child.Base().VerticalInsets()
 		} else {
+			childAvailHeight := contentAvailHeight - contentHeight
+			if constraints.UnboundedHeight {
+				childAvailHeight = contentAvailHeight
+			}
 			if text, ok := child.(*Text); ok {
-				text.SegmentBlock(contentAvailWidth, contentAvailHeight-contentHeight)
+				text.Calc(contentAvailWidth, childAvailHeight, Constraints{
+					ParentContentWidth:  max(0, contentAvailWidth),
+					ParentContentHeight: max(0, contentAvailHeight),
+					UnboundedWidth:      constraints.UnboundedWidth,
+					UnboundedHeight:     constraints.UnboundedHeight,
+				})
 			} else {
-				child.Calc(contentAvailWidth, contentAvailHeight-contentHeight, Constraints{
+				child.Calc(contentAvailWidth, childAvailHeight, Constraints{
 					ParentContentWidth:  max(0, contentAvailWidth),
 					ParentContentHeight: max(0, contentAvailHeight),
 					PrefersMaxWidth:     constraints.PrefersMaxWidth,
 					PrefersMaxHeight:    false,
+					UnboundedWidth:      constraints.UnboundedWidth,
+					UnboundedHeight:     constraints.UnboundedHeight,
 				})
 			}
 			contentHeight += child.Base().layoutBox.Height
@@ -633,8 +650,12 @@ func blockCalc(b *BaseBox, availWidth, availHeight int, constraints Constraints)
 	// }
 
 	// 此时已经可以确定容器本身的大小了。
-	b.layoutBox.Width = resolveSize(size.Width, availWidth, constraints.PrefersMaxWidth, min(availWidth, b.HorizontalInsets()+contentMaxWidth))
-	b.layoutBox.Height = resolveSize(size.Height, availHeight, constraints.PrefersMaxHeight, b.VerticalInsets()+contentHeight)
+	actualWidth := b.HorizontalInsets() + contentMaxWidth
+	if !constraints.UnboundedWidth {
+		actualWidth = min(availWidth, actualWidth)
+	}
+	b.layoutBox.Width = resolveMeasuredSize(size.Width, availWidth, constraints.PrefersMaxWidth, actualWidth, constraints.UnboundedWidth)
+	b.layoutBox.Height = resolveMeasuredSize(size.Height, availHeight, constraints.PrefersMaxHeight, b.VerticalInsets()+contentHeight, constraints.UnboundedHeight)
 
 	// 最后再重新对齐子元素
 
@@ -703,21 +724,23 @@ func inlineCalc(b *BaseBox, availWidth, availHeight int, constraints Constraints
 			continue
 		}
 
-		if spacer, ok := child.(*Spacer); ok && spacer.computedStyles.Width.Empty() {
+		if spacer, ok := child.(*Spacer); ok && spacer.computedStyles.Width.Empty() && !constraints.UnboundedWidth {
 			zeroSpacers = append(zeroSpacers, spacer)
 			contentWidth += spacer.HorizontalInsets()
-		} else if child.Base().computedStyles.Spacer {
+		} else if child.Base().computedStyles.Spacer && !constraints.UnboundedWidth {
 			zeroSpacers = append(zeroSpacers, child)
 			contentWidth += child.Base().HorizontalInsets()
 		} else {
 			if text, ok := child.(*Text); ok {
 				remainingWidth := contentAvailWidth - contentWidth
-				if text.marquee.axis != `` {
+				if text.marquee.axis != `` || constraints.UnboundedWidth || constraints.UnboundedHeight {
 					// marquee 需要完整测量内容、确定自己的视口并更新动画。
 					// 普通 inline 文本仍保留原来只切一行的布局语义。
 					text.Calc(remainingWidth, contentAvailHeight, Constraints{
 						ParentContentWidth:  max(0, remainingWidth),
 						ParentContentHeight: max(0, contentAvailHeight),
+						UnboundedWidth:      constraints.UnboundedWidth,
+						UnboundedHeight:     constraints.UnboundedHeight,
 					})
 				} else {
 					// 只处理了一行，如果要wrap，才能继续处理。
@@ -730,6 +753,8 @@ func inlineCalc(b *BaseBox, availWidth, availHeight int, constraints Constraints
 					ParentContentHeight: max(0, contentAvailHeight),
 					PrefersMaxWidth:     false,
 					PrefersMaxHeight:    false,
+					UnboundedWidth:      constraints.UnboundedWidth,
+					UnboundedHeight:     constraints.UnboundedHeight,
 				})
 			}
 
@@ -771,8 +796,16 @@ func inlineCalc(b *BaseBox, availWidth, availHeight int, constraints Constraints
 	}
 
 	// 此时已经可以确定容器本身的大小了。
-	b.layoutBox.Width = resolveSize(size.Width, availWidth, constraints.PrefersMaxWidth, min(availWidth, contentWidth+b.HorizontalInsets()))
-	b.layoutBox.Height = resolveSize(size.Height, availHeight, constraints.PrefersMaxHeight, min(availHeight, contentMaxHeight+b.VerticalInsets()))
+	actualWidth := contentWidth + b.HorizontalInsets()
+	actualHeight := contentMaxHeight + b.VerticalInsets()
+	if !constraints.UnboundedWidth {
+		actualWidth = min(availWidth, actualWidth)
+	}
+	if !constraints.UnboundedHeight {
+		actualHeight = min(availHeight, actualHeight)
+	}
+	b.layoutBox.Width = resolveMeasuredSize(size.Width, availWidth, constraints.PrefersMaxWidth, actualWidth, constraints.UnboundedWidth)
+	b.layoutBox.Height = resolveMeasuredSize(size.Height, availHeight, constraints.PrefersMaxHeight, actualHeight, constraints.UnboundedHeight)
 
 	// 最后再重新对齐子元素。
 	offsetX := b.InsetLeft()
@@ -853,9 +886,11 @@ func flexCalc(b *BaseBox, availWidth, availHeight int, constraints Constraints) 
 	}
 	mainStyle, crossStyle := size.Width, size.Height
 	preferMain, preferCross := constraints.PrefersMaxWidth, constraints.PrefersMaxHeight
+	unboundedMain, unboundedCross := constraints.UnboundedWidth, constraints.UnboundedHeight
 	if column {
 		mainStyle, crossStyle = size.Height, size.Width
 		preferMain, preferCross = preferCross, preferMain
+		unboundedMain, unboundedCross = unboundedCross, unboundedMain
 	}
 
 	// 这几组变量的区别：
@@ -878,6 +913,8 @@ func flexCalc(b *BaseBox, availWidth, availHeight int, constraints Constraints) 
 	childConstraints := Constraints{
 		ParentContentWidth:  contentWidth,
 		ParentContentHeight: contentHeight,
+		UnboundedWidth:      constraints.UnboundedWidth,
+		UnboundedHeight:     constraints.UnboundedHeight,
 	}
 	type item struct {
 		box     Box
@@ -937,7 +974,11 @@ func flexCalc(b *BaseBox, availWidth, availHeight int, constraints Constraints) 
 	// boxMain 是包括 padding/border 的最终尺寸，contentMain 才能分给孩子。
 	// 明确尺寸优先；否则 preferMain 决定填满还是按内容收缩。
 	// 因而 grow 本身不会让一个内容收缩容器主动扩展到全部可用空间。
-	boxMain := max(0, resolveSize(mainStyle, availMain, preferMain, min(availMain, baseMain+insetMain)))
+	actualMain := baseMain + insetMain
+	if !unboundedMain {
+		actualMain = min(availMain, actualMain)
+	}
+	boxMain := max(0, resolveMeasuredSize(mainStyle, availMain, preferMain, actualMain, unboundedMain))
 	contentMain := max(0, boxMain-insetMain)
 	free := max(0, contentMain-baseMain)
 	// free 只取正数：基础尺寸已经放不下时，不会“负增长”或缩小孩子。
@@ -995,7 +1036,11 @@ func flexCalc(b *BaseBox, availWidth, availHeight int, constraints Constraints) 
 
 	// 单行布局的自然交叉轴尺寸是孩子们的最大值，不是它们的总和。
 	// 到此才能决定内容自适应的容器高度（column 时为宽度）。
-	boxCross := max(0, resolveSize(crossStyle, availCross, preferCross, min(availCross, maxCross+insetCross)))
+	actualCross := maxCross + insetCross
+	if !unboundedCross {
+		actualCross = min(availCross, actualCross)
+	}
+	boxCross := max(0, resolveMeasuredSize(crossStyle, availCross, preferCross, actualCross, unboundedCross))
 	contentCross := max(0, boxCross-insetCross)
 	b.layoutBox.Width, b.layoutBox.Height = axes(boxMain, boxCross)
 
@@ -1088,6 +1133,20 @@ func resolveSize(computed Length, available int, prefersAvailable bool, actual i
 	return actual
 }
 
+func resolveMeasuredSize(computed Length, available int, prefersAvailable bool, actual int, unbounded bool) int {
+	if unbounded {
+		prefersAvailable = false
+	}
+	return resolveSize(computed, available, prefersAvailable, actual)
+}
+
+func constrainNaturalSize(actual, available int, unbounded bool) int {
+	if unbounded {
+		return actual
+	}
+	return min(actual, available)
+}
+
 type Stack struct {
 	BaseBox
 
@@ -1128,6 +1187,7 @@ func (b *Stack) Calc(availWidth, availHeight int, constrains Constraints) {
 	// 如果有 Spacer（未设定大小的），则同等大小地拼满。
 	// zeroSpacers := []Box{}
 
+	contentMaxWidth := 0
 	contentMaxHeight := 0
 
 	for _, child := range b.children {
@@ -1152,15 +1212,23 @@ func (b *Stack) Calc(availWidth, availHeight int, constrains Constraints) {
 		// } else {
 
 		if text, ok := child.(*Text); ok {
-			text.SegmentBlock(contentAvailWidth, contentAvailHeight)
+			text.Calc(contentAvailWidth, contentAvailHeight, Constraints{
+				ParentContentWidth:  max(0, contentAvailWidth),
+				ParentContentHeight: max(0, contentAvailHeight),
+				UnboundedWidth:      constrains.UnboundedWidth,
+				UnboundedHeight:     constrains.UnboundedHeight,
+			})
 		} else {
 			child.Calc(contentAvailWidth, contentAvailHeight, Constraints{
 				ParentContentWidth:  max(0, contentAvailWidth),
 				ParentContentHeight: max(0, contentAvailHeight),
 				PrefersMaxWidth:     b.fill,
 				PrefersMaxHeight:    b.fill,
+				UnboundedWidth:      constrains.UnboundedWidth,
+				UnboundedHeight:     constrains.UnboundedHeight,
 			})
 		}
+		contentMaxWidth = max(contentMaxWidth, child.Base().layoutBox.Width)
 		contentMaxHeight = max(contentMaxHeight, child.Base().layoutBox.Height)
 		// }
 	}
@@ -1194,16 +1262,12 @@ func (b *Stack) Calc(availWidth, availHeight int, constrains Constraints) {
 		child.Base().layoutBox.Y = offsetY
 	}
 
-	b.layoutBox.Width = Iif(
-		size.Width.IsNumber(),
-		int(size.Width.Number()),
-		Iif(constrains.PrefersMaxWidth, availWidth, contentAvailWidth),
-	)
-	b.layoutBox.Height = Iif(
-		size.Height.IsNumber(),
-		int(size.Height.Number()),
-		Iif(constrains.PrefersMaxHeight, availHeight, contentMaxHeight),
-	)
+	actualWidth := contentAvailWidth
+	if constrains.UnboundedWidth {
+		actualWidth = b.HorizontalInsets() + contentMaxWidth
+	}
+	b.layoutBox.Width = resolveMeasuredSize(size.Width, availWidth, constrains.PrefersMaxWidth, actualWidth, constrains.UnboundedWidth)
+	b.layoutBox.Height = resolveMeasuredSize(size.Height, availHeight, constrains.PrefersMaxHeight, contentMaxHeight, constrains.UnboundedHeight)
 }
 
 // 用来代替 margin 的使用。
@@ -1612,22 +1676,22 @@ func (t *Text) expandTextNodes() {
 //
 // TODO 没有缓存计算结果，应避免重复计算。
 func (t *Text) SegmentBlock(availWidth, availHeight int) {
-	t.segmentBlock(availWidth, availHeight, resolvedDimensions{t.computedStyles.Width, t.computedStyles.Height})
+	t.segmentBlock(availWidth, availHeight, resolvedDimensions{t.computedStyles.Width, t.computedStyles.Height}, false, false)
 }
 
 // Flex 等父布局可指定文本的最终尺寸，而不修改文本样式。
 func (t *Text) Calc(availWidth, availHeight int, constraints Constraints) {
-	t.segmentBlock(availWidth, availHeight, t.resolveDimensions(constraints))
+	t.segmentBlock(availWidth, availHeight, t.resolveDimensions(constraints), constraints.UnboundedWidth, constraints.UnboundedHeight)
 }
 
-func (t *Text) segmentBlock(availWidth, availHeight int, size resolvedDimensions) {
+func (t *Text) segmentBlock(availWidth, availHeight int, size resolvedDimensions, unboundedWidth, unboundedHeight bool) {
 	t.clearStates()
 
 	// availHeight 应该内部没有使用，至少会使用一行行高。
 	// availWidth 即使小于一个字符宽度（包括负数），SegmentInline 也会
 	// 返回 false，避免在没有消费字符的情况下死循环。
 	segmentWidth, widthStyle := availWidth, size.Width
-	if t.marquee.axis == `horizontal` {
+	if t.marquee.axis == `horizontal` || (unboundedWidth && size.Width.Empty()) {
 		// 水平滚动需要保留内容的固有宽度，不能按可视宽度自动折行。
 		// fixed.Int26_6 的整数部分约有 25 位，保留一位余量避免转换溢出。
 		segmentWidth, widthStyle = 1<<24, Length{}
@@ -1659,7 +1723,7 @@ func (t *Text) segmentBlock(availWidth, availHeight int, size resolvedDimensions
 		// 而如果是多行文本，虽然也能正确居中，但是……添加滚动也许是更好的做法？
 		//
 		// [TestSegmentBlockKeepsLineHeightWhenAvailableHeightIsSmaller]
-		if len(t.textLines) <= 1 {
+		if len(t.textLines) <= 1 || unboundedHeight {
 			t.layoutBox.Height = t.blockHeight() + t.VerticalInsets()
 		} else {
 			t.layoutBox.Height = min(t.blockHeight()+t.VerticalInsets(), availHeight)
@@ -2293,8 +2357,8 @@ func (b *Image) Calc(availWidth, availHeight int, constraints Constraints) {
 			b.layoutBox.Height = int(size.Height.Number())
 		}
 	}()
-	b.layoutBox.Width = Iif(constraints.PrefersMaxWidth, availWidth, 0)
-	b.layoutBox.Height = Iif(constraints.PrefersMaxHeight, availHeight, 0)
+	b.layoutBox.Width = Iif(constraints.PrefersMaxWidth && !constraints.UnboundedWidth, availWidth, 0)
+	b.layoutBox.Height = Iif(constraints.PrefersMaxHeight && !constraints.UnboundedHeight, availHeight, 0)
 
 	if !size.Width.Empty() && !size.Height.Empty() {
 		b.layoutBox.Width = int(size.Width.Number())

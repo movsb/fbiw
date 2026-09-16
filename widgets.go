@@ -220,13 +220,13 @@ func (b *Toggle) Calc(availWidth, availHeight int, constraints Constraints) {
 		size.Width,
 		availWidth,
 		false,
-		min(availWidth, intrinsicWidth+b.HorizontalInsets()),
+		constrainNaturalSize(intrinsicWidth+b.HorizontalInsets(), availWidth, constraints.UnboundedWidth),
 	)
 	b.layoutBox.Height = resolveSize(
 		size.Height,
 		availHeight,
 		false,
-		min(availHeight, intrinsicHeight+b.VerticalInsets()),
+		constrainNaturalSize(intrinsicHeight+b.VerticalInsets(), availHeight, constraints.UnboundedHeight),
 	)
 }
 
@@ -426,8 +426,8 @@ func (b *CheckBox) intrinsicSize() (width, height int) {
 func (b *CheckBox) Calc(availWidth, availHeight int, constraints Constraints) {
 	size := b.resolveDimensions(constraints)
 	intrinsicWidth, intrinsicHeight := b.intrinsicSize()
-	b.layoutBox.Width = resolveSize(size.Width, availWidth, false, min(availWidth, intrinsicWidth+b.HorizontalInsets()))
-	b.layoutBox.Height = resolveSize(size.Height, availHeight, false, min(availHeight, intrinsicHeight+b.VerticalInsets()))
+	b.layoutBox.Width = resolveSize(size.Width, availWidth, false, constrainNaturalSize(intrinsicWidth+b.HorizontalInsets(), availWidth, constraints.UnboundedWidth))
+	b.layoutBox.Height = resolveSize(size.Height, availHeight, false, constrainNaturalSize(intrinsicHeight+b.VerticalInsets(), availHeight, constraints.UnboundedHeight))
 }
 
 func (b *CheckBox) Draw(canvas *Canvas) {
@@ -619,13 +619,13 @@ func (b *ProgressBar) Calc(availWidth, availHeight int, constraints Constraints)
 		size.Width,
 		availWidth,
 		false,
-		min(availWidth, intrinsicWidth+b.HorizontalInsets()),
+		constrainNaturalSize(intrinsicWidth+b.HorizontalInsets(), availWidth, constraints.UnboundedWidth),
 	)
 	b.layoutBox.Height = resolveSize(
 		size.Height,
 		availHeight,
 		false,
-		min(availHeight, intrinsicHeight+b.VerticalInsets()),
+		constrainNaturalSize(intrinsicHeight+b.VerticalInsets(), availHeight, constraints.UnboundedHeight),
 	)
 }
 
@@ -881,13 +881,13 @@ func (b *SelectBox) Calc(availWidth, availHeight int, constraints Constraints) {
 		size.Width,
 		availWidth,
 		false,
-		min(availWidth, intrinsicWidth+b.HorizontalInsets()),
+		constrainNaturalSize(intrinsicWidth+b.HorizontalInsets(), availWidth, constraints.UnboundedWidth),
 	)
 	b.layoutBox.Height = resolveSize(
 		size.Height,
 		availHeight,
 		false,
-		min(availHeight, intrinsicHeight+b.VerticalInsets()),
+		constrainNaturalSize(intrinsicHeight+b.VerticalInsets(), availHeight, constraints.UnboundedHeight),
 	)
 }
 
