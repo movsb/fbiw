@@ -43,8 +43,8 @@ func main() {
 		{Name: `24`},
 	}
 
-	scroll := doc.QuerySelector[*fbiw.Scroll](`scroll`)
-	scroll.SetItems(len(items),
+	list := doc.QuerySelector[*fbiw.List](`list`)
+	list.SetItems(len(items),
 		func() (fbiw.Box, *_ItemView) {
 			item := doc.Instantiate[_ItemView](`item`)
 			return item.root, item
@@ -54,7 +54,7 @@ func main() {
 		},
 	)
 
-	scroll.Activate()
+	list.Activate()
 
 	app.Run()
 }

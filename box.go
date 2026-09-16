@@ -453,7 +453,7 @@ func (b *BaseBox) VerticalInsets() int {
 // <block> 使用纵向布局，<inline> 使用横向布局，<flex> 使用弹性布局。
 // display 只控制显示/隐藏，不能覆盖盒子类型。其它通用盒子默认横向布局。
 //
-// 只针对没有自己实现 Calc 方法的元素而言。如果自己实现了 Calc 方法（比如 Scroll），
+// 只针对没有自己实现 Calc 方法的元素而言。如果自己实现了 Calc 方法（比如 List），
 // 行为不受此约束。
 func (b *BaseBox) Calc(availWidth, availHeight int, constraints Constraints) {
 	if !displaying(b) {

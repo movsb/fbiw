@@ -837,8 +837,8 @@ type SelectBox struct {
 
 type _SelectPopupView struct {
 	root  Box
-	list  *Scroll `css:"#list"`
-	empty Box     `css:"#empty"`
+	list  *List `css:"#list"`
+	empty Box   `css:"#empty"`
 }
 
 type _SelectItemView struct {
@@ -1230,7 +1230,7 @@ func (d *AlertDialog) Closed() bool {
 
 //------------------------------------------------------------------------------
 
-type Scroll struct {
+type List struct {
 	BaseBox
 
 	// 如果指定了，则列表项的高度由此决定。
@@ -1243,21 +1243,21 @@ type Scroll struct {
 
 	bind func(user any, index int)
 
-	_ScrollState
+	_ListState
 }
 
 var (
 	// 列表选中项发生了改变。
-	ScrollSelectionChange = RegisterEventType()
+	ListSelectionChange = RegisterEventType()
 )
 
-// ScrollSelectionAware 可由 SetItems 返回的 user 实现。Scroll 会在对应
+// ListSelectionAware 可由 SetItems 返回的 user 实现。List 会在对应
 // 列表项被选中或取消选中时同步通知；未实现该接口时不会执行额外操作。
-type ScrollSelectionAware interface {
-	ScrollSelectionChanged(selected bool)
+type ListSelectionAware interface {
+	ListSelectionChanged(selected bool)
 }
 
-type _ScrollState struct {
+type _ListState struct {
 	// 列表的数据总量。
 	count int
 
@@ -1274,9 +1274,9 @@ type _ScrollState struct {
 	itemOffset int
 }
 
-func NewScroll(doc *Document) *Scroll {
-	scroll := &Scroll{
-		BaseBox:    NewBaseBox(doc, `scroll`),
+func NewList(doc *Document) *List {
+	list := &List{
+		BaseBox:    NewBaseBox(doc, `list`),
 		rows:       1,
 		cols:       1,
 		rowIndex:   -1,
@@ -1284,19 +1284,19 @@ func NewScroll(doc *Document) *Scroll {
 		itemOffset: 0,
 	}
 
-	scroll.Listen(StickDownEvent, func(e *Event) {
-		scroll.navigate(e)
+	list.Listen(StickDownEvent, func(e *Event) {
+		list.navigate(e)
 	})
 
-	return scroll
+	return list
 }
 
 func init() {
-	Define(`scroll`, false, NewScroll)
+	Define(`list`, false, NewList)
 }
 
 // TODO 取消重复计算，大小不变的情况下只需要计算一次。
-func (b *Scroll) Calc(availWidth, availHeight int, constraints Constraints) {
+func (b *List) Calc(availWidth, availHeight int, constraints Constraints) {
 	size := b.resolveDimensions(constraints)
 	// 行列间距统一来自样式，支持 CSS 层叠和动态属性更新。
 	gap := max(0, b.computedStyles.Gap)
@@ -1324,7 +1324,7 @@ func (b *Scroll) Calc(availWidth, availHeight int, constraints Constraints) {
 
 	activeCount := min(b.count, len(b.children))
 	for i := range activeCount {
-		b.children[i].(*_ScrollChild).bindData()
+		b.children[i].(*_ListItem).bindData()
 	}
 
 	// 指定宽度或父布局要求占满时，槽位平均分配全部可用宽度。
@@ -1334,7 +1334,7 @@ func (b *Scroll) Calc(availWidth, availHeight int, constraints Constraints) {
 		avgWidth = 0
 		maxSlotWidth := average(contentAvailWidth, b.cols)
 		for i := range activeCount {
-			child := b.children[i].(*_ScrollChild)
+			child := b.children[i].(*_ListItem)
 			child.forceCalc(0, 0, maxSlotWidth, avgHeight, false)
 			childWidth := child.HorizontalInsets() + child.children[0].Base().layoutBox.Width
 			avgWidth = max(avgWidth, childWidth)
@@ -1343,7 +1343,7 @@ func (b *Scroll) Calc(availWidth, availHeight int, constraints Constraints) {
 
 	if activeCount > 0 {
 		for i := range activeCount {
-			child := b.children[i].(*_ScrollChild)
+			child := b.children[i].(*_ListItem)
 			child.forceCalc(offsetX, offsetY, avgWidth, avgHeight, fillWidth)
 			// 需要换行了
 			if (i+1)%b.cols == 0 {
@@ -1392,10 +1392,10 @@ func average(all, count int) int {
 }
 
 // 因为要实现虚拟draw方法，所以有它的存在。
-type _ScrollChild struct {
+type _ListItem struct {
 	BaseBox
 
-	scroll *Scroll
+	list *List
 
 	user any
 
@@ -1407,13 +1407,13 @@ type _ScrollChild struct {
 	boundDataIndex int
 }
 
-func _NewScrollChild(doc *Document) *_ScrollChild {
-	box := &_ScrollChild{BaseBox: NewBaseBox(doc, `scroll-child`), boundDataIndex: -1}
+func _NewListItem(doc *Document) *_ListItem {
+	box := &_ListItem{BaseBox: NewBaseBox(doc, `list-item`), boundDataIndex: -1}
 	box._EventTarget.box = box
 	return box
 }
 
-func (b *_ScrollChild) Draw(canvas *Canvas) {
+func (b *_ListItem) Draw(canvas *Canvas) {
 	// 槽位自身的 outline 可以画到边界外，但列表项内容必须限制在
 	// 槽位内，避免超宽文本或其它子内容覆盖相邻列表项。
 	b.Base().draw(canvas, false)
@@ -1428,14 +1428,14 @@ func (b *_ScrollChild) Draw(canvas *Canvas) {
 	// canvas.SaveToFile(fmt.Sprintf(`%d.png`, b.itemIndex()))
 }
 
-func (b *_ScrollChild) dataIndex() int {
-	return b.rowIndex*b.scroll.cols + b.colIndex + b.scroll.itemOffset
+func (b *_ListItem) dataIndex() int {
+	return b.rowIndex*b.list.cols + b.colIndex + b.list.itemOffset
 }
 
-func (b *_ScrollChild) bindData() {
+func (b *_ListItem) bindData() {
 	// 没有数据的项实际是被隐藏的，被隐藏的项不会参与计算。
 	// 所以如果代码运行到了这里，那一定是出现了内部逻辑错误。
-	if b.dataIndex() < b.scroll.count {
+	if b.dataIndex() < b.list.count {
 		dataIndex := b.dataIndex()
 		changed := b.boundDataIndex != dataIndex
 		if !changed {
@@ -1451,7 +1451,7 @@ func (b *_ScrollChild) bindData() {
 		//
 		// 而且，如果项目过多，可能导致bind触发过多的RequestPaint阻塞队列？
 		// 队列满了的话，会不会死在这里？
-		b.scroll.bind(b.user, dataIndex)
+		b.list.bind(b.user, dataIndex)
 		b.boundDataIndex = dataIndex
 		if b.selected() {
 			b.notifySelection(true)
@@ -1459,17 +1459,17 @@ func (b *_ScrollChild) bindData() {
 	}
 }
 
-func (b *_ScrollChild) selected() bool {
+func (b *_ListItem) selected() bool {
 	return b.ClassContains(`selected`)
 }
 
-func (b *_ScrollChild) notifySelection(selected bool) {
-	if aware, ok := b.user.(ScrollSelectionAware); ok {
-		aware.ScrollSelectionChanged(selected)
+func (b *_ListItem) notifySelection(selected bool) {
+	if aware, ok := b.user.(ListSelectionAware); ok {
+		aware.ListSelectionChanged(selected)
 	}
 }
 
-func (b *_ScrollChild) setSelected(selected bool) {
+func (b *_ListItem) setSelected(selected bool) {
 	if selected {
 		b.ClassAdd(`selected`)
 	} else {
@@ -1478,7 +1478,7 @@ func (b *_ScrollChild) setSelected(selected bool) {
 	b.notifySelection(selected)
 }
 
-func (b *_ScrollChild) forceCalc(x, y int, contentAvailWidth, avgHeight int, prefersMaxWidth bool) {
+func (b *_ListItem) forceCalc(x, y int, contentAvailWidth, avgHeight int, prefersMaxWidth bool) {
 	base := b.Base()
 	base.layoutBox.X = x
 	base.layoutBox.Y = y
@@ -1503,7 +1503,7 @@ func (b *_ScrollChild) forceCalc(x, y int, contentAvailWidth, avgHeight int, pre
 	child.Base().layoutBox.Y = b.InsetTop()
 }
 
-func (b *Scroll) SetProp(key, value string) error {
+func (b *List) SetProp(key, value string) error {
 	switch key {
 	case `rows`:
 		b.rows = Must1(strconv.Atoi(value))
@@ -1529,7 +1529,7 @@ func (b *Scroll) SetProp(key, value string) error {
 //   - count 元素个数
 //   - create 给元素创建视图
 //   - bind 绑定元素到视图
-func (b *Scroll) SetItems[T any](count int, create func() (root Box, user T), bind func(user T, index int)) {
+func (b *List) SetItems[T any](count int, create func() (root Box, user T), bind func(user T, index int)) {
 	b._setItems(count,
 		func() (root Box, user any) {
 			return create()
@@ -1538,11 +1538,11 @@ func (b *Scroll) SetItems[T any](count int, create func() (root Box, user T), bi
 			bind(user.(T), index)
 		},
 	)
-	b.Dispatch(ScrollSelectionChange, nil)
+	b.Dispatch(ListSelectionChange, nil)
 }
 
-func (b *Scroll) _setItems(count int, create func() (root Box, user any), bind func(user any, index int)) {
-	if child := b.selectedChild(b._ScrollState); child != nil {
+func (b *List) _setItems(count int, create func() (root Box, user any), bind func(user any, index int)) {
+	if child := b.selectedChild(b._ListState); child != nil {
 		child.setSelected(false)
 	}
 	b.children = nil
@@ -1557,9 +1557,9 @@ func (b *Scroll) _setItems(count int, create func() (root Box, user any), bind f
 	for r := range b.rows {
 		for c := range b.cols {
 			box, user := create()
-			wrapper := _NewScrollChild(b.document)
+			wrapper := _NewListItem(b.document)
 			wrapper.user = user
-			wrapper.scroll = b
+			wrapper.list = b
 			wrapper.rowIndex = r
 			wrapper.colIndex = c
 			wrapper.AppendChild(box)
@@ -1569,15 +1569,15 @@ func (b *Scroll) _setItems(count int, create func() (root Box, user any), bind f
 	}
 }
 
-func (b *Scroll) navigate(event *Event) {
+func (b *List) navigate(event *Event) {
 	name := event.Stick.Name
 
 	if !(name == Up || name == Down || name == Left || name == Right) {
 		return
 	}
 
-	oldState := b._ScrollState
-	if !b._ScrollState.navigate(name) {
+	oldState := b._ListState
+	if !b._ListState.navigate(name) {
 		return
 	}
 
@@ -1586,22 +1586,22 @@ func (b *Scroll) navigate(event *Event) {
 	b.document.RequestPaint()
 	event.StopPropagation()
 	// 发送状态变化事件。
-	b.Dispatch(ScrollSelectionChange, nil)
+	b.Dispatch(ListSelectionChange, nil)
 }
 
-func (b *Scroll) selectedChild(state _ScrollState) *_ScrollChild {
+func (b *List) selectedChild(state _ListState) *_ListItem {
 	childIndex := state.rowIndex*state.cols + state.colIndex
 	if state.rowIndex < 0 || childIndex < 0 || childIndex >= len(b.children) {
 		return nil
 	}
-	return b.children[childIndex].(*_ScrollChild)
+	return b.children[childIndex].(*_ListItem)
 }
 
-func (b *Scroll) selectionChanged(oldState _ScrollState) {
+func (b *List) selectionChanged(oldState _ListState) {
 	if child := b.selectedChild(oldState); child != nil {
 		child.setSelected(false)
 	}
-	if child := b.selectedChild(b._ScrollState); child != nil {
+	if child := b.selectedChild(b._ListState); child != nil {
 		// 虚拟槽位可能已经代表另一条数据；先换绑，再通知选中。
 		child.bindData()
 		child.setSelected(true)
@@ -1610,7 +1610,7 @@ func (b *Scroll) selectionChanged(oldState _ScrollState) {
 
 // navigate 计算一次导航后的选中状态。
 // 返回值表示状态是否发生了变化。
-func (b *_ScrollState) navigate(name KeyName) bool {
+func (b *_ListState) navigate(name KeyName) bool {
 	old := *b
 
 	switch name {
@@ -1665,7 +1665,7 @@ func (b *_ScrollState) navigate(name KeyName) bool {
 	return old != *b
 }
 
-func (b *_ScrollState) pageLeft() {
+func (b *_ListState) pageLeft() {
 	if b.rowIndex < 0 {
 		return
 	}
@@ -1678,7 +1678,7 @@ func (b *_ScrollState) pageLeft() {
 	b.itemOffset = 0
 }
 
-func (b *_ScrollState) pageRight() {
+func (b *_ListState) pageRight() {
 	if b.rowIndex < 0 || b.count == 0 {
 		return
 	}
@@ -1691,19 +1691,19 @@ func (b *_ScrollState) pageRight() {
 	b.itemOffset = b.count - 1 - b.rowIndex
 }
 
-func (b *_ScrollState) curDataRow() int {
+func (b *_ListState) curDataRow() int {
 	return b.rowIndex + b.itemOffset/b.cols
 }
 
 // [0,rows-1]
-func (b *_ScrollState) maxDataRow() int {
+func (b *_ListState) maxDataRow() int {
 	return b.count/b.cols + Iif(b.count%b.cols > 0, 1, 0) - 1
 }
 
-func (b *Scroll) adjust() {
+func (b *List) adjust() {
 	for r := range b.rows {
 		for c := range b.cols {
-			child := b.children[r*b.cols+c].(*_ScrollChild)
+			child := b.children[r*b.cols+c].(*_ListItem)
 			display := child.dataIndex() <= b.count-1
 			if displaying(child) != display {
 				// TODO 可以不用重新排版
@@ -1715,7 +1715,7 @@ func (b *Scroll) adjust() {
 
 // 返回当前选中的数据索引。
 // 如果没有选中，返回-1。
-func (b *Scroll) DataIndex() int {
+func (b *List) DataIndex() int {
 	if b.rowIndex < 0 {
 		return -1
 	}
@@ -1723,7 +1723,7 @@ func (b *Scroll) DataIndex() int {
 }
 
 // 暂时忽略错误。
-func (b *Scroll) SetIndex(rowIndex, colIndex, dataIndexOffset int) {
+func (b *List) SetIndex(rowIndex, colIndex, dataIndexOffset int) {
 	if rowIndex < 0 || rowIndex >= b.rows {
 		return
 	}
@@ -1734,12 +1734,12 @@ func (b *Scroll) SetIndex(rowIndex, colIndex, dataIndexOffset int) {
 		return
 	}
 
-	oldState := b._ScrollState
+	oldState := b._ListState
 	b.rowIndex = rowIndex
 	b.colIndex = colIndex
 	b.itemOffset = dataIndexOffset
 
-	if oldState != b._ScrollState {
+	if oldState != b._ListState {
 		b.selectionChanged(oldState)
 	}
 
@@ -1747,22 +1747,22 @@ func (b *Scroll) SetIndex(rowIndex, colIndex, dataIndexOffset int) {
 }
 
 // 返回数据总量。
-func (b *Scroll) DataCount() int {
+func (b *List) DataCount() int {
 	return b.count
 }
 
 // 返回当前的可视行号（非数据行号）。
-func (b *Scroll) RowIndex() int {
+func (b *List) RowIndex() int {
 	return b.rowIndex
 }
 
-func (b *Scroll) DataRowIndex() int {
+func (b *List) DataRowIndex() int {
 	return b.curDataRow()
 }
 
 // 取消选中当前的选中项。
-func (b *Scroll) Deselect() {
-	oldState := b._ScrollState
+func (b *List) Deselect() {
+	oldState := b._ListState
 	b.rowIndex = -1
 	b.colIndex = 0
 	// 好像可以不用归位？
@@ -1773,25 +1773,25 @@ func (b *Scroll) Deselect() {
 }
 
 // 返回当前的选中状态信息，可用于后期恢复。
-func (b *Scroll) GetState() any {
-	return b._ScrollState
+func (b *List) GetState() any {
+	return b._ListState
 }
 
 // 用于恢复之前的选中状态。
 // 如果重新调用过 SetItems，此前的状态不再有效。
-func (b *Scroll) SetState(state any) {
-	st, ok := state.(_ScrollState)
+func (b *List) SetState(state any) {
+	st, ok := state.(_ListState)
 	if !ok {
 		panic(`无效状态`)
 	}
 
-	oldState := b._ScrollState
-	b._ScrollState = st
-	if oldState != b._ScrollState {
+	oldState := b._ListState
+	b._ListState = st
+	if oldState != b._ListState {
 		b.selectionChanged(oldState)
 	}
 
-	b.Dispatch(ScrollSelectionChange, nil)
+	b.Dispatch(ListSelectionChange, nil)
 
 	b.document.RequestPaint()
 }

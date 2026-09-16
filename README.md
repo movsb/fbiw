@@ -123,7 +123,7 @@ func main() {
 | `flex` | 子元素单行弹性排列，支持横向或纵向 |
 | `stack` | 子元素叠放在同一位置 |
 | `safe-area` | 根据系统覆盖层占用的四边区域，为内容设置安全内边距 |
-| `scroll` | 固定行列、固定可视槽位的虚拟列表 |
+| `list` | 固定行列、固定可视槽位的虚拟列表 |
 | `spacer` | 在布局主轴上分配剩余空间 |
 | `button` | 带默认样式、A 键交互和禁用状态的按钮容器 |
 | `toggle` | 不接受子节点，激活后按 A 键切换 checked 状态的开关 |
@@ -460,8 +460,8 @@ Go 布局接口中的尺寸偏好含义如下：
 - `stretch` 只拉伸未指定交叉轴尺寸的元素；显式尺寸（包括 0 和百分比）保持不变。
 - 文本作为一个 Flex item，可在分配后的宽度内多行断行；这不代表 Flex items 自身支持换行。
 - 未实现 `flex-shrink`、`flex-basis`、`flex` shorthand、`flex-wrap`、反向排列、`order`、baseline 和 min/max 尺寸。空间不足时保持基础尺寸并溢出，grow 不会分配负尺寸。
-- `<spacer>` 和 `spacer` 属性不会在 Flex 中自动启用增长，需要显式设置 `flex-grow`。`gap` 是 Flex 和 Scroll 共用的非继承样式，分别表示子元素间距和行列槽位间距；Block/Inline 暂不使用它。Scroll 同时支持 `<scroll gap="4">` 和 `scroll { gap: 4; }`，内联属性优先，动态修改会触发重新布局。
-- Scroll 等自带内部布局的专用组件可作为 Flex item，但保持各自的内部布局规则。
+- `<spacer>` 和 `spacer` 属性不会在 Flex 中自动启用增长，需要显式设置 `flex-grow`。`gap` 是 Flex 和 List 共用的非继承样式，分别表示子元素间距和行列槽位间距；Block/Inline 暂不使用它。List 同时支持 `<list gap="4">` 和 `list { gap: 4; }`，内联属性优先，动态修改会触发重新布局。
+- List 等自带内部布局的专用组件可作为 Flex item，但保持各自的内部布局规则。
 
 ## 系统覆盖层和安全区域
 
@@ -598,7 +598,7 @@ block {}                 /* 标签 */
 #main {}                 /* ID */
 .selected {}             /* class */
 block.item {}            /* 简单组合 */
-scroll .selected {}      /* 后代 */
+list .selected {}        /* 后代 */
 block > inline {}        /* 直接子元素 */
 * {}                     /* 通配符 */
 block, inline {}         /* 分组 */
@@ -767,7 +767,7 @@ func (m *Meter) Draw(canvas *fbiw.Canvas) {
 ```go
 box := doc.GetBoxByID("panel")
 first := doc.QuerySelector(".item")
-all := doc.QuerySelectorAll("scroll .item")
+all := doc.QuerySelectorAll("list .item")
 ```
 
 `Bind` 可以根据结构体字段上的 `css` tag 自动绑定元素：
@@ -809,7 +809,7 @@ type Item struct {
     text *fbiw.Text `css:"text"`
 }
 
-func (item *Item) ScrollSelectionChanged(selected bool) {
+func (item *Item) ListSelectionChanged(selected bool) {
     // 一个列表项包含多个文本时，可以只控制需要滚动的标题。
     item.text.SetMarqueeRunning(selected)
 }
@@ -856,31 +856,31 @@ doc.ListenOptions(fbiw.StickDownEvent, func(event *fbiw.Event) {
 
 ## 虚拟列表
 
-`Scroll` 只创建 `rows × cols` 个可视组件，并在滚动时复用这些组件：
+`List` 只创建 `rows × cols` 个可视组件，并在滚动时复用这些组件：
 
 ```html
 <template id="item">
     <block><text></text></block>
 </template>
 
-<scroll
-    id="scroll"
+<list
+    id="list"
     rows="2"
     cols="3"
     gap="5"
     padding="10">
-</scroll>
+</list>
 ```
 
 ```go
-scroll := doc.GetBoxByID("scroll").(*fbiw.Scroll)
+list := doc.GetBoxByID("list").(*fbiw.List)
 
 type Item struct {
     root fbiw.Box
     text *fbiw.Text `css:"text"`
 }
 
-scroll.SetItems(
+list.SetItems(
     100,
     func() (fbiw.Box, *Item) {
         item := doc.Instantiate[Item]("item")
@@ -891,15 +891,15 @@ scroll.SetItems(
     },
 )
 
-scroll.Activate()
+list.Activate()
 ```
 
-`SetItems` 返回的 `user` 可以选择实现 `ScrollSelectionAware`。`Scroll` 会在
+`SetItems` 返回的 `user` 可以选择实现 `ListSelectionAware`。`List` 会在
 列表项选中、取消选中以及虚拟槽位换绑数据时调用它；没有实现时静默忽略：
 
 ```go
-type ScrollSelectionAware interface {
-    ScrollSelectionChanged(selected bool)
+type ListSelectionAware interface {
+    ListSelectionChanged(selected bool)
 }
 ```
 
@@ -913,29 +913,29 @@ type ScrollSelectionAware interface {
 被选中的可视槽位会自动获得 `.selected` class，可以通过样式显示选中状态：
 
 ```css
-scroll .selected {
+list .selected {
     outline-width: 3;
     outline-color: var(--color-focus);
 }
 ```
 
-框架默认已从 `assets/focus.css` 为 `scroll .selected`、`button.selected` 和
+框架默认已从 `assets/focus.css` 为 `list .selected`、`button.selected` 和
 `select.active` 提供上述焦点轮廓；应用只在需要不同宽度或交互样式时覆盖它。
 
-`Scroll` 支持读取和恢复选择状态，但当前所有槽位尺寸相同，不支持可变高度列表。
+`List` 支持读取和恢复选择状态，但当前所有槽位尺寸相同，不支持可变高度列表。
 
-### Scroll 的行数与行高
+### List 的行数与行高
 
 `rows` 和 `max-rows` 都表示可视槽位的行数，但语义不同：
 
-- `rows`：固定显示区域的行数。即使数据不足，`Scroll` 也不因数据量而收缩。
+- `rows`：固定显示区域的行数。即使数据不足，`List` 也不因数据量而收缩。
 - `max-rows`：最多显示的行数。数据不足时按实际行数收缩，超过上限后滚动。
 - `row-height`：每行槽位的固定高度，不包含 `gap`。
 
-`rows` 与 `max-rows` 互斥，一个 `Scroll` 只能指定其中一个。两者分别与可选的
+`rows` 与 `max-rows` 互斥，一个 `List` 只能指定其中一个。两者分别与可选的
 `row-height` 组合，共有以下四种布局方式：
 
-| 配置 | 槽位高度 | Scroll 高度 | 数据不足时 | 数据超出时 |
+| 配置 | 槽位高度 | List 高度 | 数据不足时 | 数据超出时 |
 | --- | --- | --- | --- | --- |
 | `rows` | 从可用高度均分 | 保持外部提供的高度 | 保持固定高度，留下空槽位 | 在固定槽位中滚动 |
 | `rows` + `row-height` | 使用 `row-height` | 仍由外部高度决定 | 保持固定高度，留下空槽位 | 在固定槽位中滚动 |
@@ -951,7 +951,7 @@ dataRows = ceil(count / cols)
 #### 1. `rows`：固定行数，自动均分行高
 
 ```html
-<scroll rows="5" height="196" gap="4"></scroll>
+<list rows="5" height="196" gap="4"></list>
 ```
 
 去掉 padding、border 和四个 `gap` 后，剩余高度平均分给五行。数据只有一项时，
@@ -960,10 +960,10 @@ dataRows = ceil(count / cols)
 #### 2. `rows` + `row-height`：固定行数和固定槽位高度
 
 ```html
-<scroll rows="5" row-height="36" height="196" gap="4"></scroll>
+<list rows="5" row-height="36" height="196" gap="4"></list>
 ```
 
-每个槽位固定为 36 像素，`Scroll` 本身仍然使用外部提供的高度。调用者应保证容器
+每个槽位固定为 36 像素，`List` 本身仍然使用外部提供的高度。调用者应保证容器
 内容区的高度与所有槽位和间距匹配：
 
 ```text
@@ -976,18 +976,18 @@ contentHeight = rows * rowHeight + (rows - 1) * gap
 #### 3. `max-rows`：限定最大行数，自动均分行高
 
 ```html
-<scroll max-rows="5" height="196" gap="4"></scroll>
+<list max-rows="5" height="196" gap="4"></list>
 ```
 
 外部提供的高度表示五行满额时的最大高度。槽位高度按五行均分得到；只有两行数据时，
-`Scroll` 收缩为两行槽位加一个 `gap` 的高度。达到或超过五行后保持最大高度并滚动。
+`List` 收缩为两行槽位加一个 `gap` 的高度。达到或超过五行后保持最大高度并滚动。
 
 #### 4. `max-rows` + `row-height`：限定最大行数和固定槽位高度
 
 弹出菜单等项目数量不固定的场景，推荐使用这个组合：
 
 ```html
-<scroll max-rows="5" row-height="36" gap="4"></scroll>
+<list max-rows="5" row-height="36" gap="4"></list>
 ```
 
 实际高度按可见数据行数计算：
@@ -995,7 +995,7 @@ contentHeight = rows * rowHeight + (rows - 1) * gap
 ```text
 visibleRows = min(dataRows, maxRows)
 contentHeight = visibleRows * rowHeight + max(visibleRows - 1, 0) * gap
-scrollHeight = border + padding + contentHeight
+listHeight = border + padding + contentHeight
 ```
 
 例如 `max-rows="5" row-height="36" gap="4"`：一行数据的内容高度是 36，三行是
@@ -1279,7 +1279,7 @@ Linux 后端直接读取 evdev 按键码。当前设备选择和按键映射针�
 
 ```bash
 GOEXPERIMENT=simd go run ./demo
-GOEXPERIMENT=simd go run ./demo/scroll
+GOEXPERIMENT=simd go run ./demo/list
 GOEXPERIMENT=simd go run ./demo/safe
 GOEXPERIMENT=simd go run ./demo/theme
 ```
@@ -1329,7 +1329,7 @@ todo.md       已知问题与后续计划
 - Inline 当前是单行布局，不支持自动换行；
 - 没有通用 Flex、Grid、margin、min/max size、绝对定位和裁剪；
 - 百分比尺寸、溢出和负尺寸传播仍有待修复；
-- Scroll 仅支持固定行列和等尺寸槽位；
+- List 仅支持固定行列和等尺寸槽位；
 - Linux 输入设备当前使用固定枚举位置，尚未按设备能力自动识别；
 - framebuffer 后端采用整帧复制，不是真正的原子双缓冲；
 - 公共 API 仍可能变化。

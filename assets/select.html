@@ -27,7 +27,7 @@ document {
 	background-color: #2b2d31;
 }
 
-scroll-child.selected > .item {
+list-item.selected > .item {
 	color: white;
 	background-color: #3358d4;
 	outline-width: 2;
@@ -46,7 +46,7 @@ scroll-child.selected > .item {
 	<block id="backdrop"></block>
 	<inline align="both">
 		<block id="popup">
-			<scroll id="list" max-rows="7" row-height="56" gap="4"></scroll>
+			<list id="list" max-rows="7" row-height="56" gap="4"></list>
 			<block id="empty"><text>暂无选项</text></block>
 		</block>
 	</inline>

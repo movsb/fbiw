@@ -18,7 +18,7 @@ type _Item struct {
 	text *fbiw.Text `css:"text"`
 }
 
-func (i *_Item) ScrollSelectionChanged(selected bool) {
+func (i *_Item) ListSelectionChanged(selected bool) {
 	i.text.SetMarqueeRunning(selected)
 }
 
@@ -28,9 +28,9 @@ func main() {
 
 	doc := app.NewDesktop(embedded, `main.html`)
 
-	scroll := doc.GetBoxByID[*fbiw.Scroll](`scroll`)
+	list := doc.GetBoxByID[*fbiw.List](`list`)
 
-	scroll.SetItems(7,
+	list.SetItems(7,
 		func() (fbiw.Box, *_Item) {
 			item := doc.Instantiate[_Item](`item`)
 			return item.root, item
@@ -40,7 +40,7 @@ func main() {
 		},
 	)
 
-	scroll.Activate()
+	list.Activate()
 
 	app.Run()
 }

@@ -235,7 +235,7 @@ func TestFlexTextReflowsAtAllocatedWidth(t *testing.T) {
 }
 
 func TestFlexWidgetAllocation(t *testing.T) {
-	for _, tag := range []string{`toggle`, `check`, `progress`, `select`, `img`, `scroll`} {
+	for _, tag := range []string{`toggle`, `check`, `progress`, `select`, `img`, `list`} {
 		t.Run(tag, func(t *testing.T) {
 			doc := newFlexTestDocument(t, `<flex><`+tag+` id="item" width="10" height="5" padding="0" flex-grow="1"></`+tag+`></flex>`, 100, 40)
 			box := doc.GetBoxByID[Box](`item`)
@@ -361,7 +361,7 @@ func TestPercentageDimensionsRelayout(t *testing.T) {
 		"inline":   containers["inline"],
 		"stack":    containers["stack"],
 		"image":    func(d *Document) Box { return NewImage(d) },
-		"scroll":   func(d *Document) Box { return NewScroll(d) },
+		"list":     func(d *Document) Box { return NewList(d) },
 		"toggle":   func(d *Document) Box { return NewToggle(d) },
 		"check":    func(d *Document) Box { return NewCheckBox(d) },
 		"progress": func(d *Document) Box { return NewProgressBar(d) },
@@ -447,8 +447,8 @@ func TestPercentageDimensionsForFlexibleChild(t *testing.T) {
 	}
 }
 
-func TestScrollSlotPercentageDimensions(t *testing.T) {
-	slot := _NewScrollChild(nil)
+func TestListSlotPercentageDimensions(t *testing.T) {
+	slot := _NewListItem(nil)
 	slot.computedStyles.SetPadding(PaddingValue(2, 2, 2, 2))
 	child := NewBlock(nil)
 	child.computedStyles.SetWidth(PercentageLength(50))
@@ -980,7 +980,7 @@ func TestMarqueeCountStopsAfterRoundTrip(t *testing.T) {
 	}
 }
 
-func TestScrollMaxRowsHeight(t *testing.T) {
+func TestListMaxRowsHeight(t *testing.T) {
 	tests := []struct {
 		name  string
 		count int
@@ -995,45 +995,45 @@ func TestScrollMaxRowsHeight(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			scroll := NewScroll(nil)
-			scroll.rows = 3
-			scroll.cols = 2
-			scroll.computedStyles.SetGap(5)
-			scroll.rowHeight = 20
-			scroll.shrinkRows = true
-			scroll.count = tt.count
+			list := NewList(nil)
+			list.rows = 3
+			list.cols = 2
+			list.computedStyles.SetGap(5)
+			list.rowHeight = 20
+			list.shrinkRows = true
+			list.count = tt.count
 
-			scroll.Calc(100, 100, Constraints{})
-			if got := scroll.layoutBox.Height; got != tt.want {
+			list.Calc(100, 100, Constraints{})
+			if got := list.layoutBox.Height; got != tt.want {
 				t.Errorf(`height = %d, want %d`, got, tt.want)
 			}
 		})
 	}
 }
 
-func TestScrollWidthConstraintControlsItemSizing(t *testing.T) {
-	newScroll := func() (*Scroll, *Block) {
+func TestListWidthConstraintControlsItemSizing(t *testing.T) {
+	newList := func() (*List, *Block) {
 		doc := _NewDocument(100, 40, nil, nil, nil)
-		scroll := NewScroll(doc)
-		scroll._EventTarget.box = scroll
-		scroll.cols = 1
-		scroll.rows = 1
+		list := NewList(doc)
+		list._EventTarget.box = list
+		list.cols = 1
+		list.rows = 1
 
 		var item *Block
-		scroll._setItems(1, func() (Box, any) {
+		list._setItems(1, func() (Box, any) {
 			item = NewBlock(doc)
 			item._EventTarget.box = item
 			item.inlineStyles.SetWidth(NumberLength(30))
 			return item, nil
 		}, func(any, int) {})
-		return scroll, item
+		return list, item
 	}
 
 	t.Run(`shrink to item width`, func(t *testing.T) {
-		scroll, item := newScroll()
-		scroll.Calc(100, 40, Constraints{})
-		if got, want := scroll.layoutBox.Width, 30; got != want {
-			t.Fatalf(`scroll width = %d, want %d`, got, want)
+		list, item := newList()
+		list.Calc(100, 40, Constraints{})
+		if got, want := list.layoutBox.Width, 30; got != want {
+			t.Fatalf(`list width = %d, want %d`, got, want)
 		}
 		if got, want := item.layoutBox.Width, 30; got != want {
 			t.Fatalf(`item width = %d, want %d`, got, want)
@@ -1041,51 +1041,51 @@ func TestScrollWidthConstraintControlsItemSizing(t *testing.T) {
 	})
 
 	t.Run(`fill available width`, func(t *testing.T) {
-		scroll, _ := newScroll()
-		scroll.Calc(100, 40, Constraints{PrefersMaxWidth: true})
-		if got, want := scroll.layoutBox.Width, 100; got != want {
-			t.Fatalf(`scroll width = %d, want %d`, got, want)
+		list, _ := newList()
+		list.Calc(100, 40, Constraints{PrefersMaxWidth: true})
+		if got, want := list.layoutBox.Width, 100; got != want {
+			t.Fatalf(`list width = %d, want %d`, got, want)
 		}
 	})
 }
 
-func TestScrollRowsKeepsFixedHeight(t *testing.T) {
-	scroll := NewScroll(nil)
-	scroll.rows = 3
-	scroll.cols = 1
-	scroll.computedStyles.SetGap(5)
-	scroll.count = 1
+func TestListRowsKeepsFixedHeight(t *testing.T) {
+	list := NewList(nil)
+	list.rows = 3
+	list.cols = 1
+	list.computedStyles.SetGap(5)
+	list.count = 1
 
-	scroll.Calc(100, 100, Constraints{PrefersMaxHeight: true})
-	if got, want := scroll.layoutBox.Height, 100; got != want {
+	list.Calc(100, 100, Constraints{PrefersMaxHeight: true})
+	if got, want := list.layoutBox.Height, 100; got != want {
 		t.Errorf(`height = %d, want %d`, got, want)
 	}
 }
 
-func TestScrollMaxRowsUsesFullHeightAsLimit(t *testing.T) {
+func TestListMaxRowsUsesFullHeightAsLimit(t *testing.T) {
 	doc := _NewDocument(100, 100, nil, nil, nil)
-	scroll := NewScroll(doc)
-	doc.root = scroll
-	if err := scroll.SetProp(`max-rows`, `3`); err != nil {
+	list := NewList(doc)
+	doc.root = list
+	if err := list.SetProp(`max-rows`, `3`); err != nil {
 		t.Fatal(err)
 	}
-	if err := scroll.SetProp(`gap`, `5`); err != nil {
+	if err := list.SetProp(`gap`, `5`); err != nil {
 		t.Fatal(err)
 	}
-	scroll.count = 1
+	list.count = 1
 
-	scroll.Calc(100, 100, Constraints{PrefersMaxHeight: true})
-	if got, want := scroll.layoutBox.Height, 30; got != want {
+	list.Calc(100, 100, Constraints{PrefersMaxHeight: true})
+	if got, want := list.layoutBox.Height, 30; got != want {
 		t.Errorf(`height = %d, want %d`, got, want)
 	}
 }
 
-func TestScrollGapUsesStyles(t *testing.T) {
+func TestListGapUsesStyles(t *testing.T) {
 	for _, attr := range []string{``, `gap="6"`} {
 		t.Run(attr, func(t *testing.T) {
-			doc := newFlexTestDocument(t, `<style>scroll { gap: 4; } scroll.wide { gap: 8; }</style><block><scroll id="list" rows="2" cols="2" width="100" height="100" `+attr+`></scroll></block>`, 100, 100)
-			scroll := doc.GetBoxByID[*Scroll](`list`)
-			scroll._setItems(4, func() (Box, any) {
+			doc := newFlexTestDocument(t, `<style>list { gap: 4; } list.wide { gap: 8; }</style><block><list id="list" rows="2" cols="2" width="100" height="100" `+attr+`></list></block>`, 100, 100)
+			list := doc.GetBoxByID[*List](`list`)
+			list._setItems(4, func() (Box, any) {
 				box := NewBlock(doc)
 				box._EventTarget.box = box
 				return box, nil
@@ -1093,17 +1093,17 @@ func TestScrollGapUsesStyles(t *testing.T) {
 			check := func(gap int) {
 				t.Helper()
 				doc.layout()
-				if got := scroll.GetComputedStyles().Gap; got != gap {
+				if got := list.GetComputedStyles().Gap; got != gap {
 					t.Fatalf("computed gap = %d, want %d", got, gap)
 				}
 				size := (100 - gap) / 2
-				for i, child := range scroll.Children() {
+				for i, child := range list.Children() {
 					want := Rect{(i % 2) * (size + gap), (i / 2) * (size + gap), size, size}
 					if got := child.GetLayoutBox(); got != want {
 						t.Fatalf("slot %d: got %+v, want %+v", i, got, want)
 					}
 					if child.GetComputedStyles().Gap != 0 || child.Children()[0].GetComputedStyles().Gap != 0 {
-						t.Fatal("gap inherited by scroll contents")
+						t.Fatal("gap inherited by list contents")
 					}
 				}
 			}
@@ -1113,7 +1113,7 @@ func TestScrollGapUsesStyles(t *testing.T) {
 			}
 			check(initial)
 			doc.layoutDirty = false
-			scroll.ClassAdd(`wide`)
+			list.ClassAdd(`wide`)
 			if !doc.layoutDirty {
 				t.Fatal("class change did not invalidate layout")
 			}
@@ -1124,7 +1124,7 @@ func TestScrollGapUsesStyles(t *testing.T) {
 			} // 内联属性优先于 CSS。
 			for _, gap := range []int{12, 0} {
 				doc.layoutDirty = false
-				if err := scroll.SetProp(`gap`, strconv.Itoa(gap)); err != nil {
+				if err := list.SetProp(`gap`, strconv.Itoa(gap)); err != nil {
 					t.Fatal(err)
 				}
 				if !doc.layoutDirty {
@@ -1133,7 +1133,7 @@ func TestScrollGapUsesStyles(t *testing.T) {
 				check(gap)
 			}
 			for _, invalid := range []string{`-1`, `1.5`, `bad`} {
-				if err := scroll.SetProp(`gap`, invalid); err == nil {
+				if err := list.SetProp(`gap`, invalid); err == nil {
 					t.Fatalf("accepted invalid gap %q", invalid)
 				}
 				check(0)
@@ -1142,131 +1142,131 @@ func TestScrollGapUsesStyles(t *testing.T) {
 	}
 }
 
-func TestScrollStateNavigate(t *testing.T) {
+func TestListStateNavigate(t *testing.T) {
 	tests := []struct {
 		name    string
-		state   _ScrollState
+		state   _ListState
 		key     KeyName
-		want    _ScrollState
+		want    _ListState
 		changed bool
 	}{
 		{
 			name:    `down selects the first item`,
-			state:   _ScrollState{count: 8, rows: 2, cols: 3, rowIndex: -1, colIndex: 0},
+			state:   _ListState{count: 8, rows: 2, cols: 3, rowIndex: -1, colIndex: 0},
 			key:     Down,
-			want:    _ScrollState{rows: 2, cols: 3, rowIndex: 0, colIndex: 0},
+			want:    _ListState{rows: 2, cols: 3, rowIndex: 0, colIndex: 0},
 			changed: true,
 		},
 		{
 			name:    `down moves to the next visible row`,
-			state:   _ScrollState{count: 8, rows: 2, cols: 3, rowIndex: 0, colIndex: 1},
+			state:   _ListState{count: 8, rows: 2, cols: 3, rowIndex: 0, colIndex: 1},
 			key:     Down,
-			want:    _ScrollState{rows: 2, cols: 3, rowIndex: 1, colIndex: 1},
+			want:    _ListState{rows: 2, cols: 3, rowIndex: 1, colIndex: 1},
 			changed: true,
 		},
 		{
 			name:    `down scrolls past the last visible row`,
-			state:   _ScrollState{count: 8, rows: 2, cols: 3, rowIndex: 1, colIndex: 0},
+			state:   _ListState{count: 8, rows: 2, cols: 3, rowIndex: 1, colIndex: 0},
 			key:     Down,
-			want:    _ScrollState{rows: 2, cols: 3, rowIndex: 1, colIndex: 0, itemOffset: 3},
+			want:    _ListState{rows: 2, cols: 3, rowIndex: 1, colIndex: 0, itemOffset: 3},
 			changed: true,
 		},
 		{
 			name:    `down adjusts the column for a partial last row`,
-			state:   _ScrollState{count: 8, rows: 2, cols: 3, rowIndex: 1, colIndex: 2},
+			state:   _ListState{count: 8, rows: 2, cols: 3, rowIndex: 1, colIndex: 2},
 			key:     Down,
-			want:    _ScrollState{rows: 2, cols: 3, rowIndex: 1, colIndex: 1, itemOffset: 3},
+			want:    _ListState{rows: 2, cols: 3, rowIndex: 1, colIndex: 1, itemOffset: 3},
 			changed: true,
 		},
 		{
 			name:    `down stops at the last data row`,
-			state:   _ScrollState{count: 8, rows: 2, cols: 3, rowIndex: 1, colIndex: 1, itemOffset: 3},
+			state:   _ListState{count: 8, rows: 2, cols: 3, rowIndex: 1, colIndex: 1, itemOffset: 3},
 			key:     Down,
-			want:    _ScrollState{rows: 2, cols: 3, rowIndex: 1, colIndex: 1, itemOffset: 3},
+			want:    _ListState{rows: 2, cols: 3, rowIndex: 1, colIndex: 1, itemOffset: 3},
 			changed: false,
 		},
 		{
 			name:    `up moves to the previous visible row`,
-			state:   _ScrollState{count: 8, rows: 2, cols: 3, rowIndex: 1, colIndex: 1},
+			state:   _ListState{count: 8, rows: 2, cols: 3, rowIndex: 1, colIndex: 1},
 			key:     Up,
-			want:    _ScrollState{rows: 2, cols: 3, rowIndex: 0, colIndex: 1},
+			want:    _ListState{rows: 2, cols: 3, rowIndex: 0, colIndex: 1},
 			changed: true,
 		},
 		{
 			name:    `up scrolls before the first visible row`,
-			state:   _ScrollState{count: 8, rows: 2, cols: 3, rowIndex: 0, colIndex: 1, itemOffset: 3},
+			state:   _ListState{count: 8, rows: 2, cols: 3, rowIndex: 0, colIndex: 1, itemOffset: 3},
 			key:     Up,
-			want:    _ScrollState{rows: 2, cols: 3, rowIndex: 0, colIndex: 1},
+			want:    _ListState{rows: 2, cols: 3, rowIndex: 0, colIndex: 1},
 			changed: true,
 		},
 		{
 			name:    `up stops at the first data row`,
-			state:   _ScrollState{count: 8, rows: 2, cols: 3, rowIndex: 0, colIndex: 1},
+			state:   _ListState{count: 8, rows: 2, cols: 3, rowIndex: 0, colIndex: 1},
 			key:     Up,
-			want:    _ScrollState{rows: 2, cols: 3, rowIndex: 0, colIndex: 1},
+			want:    _ListState{rows: 2, cols: 3, rowIndex: 0, colIndex: 1},
 			changed: false,
 		},
 		{
 			name:    `left moves to the previous column`,
-			state:   _ScrollState{count: 8, rows: 2, cols: 3, rowIndex: 0, colIndex: 2},
+			state:   _ListState{count: 8, rows: 2, cols: 3, rowIndex: 0, colIndex: 2},
 			key:     Left,
-			want:    _ScrollState{rows: 2, cols: 3, rowIndex: 0, colIndex: 1},
+			want:    _ListState{rows: 2, cols: 3, rowIndex: 0, colIndex: 1},
 			changed: true,
 		},
 		{
 			name:    `right moves to the next column`,
-			state:   _ScrollState{count: 8, rows: 2, cols: 3, rowIndex: 0, colIndex: 1},
+			state:   _ListState{count: 8, rows: 2, cols: 3, rowIndex: 0, colIndex: 1},
 			key:     Right,
-			want:    _ScrollState{rows: 2, cols: 3, rowIndex: 0, colIndex: 2},
+			want:    _ListState{rows: 2, cols: 3, rowIndex: 0, colIndex: 2},
 			changed: true,
 		},
 		{
 			name:    `right stops at the end of a partial last row`,
-			state:   _ScrollState{count: 8, rows: 2, cols: 3, rowIndex: 1, colIndex: 1, itemOffset: 3},
+			state:   _ListState{count: 8, rows: 2, cols: 3, rowIndex: 1, colIndex: 1, itemOffset: 3},
 			key:     Right,
-			want:    _ScrollState{rows: 2, cols: 3, rowIndex: 1, colIndex: 1, itemOffset: 3},
+			want:    _ListState{rows: 2, cols: 3, rowIndex: 1, colIndex: 1, itemOffset: 3},
 			changed: false,
 		},
 		{
 			name:    `left pages a single column and keeps the selected row`,
-			state:   _ScrollState{count: 10, rows: 3, cols: 1, rowIndex: 1, colIndex: 0, itemOffset: 3},
+			state:   _ListState{count: 10, rows: 3, cols: 1, rowIndex: 1, colIndex: 0, itemOffset: 3},
 			key:     Left,
-			want:    _ScrollState{rows: 3, cols: 1, rowIndex: 1, colIndex: 0},
+			want:    _ListState{rows: 3, cols: 1, rowIndex: 1, colIndex: 0},
 			changed: true,
 		},
 		{
 			name:    `left selects the first item when a full page is unavailable`,
-			state:   _ScrollState{count: 10, rows: 3, cols: 1, rowIndex: 2, colIndex: 0, itemOffset: 1},
+			state:   _ListState{count: 10, rows: 3, cols: 1, rowIndex: 2, colIndex: 0, itemOffset: 1},
 			key:     Left,
-			want:    _ScrollState{rows: 3, cols: 1, rowIndex: 0, colIndex: 0},
+			want:    _ListState{rows: 3, cols: 1, rowIndex: 0, colIndex: 0},
 			changed: true,
 		},
 		{
 			name:    `right pages a single column and keeps the selected row`,
-			state:   _ScrollState{count: 10, rows: 3, cols: 1, rowIndex: 1, colIndex: 0},
+			state:   _ListState{count: 10, rows: 3, cols: 1, rowIndex: 1, colIndex: 0},
 			key:     Right,
-			want:    _ScrollState{rows: 3, cols: 1, rowIndex: 1, colIndex: 0, itemOffset: 3},
+			want:    _ListState{rows: 3, cols: 1, rowIndex: 1, colIndex: 0, itemOffset: 3},
 			changed: true,
 		},
 		{
 			name:    `right selects the last item when a full page is unavailable`,
-			state:   _ScrollState{count: 8, rows: 3, cols: 1, rowIndex: 2, colIndex: 0, itemOffset: 3},
+			state:   _ListState{count: 8, rows: 3, cols: 1, rowIndex: 2, colIndex: 0, itemOffset: 3},
 			key:     Right,
-			want:    _ScrollState{rows: 3, cols: 1, rowIndex: 2, colIndex: 0, itemOffset: 5},
+			want:    _ListState{rows: 3, cols: 1, rowIndex: 2, colIndex: 0, itemOffset: 5},
 			changed: true,
 		},
 		{
 			name:    `navigation does nothing when the list is empty`,
-			state:   _ScrollState{count: 0, rows: 2, cols: 3, rowIndex: -1, colIndex: 0},
+			state:   _ListState{count: 0, rows: 2, cols: 3, rowIndex: -1, colIndex: 0},
 			key:     Down,
-			want:    _ScrollState{rows: 2, cols: 3, rowIndex: -1, colIndex: 0},
+			want:    _ListState{rows: 2, cols: 3, rowIndex: -1, colIndex: 0},
 			changed: false,
 		},
 		{
 			name:    `non-navigation keys are ignored`,
-			state:   _ScrollState{count: 8, rows: 2, cols: 3, rowIndex: 0, colIndex: 1},
+			state:   _ListState{count: 8, rows: 2, cols: 3, rowIndex: 0, colIndex: 1},
 			key:     A,
-			want:    _ScrollState{rows: 2, cols: 3, rowIndex: 0, colIndex: 1},
+			want:    _ListState{rows: 2, cols: 3, rowIndex: 0, colIndex: 1},
 			changed: false,
 		},
 	}
@@ -1287,42 +1287,42 @@ func TestScrollStateNavigate(t *testing.T) {
 	}
 }
 
-type scrollSelectionAwareTestItem struct {
+type listSelectionAwareTestItem struct {
 	events []bool
 	bound  []int
 }
 
-func (i *scrollSelectionAwareTestItem) ScrollSelectionChanged(selected bool) {
+func (i *listSelectionAwareTestItem) ListSelectionChanged(selected bool) {
 	i.events = append(i.events, selected)
 }
 
-func TestScrollSelectionAwareAndVirtualRebind(t *testing.T) {
+func TestListSelectionAwareAndVirtualRebind(t *testing.T) {
 	doc := &Document{}
-	scroll := NewScroll(doc)
-	scroll._EventTarget.box = scroll
-	scroll.rows = 2
-	items := []*scrollSelectionAwareTestItem{}
-	scroll._setItems(3,
+	list := NewList(doc)
+	list._EventTarget.box = list
+	list.rows = 2
+	items := []*listSelectionAwareTestItem{}
+	list._setItems(3,
 		func() (Box, any) {
-			item := &scrollSelectionAwareTestItem{}
+			item := &listSelectionAwareTestItem{}
 			items = append(items, item)
 			root := NewBlock(doc)
 			root._EventTarget.box = root
 			return root, item
 		},
 		func(user any, index int) {
-			item := user.(*scrollSelectionAwareTestItem)
+			item := user.(*listSelectionAwareTestItem)
 			item.bound = append(item.bound, index)
 		},
 	)
 
-	scroll.SetIndex(0, 0, 0)
-	scroll.navigate(&Event{Type: StickDownEvent, Stick: KeyEventArgs{Name: Down}})
-	scroll.navigate(&Event{Type: StickDownEvent, Stick: KeyEventArgs{Name: Down}})
+	list.SetIndex(0, 0, 0)
+	list.navigate(&Event{Type: StickDownEvent, Stick: KeyEventArgs{Name: Down}})
+	list.navigate(&Event{Type: StickDownEvent, Stick: KeyEventArgs{Name: Down}})
 	// 同一数据索引的重复布局不得再次 bind，否则 SetText 等绑定逻辑会
 	// 意外重置列表项内部的动画状态。
-	scroll.children[1].(*_ScrollChild).bindData()
-	scroll.Deselect()
+	list.children[1].(*_ListItem).bindData()
+	list.Deselect()
 
 	if !slices.Equal(items[0].events, []bool{false, true, false}) {
 		t.Fatalf(`first item selection events = %v`, items[0].events)
@@ -1335,9 +1335,9 @@ func TestScrollSelectionAwareAndVirtualRebind(t *testing.T) {
 	}
 }
 
-func TestScrollChildClipsOverflowingContent(t *testing.T) {
+func TestListChildClipsOverflowingContent(t *testing.T) {
 	doc := &Document{}
-	wrapper := _NewScrollChild(doc)
+	wrapper := _NewListItem(doc)
 	wrapper.layoutBox = Rect{Width: 10, Height: 6}
 	child := NewBlock(doc)
 	child._EventTarget.box = child
