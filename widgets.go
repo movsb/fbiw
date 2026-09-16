@@ -2012,6 +2012,53 @@ func (b *Scroll) ScrollBy(dx, dy int) {
 	b.scrollTo(b.target.X+dx, b.target.Y+dy)
 }
 
+// ScrollIntoView 使用最小滚动距离让后代 target 进入视口。
+// target 已完全可见、不可见或不属于当前 Scroll 时返回 false。
+func (b *Scroll) ScrollIntoView(target Box) bool {
+	rect, ok := b.descendantRect(target)
+	if !ok {
+		return false
+	}
+	viewportWidth := max(0, b.layoutBox.Width-b.HorizontalInsets())
+	viewportHeight := max(0, b.layoutBox.Height-b.VerticalInsets())
+	x := nearestScrollOffset(b.target.X, viewportWidth, rect.X, rect.Width)
+	y := nearestScrollOffset(b.target.Y, viewportHeight, rect.Y, rect.Height)
+	return b.scrollTo(x, y)
+}
+
+func (b *Scroll) descendantRect(target Box) (Rect, bool) {
+	if target == nil || len(b.children) == 0 || !displaying(b.children[0]) {
+		return Rect{}, false
+	}
+	content := b.children[0]
+	contentBase := content.Base()
+	if target.Base() == contentBase {
+		layout := target.GetLayoutBox()
+		return Rect{Width: layout.Width, Height: layout.Height}, true
+	}
+	x, y := 0, 0
+	for current := target; current == nil || current.Base() != contentBase; current = current.Parent() {
+		if current == nil || !displaying(current) {
+			return Rect{}, false
+		}
+		layout := current.GetLayoutBox()
+		x += layout.X
+		y += layout.Y
+	}
+	layout := target.GetLayoutBox()
+	return Rect{X: x, Y: y, Width: layout.Width, Height: layout.Height}, true
+}
+
+func nearestScrollOffset(offset, viewportSize, start, size int) int {
+	if size > viewportSize || start < offset {
+		return start
+	}
+	if end := start + size; end > offset+viewportSize {
+		return end - viewportSize
+	}
+	return offset
+}
+
 func (b *Scroll) scrollTo(x, y int) bool {
 	if !b.scrollsHorizontally() {
 		x = 0

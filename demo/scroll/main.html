@@ -11,18 +11,21 @@ scroll {
 .alternate {
 	background-color: #303744;
 }
+.row.selected {
+	background-color: var(--color-selection-background);
+}
 </style>
 <block padding="20">
-	<text>使用上下方向键滚动</text>
+	<text>方向键滚动；L1/R1 定位上一行或下一行</text>
 	<scroll id="scroll" height="240" direction="both" step="40" smooth>
 		<block>
-			<block class="row"><text>第一行：通用 Scroll 按内容自然高度测量。</text></block>
-			<block class="row alternate"><text>第二行：视口只显示固定区域。</text></block>
-			<block class="row"><text>第三行：内容可以是普通 Block、Text 或其它组件。</text></block>
-			<block class="row alternate"><text>第四行：绘制严格遵守内容区裁剪。</text></block>
-			<block class="row"><text>第五行：到达边界后方向键可继续向祖先传播。</text></block>
-			<block class="row alternate"><text>第六行：Scroll 与虚拟化 List 是两个独立组件。</text></block>
-			<block class="row"><text>第七行：很很长很长很长很长很长很长很长很长很长很长很长很长很长很长长很长。</text></block>
+			<block id="row-1" class="row"><text>第一行：通用 Scroll 按内容自然高度测量。</text></block>
+			<block id="row-2" class="row alternate"><text>第二行：视口只显示固定区域。</text></block>
+			<block id="row-3" class="row"><text>第三行：内容可以是普通 Block、Text 或其它组件。</text></block>
+			<block id="row-4" class="row alternate"><text>第四行：绘制严格遵守内容区裁剪。</text></block>
+			<block id="row-5" class="row"><text>第五行：到达边界后方向键可继续向祖先传播。</text></block>
+			<block id="row-6" class="row alternate"><text>第六行：Scroll 与虚拟化 List 是两个独立组件。</text></block>
+			<block id="row-7" class="row"><text>第七行：很很长很长很长很长很长很长很长很长很长很长很长很长很长很长长很长。</text></block>
 		</block>
 	</scroll>
 </block>

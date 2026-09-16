@@ -25,6 +25,39 @@ func main() {
 		position := event.Data[fbiw.ScrollEndArgs]()
 		log.Printf("滚动结束：x=%d y=%d", position.X, position.Y)
 	})
+	targets := []fbiw.Box{
+		doc.GetBoxByID[fbiw.Box](`row-1`),
+		doc.GetBoxByID[fbiw.Box](`row-2`),
+		doc.GetBoxByID[fbiw.Box](`row-3`),
+		doc.GetBoxByID[fbiw.Box](`row-4`),
+		doc.GetBoxByID[fbiw.Box](`row-5`),
+		doc.GetBoxByID[fbiw.Box](`row-6`),
+		doc.GetBoxByID[fbiw.Box](`row-7`),
+	}
+	selected := -1
+	scroll.Listen(fbiw.StickDownEvent, func(event *fbiw.Event) {
+		delta := 0
+		switch event.Stick.Name {
+		case fbiw.L1:
+			delta = -1
+		case fbiw.R1:
+			delta = 1
+		default:
+			return
+		}
+		if selected >= 0 {
+			targets[selected].ClassRemove(`selected`)
+			selected = (selected + delta + len(targets)) % len(targets)
+		} else if delta > 0 {
+			selected = 0
+		} else {
+			selected = len(targets) - 1
+		}
+		targets[selected].ClassAdd(`selected`)
+		moved := scroll.ScrollIntoView(targets[selected])
+		log.Printf("定位第 %d 行：滚动=%t", selected+1, moved)
+		event.StopPropagation()
+	})
 	scroll.Activate()
 	app.Run()
 }

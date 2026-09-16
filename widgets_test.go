@@ -1357,3 +1357,58 @@ func TestScrollSmoothAttribute(t *testing.T) {
 		t.Fatal(`smooth boolean attribute was not enabled`)
 	}
 }
+
+func TestScrollIntoViewUsesNearestOffset(t *testing.T) {
+	doc := newFlexTestDocument(t, `<block><scroll id="scroll" width="20" height="20"><block><block id="first" height="10"></block><block height="10"></block><block id="last" height="10"></block></block></scroll><block id="foreign" height="10"></block></block>`, 20, 40)
+	scroll := doc.GetBoxByID[*Scroll](`scroll`)
+	last := doc.GetBoxByID[*Block](`last`)
+	if !scroll.ScrollIntoView(last) {
+		t.Fatal(`offscreen descendant did not scroll into view`)
+	}
+	if x, y := scroll.ScrollOffset(); x != 0 || y != 10 {
+		t.Fatalf(`nearest offset = (%d,%d), want (0,10)`, x, y)
+	}
+	if scroll.ScrollIntoView(last) {
+		t.Fatal(`already visible descendant changed the offset`)
+	}
+	if !scroll.ScrollIntoView(doc.GetBoxByID[*Block](`first`)) {
+		t.Fatal(`descendant above the viewport did not scroll into view`)
+	}
+	if _, y := scroll.ScrollOffset(); y != 0 {
+		t.Fatalf(`upper descendant offset y = %d, want 0`, y)
+	}
+	if scroll.ScrollIntoView(doc.GetBoxByID[*Block](`foreign`)) {
+		t.Fatal(`foreign target was accepted`)
+	}
+}
+
+func TestScrollIntoViewSupportsHorizontalAndOversizedTargets(t *testing.T) {
+	doc := newFlexTestDocument(t, `<block><scroll id="scroll" direction="horizontal" width="20" height="20"><inline><block width="10" height="20"></block><block id="target" width="30" height="20"></block></inline></scroll></block>`, 20, 20)
+	scroll := doc.GetBoxByID[*Scroll](`scroll`)
+	if !scroll.ScrollIntoView(doc.GetBoxByID[*Block](`target`)) {
+		t.Fatal(`oversized horizontal target did not scroll`)
+	}
+	if x, y := scroll.ScrollOffset(); x != 10 || y != 0 {
+		t.Fatalf(`oversized target offset = (%d,%d), want (10,0)`, x, y)
+	}
+}
+
+func TestScrollIntoViewUsesSmoothTarget(t *testing.T) {
+	_, doc, _ := newAnimationTestApp(t)
+	doc.width, doc.height = 20, 20
+	doc.fsys = fstest.MapFS{
+		`main.html`: &fstest.MapFile{Data: []byte(`<document><block><scroll id="scroll" smooth width="20" height="20"><block><block height="20"></block><block id="target" height="20"></block></block></scroll></block></document>`)},
+	}
+	doc.fontManager = NewFontManager()
+	if err := doc.load(`main.html`); err != nil {
+		t.Fatal(err)
+	}
+	doc.layout()
+	scroll := doc.GetBoxByID[*Scroll](`scroll`)
+	if !scroll.ScrollIntoView(doc.GetBoxByID[*Block](`target`)) {
+		t.Fatal(`smooth target did not schedule scrolling`)
+	}
+	if scroll.target.Y != 20 || scroll.offset.Y != 0 || scroll.offsetTransition.cancel == nil {
+		t.Fatalf(`smooth into-view state: target=%+v offset=%+v`, scroll.target, scroll.offset)
+	}
+}
