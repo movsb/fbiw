@@ -123,6 +123,7 @@ func main() {
 | `flex` | 子元素单行弹性排列，支持横向或纵向 |
 | `stack` | 子元素叠放在同一位置 |
 | `safe-area` | 根据系统覆盖层占用的四边区域，为内容设置安全内边距 |
+| `scroll` | 裁剪并按像素偏移任意内容的滚动视口 |
 | `list` | 固定行列、固定可视槽位的虚拟列表 |
 | `spacer` | 在布局主轴上分配剩余空间 |
 | `button` | 带默认样式、A 键交互和禁用状态的按钮容器 |
@@ -856,6 +857,38 @@ doc.ListenOptions(fbiw.StickDownEvent, func(event *fbiw.Event) {
 
 按键包括方向键、A/B/X/Y、Menu、Select、Start、Fn1/Fn2、音量、Home 和 L1/R1。同时按住 Menu 与 Start 会退出应用。
 
+## 滚动容器
+
+`Scroll` 是通用的像素级滚动视口。它接受一个直接子节点，子节点内部可以使用任意普通布局；视口会在滚动轴上无界测量内容，并将绘制裁剪到自身内容区。
+
+```html
+<scroll id="article" height="240" direction="vertical" step="32" smooth>
+    <block>
+        <text>任意长度的内容</text>
+        <img src="cover.png"></img>
+    </block>
+</scroll>
+```
+
+| 属性 | 默认值 | 说明 |
+| --- | --- | --- |
+| `direction` | `vertical` | `vertical`、`horizontal` 或 `both` |
+| `step` | `32` | 每次方向键滚动的正整数像素数 |
+| `smooth` | `false` | 使用 `Transition` 和 `EaseOut` 平滑过渡到目标偏移 |
+
+激活后，Scroll 使用与方向匹配的方向键滚动；到达边界或按下未启用方向的按键时不会停止事件传播。代码可以直接控制和查询偏移：
+
+```go
+scroll := doc.GetBoxByID[*fbiw.Scroll]("article")
+scroll.Activate()
+scroll.ScrollTo(0, 120)
+scroll.ScrollBy(0, 32)
+x, y := scroll.ScrollOffset()
+maxX, maxY := scroll.ScrollRange()
+```
+
+开启 `smooth` 后，连续的 `ScrollBy` 和方向键输入会累计目标偏移，并从当前显示位置平滑转向最新目标；`ScrollOffset` 返回当前帧实际显示的偏移。每次显示偏移变化都会派发 `ScrollChange`，事件数据为 `ScrollChangeArgs{X, Y}`。内容或视口尺寸变化后，显示位置和动画目标都会自动限制在新的合法范围。当前不提供滚动条、鼠标/触摸、惯性滚动或自动将后代焦点移入视口。
+
 ## 虚拟列表
 
 `List` 只创建 `rows × cols` 个可视组件，并在滚动时复用这些组件：
@@ -1281,6 +1314,7 @@ Linux 后端直接读取 evdev 按键码。当前设备选择和按键映射针�
 
 ```bash
 GOEXPERIMENT=simd go run ./demo
+GOEXPERIMENT=simd go run ./demo/scroll
 GOEXPERIMENT=simd go run ./demo/list
 GOEXPERIMENT=simd go run ./demo/safe
 GOEXPERIMENT=simd go run ./demo/theme

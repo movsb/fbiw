@@ -990,6 +990,11 @@ func (n _NodeTransformer) transformNode(box Box, node *html.Node, voidElement bo
 			box.Base().AppendChild(childBoxOrString.(Box))
 		}
 	}
+	if validator, ok := box.(interface{ validateChildren() error }); ok {
+		if err := validator.validateChildren(); err != nil {
+			return nil, err
+		}
+	}
 	return box, nil
 }
 

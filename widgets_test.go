@@ -1183,3 +1183,131 @@ func TestProgressTransitionModeChanges(t *testing.T) {
 		t.Fatal("closed progress retained updates")
 	}
 }
+
+func TestScrollMeasuresContentAndClampsOffsets(t *testing.T) {
+	doc := newFlexTestDocument(t, `<block><scroll id="scroll" width="20" height="20" step="10"><block><block height="20" background-color="red"></block><block height="20" background-color="blue"></block></block></scroll></block>`, 20, 20)
+	scroll := doc.GetBoxByID[*Scroll](`scroll`)
+	if got, want := scroll.GetLayoutBox(), (Rect{Width: 20, Height: 20}); got != want {
+		t.Fatalf(`scroll layout = %+v, want %+v`, got, want)
+	}
+	if maxX, maxY := scroll.ScrollRange(); maxX != 0 || maxY != 20 {
+		t.Fatalf(`scroll range = (%d,%d), want (0,20)`, maxX, maxY)
+	}
+
+	scroll.ScrollTo(100, 100)
+	if x, y := scroll.ScrollOffset(); x != 0 || y != 20 {
+		t.Fatalf(`clamped offset = (%d,%d), want (0,20)`, x, y)
+	}
+	scroll.ScrollBy(0, -10)
+	if x, y := scroll.ScrollOffset(); x != 0 || y != 10 {
+		t.Fatalf(`relative offset = (%d,%d), want (0,10)`, x, y)
+	}
+}
+
+func TestScrollDrawsClippedOffsetContent(t *testing.T) {
+	doc := newFlexTestDocument(t, `<block><scroll id="scroll" width="20" height="20"><block><block height="20" background-color="#ff0000"></block><block height="20" background-color="#0000ff"></block></block></scroll></block>`, 20, 20)
+	scroll := doc.GetBoxByID[*Scroll](`scroll`)
+
+	canvas := NewCanvas(20, 20)
+	scroll.Draw(canvas)
+	if got := canvas.getPixel(0, 0); got.R != 255 || got.G != 0 || got.B != 0 || got.A != 255 {
+		t.Fatalf(`top pixel before scrolling = %+v, want opaque red`, got)
+	}
+
+	scroll.ScrollTo(0, 20)
+	canvas = NewCanvas(20, 20)
+	scroll.Draw(canvas)
+	if got := canvas.getPixel(0, 0); got.R != 0 || got.G != 0 || got.B != 255 || got.A != 255 {
+		t.Fatalf(`top pixel after scrolling = %+v, want opaque blue`, got)
+	}
+}
+
+func TestScrollDirectionAndBoundaryKeyPropagation(t *testing.T) {
+	doc := newFlexTestDocument(t, `<block><scroll id="scroll" direction="horizontal" width="20" height="20" step="10"><inline><block width="40" height="20"></block></inline></scroll></block>`, 20, 20)
+	scroll := doc.GetBoxByID[*Scroll](`scroll`)
+	if maxX, maxY := scroll.ScrollRange(); maxX != 20 || maxY != 0 {
+		t.Fatalf(`horizontal range = (%d,%d), want (20,0)`, maxX, maxY)
+	}
+
+	down := &Event{Type: StickDownEvent, Stick: KeyEventArgs{Name: Down}}
+	scroll.handleStickDown(down)
+	if down.propagationStopped {
+		t.Fatal(`disabled direction was consumed`)
+	}
+	right := &Event{Type: StickDownEvent, Stick: KeyEventArgs{Name: Right}}
+	scroll.handleStickDown(right)
+	if !right.propagationStopped {
+		t.Fatal(`successful scroll was not consumed`)
+	}
+	scroll.ScrollTo(20, 0)
+	atBoundary := &Event{Type: StickDownEvent, Stick: KeyEventArgs{Name: Right}}
+	scroll.handleStickDown(atBoundary)
+	if atBoundary.propagationStopped {
+		t.Fatal(`boundary key was consumed`)
+	}
+}
+
+func TestScrollRejectsMultipleDirectChildren(t *testing.T) {
+	doc := _NewDocument(20, 20, fstest.MapFS{
+		`main.html`: &fstest.MapFile{Data: []byte(`<document><block><scroll><block></block><block></block></scroll></block></document>`)},
+	}, NewFontManager(), nil)
+	if err := doc.load(`main.html`); err == nil {
+		t.Fatal(`scroll accepted multiple direct children`)
+	}
+}
+
+func TestScrollSmoothTransitionAndRetarget(t *testing.T) {
+	app, doc, clock := newAnimationTestApp(t)
+	doc.width, doc.height = 20, 20
+	doc.fsys = fstest.MapFS{
+		`main.html`: &fstest.MapFile{Data: []byte(`<document><block><scroll id="scroll" smooth width="20" height="20"><block height="40"></block></scroll></block></document>`)},
+	}
+	doc.fontManager = NewFontManager()
+	if err := doc.load(`main.html`); err != nil {
+		t.Fatal(err)
+	}
+	doc.layout()
+	scroll := doc.GetBoxByID[*Scroll](`scroll`)
+	if scroll.maxY != 20 {
+		t.Fatalf(`smooth scroll range y = %d, want 20`, scroll.maxY)
+	}
+
+	scroll.ScrollTo(0, 20)
+	if scroll.targetY != 20 || scroll.offsetTransition == nil || scroll.offsetTransition.cancel == nil {
+		t.Fatalf(`smooth target was not scheduled: target=%d transition=%+v`, scroll.targetY, scroll.offsetTransition)
+	}
+	if x, y := scroll.ScrollOffset(); x != 0 || y != 0 {
+		t.Fatalf(`smooth scroll jumped immediately to (%d,%d)`, x, y)
+	}
+	clock.now = clock.now.Add(scrollSmoothDuration / 2)
+	animationStep(app)
+	if x, y := scroll.ScrollOffset(); x != 0 || y != 15 {
+		t.Fatalf(`halfway ease-out offset = (%d,%d), want (0,15)`, x, y)
+	}
+
+	// ScrollBy 基于累计目标 20，而不是当前显示位置 15，因此新目标是 10。
+	scroll.ScrollBy(0, -10)
+	if scroll.targetY != 10 {
+		t.Fatalf(`retargeted y = %d, want 10`, scroll.targetY)
+	}
+	clock.now = clock.now.Add(scrollSmoothDuration / 2)
+	animationStep(app)
+	if _, y := scroll.ScrollOffset(); y != 11 {
+		t.Fatalf(`retargeted halfway y = %d, want 11`, y)
+	}
+
+	scroll.SetSmooth(false)
+	if scroll.Smooth() {
+		t.Fatal(`smooth remained enabled`)
+	}
+	if x, y := scroll.ScrollOffset(); x != 0 || y != 10 {
+		t.Fatalf(`disabling smooth did not finish at target: (%d,%d)`, x, y)
+	}
+}
+
+func TestScrollSmoothAttribute(t *testing.T) {
+	doc := newFlexTestDocument(t, `<block><scroll id="scroll" smooth width="20" height="20"><block height="40"></block></scroll></block>`, 20, 20)
+	if !doc.GetBoxByID[*Scroll](`scroll`).Smooth() {
+		t.Fatal(`smooth boolean attribute was not enabled`)
+	}
+}

@@ -1795,3 +1795,207 @@ func (b *List) SetState(state any) {
 
 	b.document.RequestPaint()
 }
+
+//------------------------------------------------------------------------------
+
+// Scroll 是承载任意内容树的像素级滚动视口。
+// 它只接受一个直接子节点；子节点内部可以使用任意普通布局。
+type Scroll struct {
+	BaseBox
+
+	direction string
+	step      int
+	offsetX   int
+	offsetY   int
+	maxX      int
+	maxY      int
+}
+
+type ScrollChangeArgs struct {
+	X, Y int
+}
+
+var ScrollChange = RegisterEventType()
+
+func NewScroll(doc *Document) *Scroll {
+	scroll := &Scroll{
+		BaseBox:   NewBaseBox(doc, `scroll`),
+		direction: `vertical`,
+		step:      32,
+	}
+	scroll.Listen(StickDownEvent, scroll.handleStickDown)
+	return scroll
+}
+
+func init() {
+	Define(`scroll`, false, NewScroll)
+}
+
+func (b *Scroll) validateChildren() error {
+	if len(b.children) > 1 {
+		return fmt.Errorf(`scroll 只能包含一个直接子节点`)
+	}
+	return nil
+}
+
+func (b *Scroll) SetProp(key, value string) error {
+	switch key {
+	case `direction`:
+		switch value {
+		case `vertical`, `horizontal`, `both`:
+			b.direction = value
+			return nil
+		default:
+			return fmt.Errorf(`无效的 scroll direction：%s`, value)
+		}
+	case `step`:
+		step, err := strconv.Atoi(value)
+		if err != nil || step <= 0 {
+			return fmt.Errorf(`无效的 scroll step：%s`, value)
+		}
+		b.step = step
+		return nil
+	default:
+		return b.BaseBox.SetProp(key, value)
+	}
+}
+
+func (b *Scroll) scrollsHorizontally() bool {
+	return b.direction == `horizontal` || b.direction == `both`
+}
+
+func (b *Scroll) scrollsVertically() bool {
+	return b.direction == `vertical` || b.direction == `both`
+}
+
+func (b *Scroll) Calc(availWidth, availHeight int, constraints Constraints) {
+	size := b.resolveDimensions(constraints)
+
+	provisionalWidth := availWidth
+	if size.Width.IsNumber() {
+		provisionalWidth = int(size.Width.Number())
+	}
+	provisionalHeight := availHeight
+	if size.Height.IsNumber() {
+		provisionalHeight = int(size.Height.Number())
+	}
+	contentWidth := max(0, provisionalWidth-b.HorizontalInsets())
+	contentHeight := max(0, provisionalHeight-b.VerticalInsets())
+
+	var child Box
+	if len(b.children) > 0 && displaying(b.children[0]) {
+		child = b.children[0]
+		b.measureChild(child, contentWidth, contentHeight)
+	}
+
+	naturalWidth, naturalHeight := b.HorizontalInsets(), b.VerticalInsets()
+	if child != nil {
+		layout := child.GetLayoutBox()
+		naturalWidth += layout.Width
+		naturalHeight += layout.Height
+	}
+	actualWidth := constrainNaturalSize(naturalWidth, availWidth, constraints.UnboundedWidth)
+	actualHeight := constrainNaturalSize(naturalHeight, availHeight, constraints.UnboundedHeight)
+	b.layoutBox.Width = max(0, resolveMeasuredSize(size.Width, availWidth, constraints.PrefersMaxWidth, actualWidth, constraints.UnboundedWidth))
+	b.layoutBox.Height = max(0, resolveMeasuredSize(size.Height, availHeight, constraints.PrefersMaxHeight, actualHeight, constraints.UnboundedHeight))
+
+	contentWidth = max(0, b.layoutBox.Width-b.HorizontalInsets())
+	contentHeight = max(0, b.layoutBox.Height-b.VerticalInsets())
+	if child != nil {
+		b.measureChild(child, contentWidth, contentHeight)
+		child.Base().layoutBox.X = b.InsetLeft()
+		child.Base().layoutBox.Y = b.InsetTop()
+		layout := child.GetLayoutBox()
+		b.maxX = max(0, layout.Width-contentWidth)
+		b.maxY = max(0, layout.Height-contentHeight)
+	} else {
+		b.maxX, b.maxY = 0, 0
+	}
+	if !b.scrollsHorizontally() {
+		b.maxX = 0
+	}
+	if !b.scrollsVertically() {
+		b.maxY = 0
+	}
+	b.offsetX = min(max(0, b.offsetX), b.maxX)
+	b.offsetY = min(max(0, b.offsetY), b.maxY)
+}
+
+func (b *Scroll) measureChild(child Box, width, height int) {
+	child.Calc(width, height, Constraints{
+		ParentContentWidth:  width,
+		ParentContentHeight: height,
+		PrefersMaxWidth:     !b.scrollsHorizontally(),
+		PrefersMaxHeight:    !b.scrollsVertically(),
+		UnboundedWidth:      b.scrollsHorizontally(),
+		UnboundedHeight:     b.scrollsVertically(),
+	})
+}
+
+func (b *Scroll) Draw(canvas *Canvas) {
+	b.BaseBox.draw(canvas, false)
+	if len(b.children) == 0 || !displaying(b.children[0]) {
+		return
+	}
+	width := max(0, b.layoutBox.Width-b.HorizontalInsets())
+	height := max(0, b.layoutBox.Height-b.VerticalInsets())
+	clipped := canvas.Clip(b.InsetLeft(), b.InsetTop(), width, height)
+	child := b.children[0]
+	layout := child.Base().layoutBox
+	child.Draw(clipped.Offset(layout.X-b.offsetX, layout.Y-b.offsetY))
+}
+
+func (b *Scroll) ScrollOffset() (x, y int) {
+	return b.offsetX, b.offsetY
+}
+
+func (b *Scroll) ScrollRange() (maxX, maxY int) {
+	return b.maxX, b.maxY
+}
+
+func (b *Scroll) ScrollTo(x, y int) {
+	b.scrollTo(x, y)
+}
+
+func (b *Scroll) ScrollBy(dx, dy int) {
+	b.scrollTo(b.offsetX+dx, b.offsetY+dy)
+}
+
+func (b *Scroll) scrollTo(x, y int) bool {
+	if !b.scrollsHorizontally() {
+		x = 0
+	}
+	if !b.scrollsVertically() {
+		y = 0
+	}
+	x = min(max(0, x), b.maxX)
+	y = min(max(0, y), b.maxY)
+	if x == b.offsetX && y == b.offsetY {
+		return false
+	}
+	b.offsetX, b.offsetY = x, y
+	if b.document != nil {
+		b.document.RequestPaint()
+	}
+	b.Dispatch(ScrollChange, ScrollChangeArgs{X: x, Y: y})
+	return true
+}
+
+func (b *Scroll) handleStickDown(event *Event) {
+	dx, dy := 0, 0
+	switch event.Stick.Name {
+	case Left:
+		dx = -b.step
+	case Right:
+		dx = b.step
+	case Up:
+		dy = -b.step
+	case Down:
+		dy = b.step
+	default:
+		return
+	}
+	if b.scrollTo(b.offsetX+dx, b.offsetY+dy) {
+		event.StopPropagation()
+	}
+}
