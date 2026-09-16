@@ -1564,9 +1564,9 @@ func (s _Styler) _matchSelf(node Box, selector NodeSelector) bool {
 	if selector.Asterisk {
 		return true
 	}
-	return (selector.Tag == `` || selector.Tag == node.Base().Tag) &&
+	return (selector.Tag == `` || selector.Tag == node.GetTag()) &&
 		(len(selector.Class) == 0 || node.Base().class.ContainsAll(selector.Class...)) &&
-		(selector.ID == `` || selector.ID == node.Base().ID)
+		(selector.ID == `` || selector.ID == node.GetID())
 }
 
 func (s _Styler) _matchAncestors(node Box, ancestorSelectors Selector) bool {

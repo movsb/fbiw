@@ -24,6 +24,23 @@ import (
 
 type Box interface {
 	Base() *BaseBox
+
+	// 返回文档中由 id="xxx" 指定的ID。
+	//
+	// 理论上应该整个文档内唯一。
+	GetID() string
+
+	// 返回此节点的标签名（区分大小写）。
+	//
+	// 例如 block、inline、text、img。
+	GetTag() string
+
+	// 返回文档中由 name="xxx" 指定的名字。
+	//
+	// 不同于form元素的name，这个name不用于css。
+	// 不要求唯一，用于保存业务数据。
+	GetName() string
+
 	// 根据可用的宽度和高度计算自己实际的宽度和高度。
 	// 优先采用 constraints.FixedWidth/FixedHeight，其次采用样式宽高。
 	// 固定布局尺寸不能写回 computedStyles。
@@ -97,23 +114,21 @@ var _ Box = (*BaseBox)(nil)
 // 注意：由于是直接内嵌的（非指针），而有些内部字段本身也需要引用此盒子本身，
 // 这种情况无法初始化。这个步骤放到了 transformNode。
 type BaseBox struct {
-	ID  string
-	Tag string
+	id   string
+	tag  string
+	name string
+
+	// 用于存放用户任意数据。
+	dataset map[string]any
 
 	// 因为class有内部变量需要初始化，不知道咋写，先暂时隐藏，并提供同名方法。
 	class Class
 
-	// 不同于form元素的name，这个name不用于css。
-	// 不要求唯一，用于保存业务数据。
-	Name string
-	// 用于存放用户任意数据。
-	dataset map[string]any
-
-	document    *Document
-	parent      Box
-	PrevSibling Box
-	NextSibling Box
-	children    []Box
+	document *Document
+	parent   Box
+	// PrevSibling Box
+	// NextSibling Box
+	children []Box
 
 	// 每一个盒子都是事件容器对象。
 	// 但是盒子是否可处理事件本身与focusable不直接有关。
@@ -140,7 +155,7 @@ type BaseBox struct {
 func NewBaseBox(doc *Document, tagName string) BaseBox {
 	return BaseBox{
 		document:       doc,
-		Tag:            tagName,
+		tag:            tagName,
 		computedStyles: Styles{Display: true},
 	}
 }
@@ -152,6 +167,16 @@ type Rect struct {
 
 func (b *BaseBox) Base() *BaseBox {
 	return b
+}
+
+func (b *BaseBox) GetID() string {
+	return b.id
+}
+func (b *BaseBox) GetTag() string {
+	return b.tag
+}
+func (b *BaseBox) GetName() string {
+	return b.name
 }
 
 func (b *BaseBox) GetLayoutBox() Rect {
@@ -221,12 +246,12 @@ func (b *BaseBox) Children() []Box {
 	return b.children
 }
 
-func (b *BaseBox) lastChild() Box {
-	if n := len(b.children); n > 0 {
-		return b.children[n-1]
-	}
-	return nil
-}
+// func (b *BaseBox) lastChild() Box {
+// 	if n := len(b.children); n > 0 {
+// 		return b.children[n-1]
+// 	}
+// 	return nil
+// }
 
 func (b *BaseBox) AppendChild(child Box) {
 	if child == nil {
@@ -236,14 +261,14 @@ func (b *BaseBox) AppendChild(child Box) {
 		panic(`事件对象未完成初始化:` + reflect.TypeOf(child).String())
 	}
 
-	prevLastChild := b.lastChild()
+	// prevLastChild := b.lastChild()
 	b.children = append(b.children, child)
 	child.Base().parent = b
 
-	if prevLastChild != nil {
-		prevLastChild.Base().NextSibling = child
-		child.Base().PrevSibling = prevLastChild
-	}
+	// if prevLastChild != nil {
+	// 	prevLastChild.Base().NextSibling = child
+	// 	child.Base().PrevSibling = prevLastChild
+	// }
 
 	if b.document != nil {
 		b.document.layoutDirty = true
@@ -310,7 +335,7 @@ func (b *BaseBox) SetProp(key string, val string) error {
 		return fmt.Errorf(`不认识的属性：%s`, key)
 	case `id`:
 		// 改ID也会影响样式选择，所以需要重新排版
-		b.ID = val
+		b.id = val
 		b.document.layoutDirty = true
 		if b.document.root != nil {
 			b.document.style(b, true)
@@ -320,7 +345,7 @@ func (b *BaseBox) SetProp(key string, val string) error {
 		// 会自动调用classChanged
 		b.ClassSet(val)
 	case `name`:
-		b.Name = val
+		b.name = val
 	}
 
 	return nil
@@ -435,11 +460,11 @@ func (b *BaseBox) Calc(availWidth, availHeight int, constraints Constraints) {
 		return
 	}
 
-	if b.Tag == `block` {
+	if b.tag == `block` {
 		blockCalc(b, availWidth, availHeight, constraints)
-	} else if b.Tag == `inline` {
+	} else if b.tag == `inline` {
 		inlineCalc(b, availWidth, availHeight, constraints)
-	} else if b.Tag == `flex` {
+	} else if b.tag == `flex` {
 		flexCalc(b, availWidth, availHeight, constraints)
 	} else {
 		// 其它自己不实现的通通按inline来。
@@ -1437,8 +1462,8 @@ func (t *Text) SetRich(tmpl string, args ...any) error {
 
 	for _, child := range t.children {
 		child.Base().parent = nil
-		child.Base().PrevSibling = nil
-		child.Base().NextSibling = nil
+		// child.Base().PrevSibling = nil
+		// child.Base().NextSibling = nil
 	}
 
 	t.textParts = parsed.textParts

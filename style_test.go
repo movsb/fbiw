@@ -59,8 +59,8 @@ func TestFlexStyleProperties(t *testing.T) {
 }
 
 func TestFlexStyleCascadeAndNonInheritance(t *testing.T) {
-	parent := &BaseBox{Tag: `flex`, ID: `parent`}
-	child := &BaseBox{Tag: `block`, ID: `child`, parent: parent}
+	parent := &BaseBox{tag: `flex`, id: `parent`}
+	child := &BaseBox{tag: `block`, id: `child`, parent: parent}
 	parent.children = []Box{child}
 	parent.inlineStyles.SetGap(0)
 	parent.inlineStyles.SetFlexGrow(0)
@@ -151,10 +151,10 @@ func TestParseStyleNestingErrors(t *testing.T) {
 
 func TestNestedStyleMatchesFlatStyle(t *testing.T) {
 	newTree := func() (*BaseBox, *BaseBox) {
-		parent := &BaseBox{Tag: `block`}
+		parent := &BaseBox{tag: `block`}
 		parent.class.Set(`card`)
 		parent.class.Set(`selected`)
-		child := &BaseBox{Tag: `text`, parent: parent}
+		child := &BaseBox{tag: `text`, parent: parent}
 		child.class.Set(`title`)
 		parent.children = []Box{child}
 		return parent, child
@@ -223,14 +223,14 @@ func TestStylesPaddingShorthand(t *testing.T) {
 
 func TestStylerStyle(t *testing.T) {
 	newTree := func() (*BaseBox, *BaseBox) {
-		parent := &BaseBox{Tag: `block`}
-		child := &BaseBox{Tag: `inline`, parent: parent}
+		parent := &BaseBox{tag: `block`}
+		child := &BaseBox{tag: `inline`, parent: parent}
 		parent.children = []Box{child}
 		return parent, child
 	}
 
 	t.Run(`应用默认样式、文档样式和内联样式`, func(t *testing.T) {
-		box := &BaseBox{Tag: `block`, ID: `target`}
+		box := &BaseBox{tag: `block`, id: `target`}
 		box.class.Set(`featured`)
 		box.inlineStyles.SetPadding(PaddingValue(40, 40, 40, 40))
 
@@ -260,7 +260,7 @@ func TestStylerStyle(t *testing.T) {
 	})
 
 	t.Run(`页面样式覆盖 specificity 更高的默认样式`, func(t *testing.T) {
-		box := &BaseBox{Tag: `block`, ID: `target`}
+		box := &BaseBox{tag: `block`, id: `target`}
 		styler := _Styler{
 			defaultStyles: Must1(ParseStyle(`#target { color: red; }`)),
 		}
@@ -308,11 +308,11 @@ func TestStylerStyle(t *testing.T) {
 	//    └─ 孙节点：12
 	//       └─ 曾孙节点：200% → 24
 	t.Run(`多层百分比 font-size 根据父节点字号计算`, func(t *testing.T) {
-		root := &BaseBox{Tag: `block`}
-		child := &BaseBox{Tag: `inline`, ID: `child`, parent: root}
-		percentageGrandchild := &BaseBox{Tag: `inline`, ID: `percentage-grandchild`, parent: child}
-		absoluteGrandchild := &BaseBox{Tag: `inline`, ID: `absolute-grandchild`, parent: child}
-		greatGrandchild := &BaseBox{Tag: `inline`, ID: `great-grandchild`, parent: absoluteGrandchild}
+		root := &BaseBox{tag: `block`}
+		child := &BaseBox{tag: `inline`, id: `child`, parent: root}
+		percentageGrandchild := &BaseBox{tag: `inline`, id: `percentage-grandchild`, parent: child}
+		absoluteGrandchild := &BaseBox{tag: `inline`, id: `absolute-grandchild`, parent: child}
+		greatGrandchild := &BaseBox{tag: `inline`, id: `great-grandchild`, parent: absoluteGrandchild}
 		root.children = []Box{child}
 		child.children = []Box{percentageGrandchild, absoluteGrandchild}
 		absoluteGrandchild.children = []Box{greatGrandchild}
@@ -354,10 +354,10 @@ func TestStylerStyle(t *testing.T) {
 	//    │  └─ 孙节点：2rem → 40（不受父节点 10 影响）
 	//    └─ 子节点：0.75rem → 15
 	t.Run(`rem font-size 始终根据 document 字号计算`, func(t *testing.T) {
-		root := &BaseBox{Tag: `block`}
-		absoluteChild := &BaseBox{Tag: `inline`, ID: `absolute-child`, parent: root}
-		grandchild := &BaseBox{Tag: `inline`, ID: `rem-grandchild`, parent: absoluteChild}
-		fractionalChild := &BaseBox{Tag: `inline`, ID: `fractional-child`, parent: root}
+		root := &BaseBox{tag: `block`}
+		absoluteChild := &BaseBox{tag: `inline`, id: `absolute-child`, parent: root}
+		grandchild := &BaseBox{tag: `inline`, id: `rem-grandchild`, parent: absoluteChild}
+		fractionalChild := &BaseBox{tag: `inline`, id: `fractional-child`, parent: root}
 		root.children = []Box{absoluteChild, fractionalChild}
 		absoluteChild.children = []Box{grandchild}
 
@@ -411,8 +411,8 @@ func TestStylerStyle(t *testing.T) {
 	})
 
 	t.Run(`四边 padding 参与布局`, func(t *testing.T) {
-		root := &BaseBox{Tag: `block`, ID: `root`}
-		child := &BaseBox{Tag: `block`, ID: `child`, parent: root}
+		root := &BaseBox{tag: `block`, id: `root`}
+		child := &BaseBox{tag: `block`, id: `child`, parent: root}
 		root.children = []Box{child}
 		sheet := Must1(ParseStyle(`
 			#root { width: 200; height: 100; padding: 10 20 30 40; }
@@ -439,9 +439,9 @@ func TestStylerStyle(t *testing.T) {
 	})
 
 	t.Run(`样式应用失败时返回错误并停止遍历`, func(t *testing.T) {
-		parent := &BaseBox{Tag: `block`}
-		bad := &BaseBox{Tag: `bad`, parent: parent}
-		unvisited := &BaseBox{Tag: `inline`, parent: parent}
+		parent := &BaseBox{tag: `block`}
+		bad := &BaseBox{tag: `bad`, parent: parent}
+		unvisited := &BaseBox{tag: `inline`, parent: parent}
 		parent.children = []Box{bad, unvisited}
 		sheet := Must1(ParseStyle(`
 			block { width: 10; }
@@ -530,7 +530,7 @@ func TestDisplayBoolean(t *testing.T) {
 }
 
 func TestDisplayDefaultAndPriority(t *testing.T) {
-	box := &BaseBox{Tag: `block`}
+	box := &BaseBox{tag: `block`}
 	if !displaying(box) {
 		t.Fatal("zero-value styles must remain visible")
 	}

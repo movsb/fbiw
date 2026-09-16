@@ -97,7 +97,7 @@ func testTheme(text, background, border, outline string) Theme {
 }
 
 func TestThemeColorResolution(t *testing.T) {
-	box := &BaseBox{Tag: `block`}
+	box := &BaseBox{tag: `block`}
 	sheet := Must1(ParseStyle(`block {
 		color: var(--color-text);
 		background-color: var(--color-background);
@@ -185,7 +185,7 @@ func TestThemeColorErrors(t *testing.T) {
 		`缺少右括号`:    `var(--color-text`,
 	} {
 		t.Run(name, func(t *testing.T) {
-			box := &BaseBox{Tag: `block`}
+			box := &BaseBox{tag: `block`}
 			sheet := Must1(ParseStyle(`block { color: ` + value + `; }`))
 			if err := (_Styler{themeName: `test`}).Style(box, false, sheet); err == nil {
 				t.Fatalf(`颜色 %q 未返回错误`, value)

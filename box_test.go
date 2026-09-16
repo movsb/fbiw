@@ -55,12 +55,12 @@ func TestFlexDemoLayout(t *testing.T) {
 			}
 			r := box.GetLayoutBox()
 			if r.Width < 0 || r.Height < 0 {
-				t.Errorf("negative size for %s#%s: %+v", box.Base().Tag, box.Base().ID, r)
+				t.Errorf("negative size for %s#%s: %+v", box.GetTag(), box.GetID(), r)
 			}
 			if parent := box.Parent(); parent != nil {
 				p := parent.GetLayoutBox()
 				if r.X < 0 || r.Y < 0 || r.X+r.Width > p.Width || r.Y+r.Height > p.Height {
-					t.Errorf("%s#%s overflows: %+v inside %+v", box.Base().Tag, box.Base().ID, r, p)
+					t.Errorf("%s#%s overflows: %+v inside %+v", box.GetTag(), box.GetID(), r, p)
 				}
 			}
 			return true
@@ -429,7 +429,7 @@ func TestRootAndNestedPercentageDimensions(t *testing.T) {
 
 func TestPercentageDimensionsForFlexibleChild(t *testing.T) {
 	for _, parent := range []Box{NewBlock(nil), NewInline(nil)} {
-		t.Run(parent.Base().Tag, func(t *testing.T) {
+		t.Run(parent.GetTag(), func(t *testing.T) {
 			child := NewBlock(nil)
 			child.computedStyles.SetSpacer(true)
 			child.computedStyles.SetWidth(PercentageLength(50))
@@ -501,7 +501,7 @@ func TestQuery(t *testing.T) {
 			continue
 		}
 		for i := range len(boxes) {
-			id1 := boxes[i].Base().ID
+			id1 := boxes[i].GetID()
 			id2 := tc.Boxes[i]
 			if id1 != id2 {
 				t.Errorf(`盒子ID不一样: #%d: %s vs. %s`, i, id2, id1)

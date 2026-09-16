@@ -831,7 +831,7 @@ func (doc *Document) GetBoxByID[T Box](id string) T {
 	var out T
 	var ok bool
 	walkBox(doc.root, func(box Box) bool {
-		if box.Base().ID == id {
+		if box.GetID() == id {
 			out, ok = box.(T)
 			if !ok {
 				from := reflect.TypeOf(box).String()
@@ -918,10 +918,10 @@ func (n _NodeTransformer) transform(parent Box, node *html.Node) (Box, error) {
 			if parent == nil {
 				return nil, fmt.Errorf(`此处不能有元素：%s`, node.Data)
 			}
-			switch parent.Base().Tag {
+			switch parent.GetTag() {
 			case `text`, `b`, `i`:
 			default:
-				return nil, fmt.Errorf(`父子关系不正确：%s -> %s`, parent.Base().Tag, node.Data)
+				return nil, fmt.Errorf(`父子关系不正确：%s -> %s`, parent.GetTag(), node.Data)
 			}
 			var box Box
 			switch node.Data {
@@ -1054,7 +1054,7 @@ func (doc *Document) validateTheme(name string, theme Theme) error {
 }
 
 func (doc *Document) restyle(themeName string, theme Theme) error {
-	docBox := _DocBox{Tag: `document`}
+	docBox := _DocBox{tag: `document`}
 	styler := _Styler{
 		defaultStyles: DefaultStyles,
 		theme:         theme,
