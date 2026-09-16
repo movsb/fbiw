@@ -1805,11 +1805,30 @@ type Scroll struct {
 
 	direction string
 	step      int
-	offsetX   int
-	offsetY   int
 	maxX      int
 	maxY      int
+
+	// targetX 是“最终想滚到哪里”，
+	// offsetX 是“当前画面实际滚到哪里”。
+	//
+	// 如果不开平滑滚动，则两者一样；
+	// 如果开了平滑滚动，则offset可能处于动画的中间值。
+	offset _ScrollPosition
+	target _ScrollPosition
+
+	offsetTransition *Transition[_ScrollPosition]
 }
+
+type _ScrollPosition struct{ X, Y int }
+
+func (p _ScrollPosition) clamp(maxX, maxY int) _ScrollPosition {
+	return _ScrollPosition{
+		X: min(max(0, p.X), maxX),
+		Y: min(max(0, p.Y), maxY),
+	}
+}
+
+const scrollSmoothDuration = 180 * time.Millisecond
 
 type ScrollChangeArgs struct {
 	X, Y int
@@ -1854,6 +1873,13 @@ func (b *Scroll) SetProp(key, value string) error {
 			return fmt.Errorf(`无效的 scroll step：%s`, value)
 		}
 		b.step = step
+		return nil
+	case `smooth`:
+		smooth, err := parseBooleanAttribute(`smooth`, value)
+		if err != nil {
+			return err
+		}
+		b.SetSmooth(smooth)
 		return nil
 	default:
 		return b.BaseBox.SetProp(key, value)
@@ -1917,8 +1943,19 @@ func (b *Scroll) Calc(availWidth, availHeight int, constraints Constraints) {
 	if !b.scrollsVertically() {
 		b.maxY = 0
 	}
-	b.offsetX = min(max(0, b.offsetX), b.maxX)
-	b.offsetY = min(max(0, b.offsetY), b.maxY)
+	oldTarget := b.target
+	b.target = b.target.clamp(b.maxX, b.maxY)
+	clampedOffset := b.offset.clamp(b.maxX, b.maxY)
+	displayClamped := clampedOffset != b.offset
+	if displayClamped {
+		b.setDisplayedOffset(clampedOffset)
+	}
+	if b.offsetTransition != nil && (displayClamped || oldTarget != b.target) {
+		b.offsetTransition.SetValue(clampedOffset)
+		if b.Smooth() && clampedOffset != b.target {
+			b.offsetTransition.SetTarget(b.target)
+		}
+	}
 }
 
 func (b *Scroll) measureChild(child Box, width, height int) {
@@ -1942,11 +1979,11 @@ func (b *Scroll) Draw(canvas *Canvas) {
 	clipped := canvas.Clip(b.InsetLeft(), b.InsetTop(), width, height)
 	child := b.children[0]
 	layout := child.Base().layoutBox
-	child.Draw(clipped.Offset(layout.X-b.offsetX, layout.Y-b.offsetY))
+	child.Draw(clipped.Offset(layout.X-b.offset.X, layout.Y-b.offset.Y))
 }
 
 func (b *Scroll) ScrollOffset() (x, y int) {
-	return b.offsetX, b.offsetY
+	return b.offset.X, b.offset.Y
 }
 
 func (b *Scroll) ScrollRange() (maxX, maxY int) {
@@ -1958,7 +1995,7 @@ func (b *Scroll) ScrollTo(x, y int) {
 }
 
 func (b *Scroll) ScrollBy(dx, dy int) {
-	b.scrollTo(b.offsetX+dx, b.offsetY+dy)
+	b.scrollTo(b.target.X+dx, b.target.Y+dy)
 }
 
 func (b *Scroll) scrollTo(x, y int) bool {
@@ -1968,17 +2005,66 @@ func (b *Scroll) scrollTo(x, y int) bool {
 	if !b.scrollsVertically() {
 		y = 0
 	}
-	x = min(max(0, x), b.maxX)
-	y = min(max(0, y), b.maxY)
-	if x == b.offsetX && y == b.offsetY {
+	target := (_ScrollPosition{X: x, Y: y}).clamp(b.maxX, b.maxY)
+	if target == b.target {
 		return false
 	}
-	b.offsetX, b.offsetY = x, y
+	b.target = target
+	if b.offsetTransition != nil {
+		b.offsetTransition.SetTarget(target)
+	} else {
+		b.setDisplayedOffset(target)
+	}
+	return true
+}
+
+func (b *Scroll) Smooth() bool {
+	return b.offsetTransition != nil
+}
+
+func (b *Scroll) SetSmooth(smooth bool) {
+	if b.Smooth() == smooth {
+		return
+	}
+	if smooth {
+		b.offsetTransition = b.newScrollTransition()
+	} else {
+		b.offsetTransition.SetValue(b.target)
+		b.offsetTransition = nil
+	}
+}
+
+func (b *Scroll) newScrollTransition() *Transition[_ScrollPosition] {
+	return b.document.NewTransition(
+		b.offset,
+		TransitionOptions[_ScrollPosition]{
+			Duration: scrollSmoothDuration,
+			Easing:   EaseOut,
+			Animator: func(from, to _ScrollPosition) func(float64) _ScrollPosition {
+				x := NumberAnimator(float64(from.X), float64(to.X))
+				y := NumberAnimator(float64(from.Y), float64(to.Y))
+				return func(progress float64) _ScrollPosition {
+					return _ScrollPosition{
+						X: int(math.Round(x(progress))),
+						Y: int(math.Round(y(progress))),
+					}
+				}
+			},
+			OnUpdate: b.setDisplayedOffset,
+		},
+	)
+}
+
+func (b *Scroll) setDisplayedOffset(position _ScrollPosition) {
+	position = position.clamp(b.maxX, b.maxY)
+	if position == b.offset {
+		return
+	}
+	b.offset = position
 	if b.document != nil {
 		b.document.RequestPaint()
 	}
-	b.Dispatch(ScrollChange, ScrollChangeArgs{X: x, Y: y})
-	return true
+	b.Dispatch(ScrollChange, ScrollChangeArgs{X: position.X, Y: position.Y})
 }
 
 func (b *Scroll) handleStickDown(event *Event) {
@@ -1995,7 +2081,7 @@ func (b *Scroll) handleStickDown(event *Event) {
 	default:
 		return
 	}
-	if b.scrollTo(b.offsetX+dx, b.offsetY+dy) {
+	if b.scrollTo(b.target.X+dx, b.target.Y+dy) {
 		event.StopPropagation()
 	}
 }

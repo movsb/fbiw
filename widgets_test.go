@@ -1273,8 +1273,8 @@ func TestScrollSmoothTransitionAndRetarget(t *testing.T) {
 	}
 
 	scroll.ScrollTo(0, 20)
-	if scroll.targetY != 20 || scroll.offsetTransition == nil || scroll.offsetTransition.cancel == nil {
-		t.Fatalf(`smooth target was not scheduled: target=%d transition=%+v`, scroll.targetY, scroll.offsetTransition)
+	if scroll.target.Y != 20 || scroll.offsetTransition == nil || scroll.offsetTransition.cancel == nil {
+		t.Fatalf(`smooth target was not scheduled: target=%+v transition=%+v`, scroll.target, scroll.offsetTransition)
 	}
 	if x, y := scroll.ScrollOffset(); x != 0 || y != 0 {
 		t.Fatalf(`smooth scroll jumped immediately to (%d,%d)`, x, y)
@@ -1287,8 +1287,8 @@ func TestScrollSmoothTransitionAndRetarget(t *testing.T) {
 
 	// ScrollBy 基于累计目标 20，而不是当前显示位置 15，因此新目标是 10。
 	scroll.ScrollBy(0, -10)
-	if scroll.targetY != 10 {
-		t.Fatalf(`retargeted y = %d, want 10`, scroll.targetY)
+	if scroll.target.Y != 10 {
+		t.Fatalf(`retargeted y = %d, want 10`, scroll.target.Y)
 	}
 	clock.now = clock.now.Add(scrollSmoothDuration / 2)
 	animationStep(app)
