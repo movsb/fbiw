@@ -216,6 +216,7 @@ type Renderer struct {
 	maskColor          int32
 	maskAlphaMode      int32
 	maskTextures       map[maskCacheKey]uint32
+	imageTextures      map[imageCacheKey]imageTexture
 }
 
 type maskCacheKey struct {
@@ -224,6 +225,19 @@ type maskCacheKey struct {
 }
 
 const maxCachedMasks = 4096
+
+type imageCacheKey struct {
+	pixels                uintptr
+	length, width, height int
+	opaque                bool
+}
+
+type imageTexture struct {
+	id     uint32
+	pixels []byte
+}
+
+const maxCachedImages = 256
 
 func (r *Renderer) Size() (int, int) { return r.width, r.height }
 func (*Renderer) BeginFrame()        {}
@@ -305,19 +319,8 @@ func (r *Renderer) DrawImage(img canvas.Image, src image.Rectangle, dst image.Po
 		return
 	}
 
-	var texture uint32
-	r.api.genTextures(1, &texture)
-	if texture == 0 {
-		panic("glGenTextures returned 0")
-	}
-	defer r.api.deleteTextures(1, &texture)
+	texture := r.imageTexture(img)
 	r.api.bindTexture(glTexture2D, texture)
-	r.api.texParameteri(glTexture2D, glTextureMinFilter, glNearest)
-	r.api.texParameteri(glTexture2D, glTextureMagFilter, glNearest)
-	r.api.texParameteri(glTexture2D, glTextureWrapS, glClampToEdge)
-	r.api.texParameteri(glTexture2D, glTextureWrapT, glClampToEdge)
-	r.api.texImage2D(glTexture2D, 0, glRGBA, int32(img.Width), int32(img.Height), 0, glRGBA, glUnsignedByte, uintptr(unsafe.Pointer(&img.Pixels[0])))
-	runtime.KeepAlive(img.Pixels)
 
 	r.api.disable(glScissorTest)
 	r.api.useProgram(r.textureProgram)
@@ -345,6 +348,44 @@ func (r *Renderer) DrawImage(img canvas.Image, src image.Rectangle, dst image.Po
 		r.api.drawArrays(glTriangleStrip, 0, 4)
 		r.api.colorMask(1, 1, 1, 1)
 		r.api.uniform1i(r.textureAlphaMode, 0)
+	}
+}
+
+func (r *Renderer) imageTexture(img canvas.Image) uint32 {
+	key := imageCacheKey{
+		pixels: uintptr(unsafe.Pointer(&img.Pixels[0])),
+		length: len(img.Pixels),
+		width:  img.Width,
+		height: img.Height,
+		opaque: img.Opaque,
+	}
+	if texture, ok := r.imageTextures[key]; ok {
+		return texture.id
+	}
+	if len(r.imageTextures) >= maxCachedImages {
+		r.releaseImageTextures()
+	}
+	var texture uint32
+	r.api.genTextures(1, &texture)
+	if texture == 0 {
+		panic("glGenTextures returned 0")
+	}
+	r.api.bindTexture(glTexture2D, texture)
+	r.api.texParameteri(glTexture2D, glTextureMinFilter, glNearest)
+	r.api.texParameteri(glTexture2D, glTextureMagFilter, glNearest)
+	r.api.texParameteri(glTexture2D, glTextureWrapS, glClampToEdge)
+	r.api.texParameteri(glTexture2D, glTextureWrapT, glClampToEdge)
+	r.api.texImage2D(glTexture2D, 0, glRGBA, int32(img.Width), int32(img.Height), 0, glRGBA, glUnsignedByte, key.pixels)
+	runtime.KeepAlive(img.Pixels)
+	r.imageTextures[key] = imageTexture{id: texture, pixels: img.Pixels}
+	return texture
+}
+
+func (r *Renderer) releaseImageTextures() {
+	for key, texture := range r.imageTextures {
+		id := texture.id
+		r.api.deleteTextures(1, &id)
+		delete(r.imageTextures, key)
 	}
 }
 func (*Renderer) DrawImageTransformed(canvas.Image, float64, float64, float64, float64, image.Rectangle) {
@@ -708,6 +749,7 @@ func (r *Renderer) initMaskPipeline() error {
 
 func (r *Renderer) releaseGLResources() {
 	r.releaseMaskTextures()
+	r.releaseImageTextures()
 	if r.quadBuffer != 0 {
 		r.api.deleteBuffers(1, &r.quadBuffer)
 		r.quadBuffer = 0
@@ -830,6 +872,7 @@ func Open() (_ *Renderer, err error) {
 		eglMinor:       minor,
 		closeLibraries: closeLibraries,
 		maskTextures:   make(map[maskCacheKey]uint32),
+		imageTextures:  make(map[imageCacheKey]imageTexture),
 	}
 	if err = renderer.initColorPipeline(); err != nil {
 		return nil, err
@@ -885,6 +928,11 @@ func RunProbe() error {
 		}
 	}
 	r.DrawImage(probeImage, image.Rect(20, 10, 150, 110), image.Pt(650, 160), image.Rect(680, 180, 790, 250))
+	cachedImages := len(r.imageTextures)
+	r.DrawImage(probeImage, image.Rect(0, 0, 80, 60), image.Pt(820, 160), bounds)
+	if len(r.imageTextures) != cachedImages {
+		return errors.New("GLES image texture cache missed identical storage")
+	}
 	maskWidth, maskHeight := 127, 96
 	probeMask := make([]byte, maskWidth*maskHeight)
 	for y := 0; y < maskHeight; y++ {
