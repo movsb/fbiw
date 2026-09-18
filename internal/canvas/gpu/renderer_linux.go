@@ -55,6 +55,8 @@ const (
 	glUnsignedByte       = 0x1401
 	glSrcAlpha           = 0x0302
 	glOneMinusSrcAlpha   = 0x0303
+	glAlpha              = 0x1906
+	glUnpackAlignment    = 0x0cf5
 )
 
 type api struct {
@@ -111,6 +113,7 @@ type api struct {
 	texParameteri       func(uint32, uint32, int32)
 	texImage2D          func(uint32, int32, int32, int32, int32, int32, uint32, uint32, uintptr)
 	colorMask           func(uint8, uint8, uint8, uint8)
+	pixelStorei         func(uint32, int32)
 }
 
 func loadAPI() (*api, func(), error) {
@@ -178,6 +181,7 @@ func loadAPI() (*api, func(), error) {
 	purego.RegisterLibFunc(&a.texParameteri, gles, "glTexParameteri")
 	purego.RegisterLibFunc(&a.texImage2D, gles, "glTexImage2D")
 	purego.RegisterLibFunc(&a.colorMask, gles, "glColorMask")
+	purego.RegisterLibFunc(&a.pixelStorei, gles, "glPixelStorei")
 	return a, closeLibraries, nil
 }
 
@@ -202,6 +206,14 @@ type Renderer struct {
 	textureUVRect      int32
 	textureSampler     int32
 	textureAlphaMode   int32
+	maskProgram        uint32
+	maskPosition       int32
+	maskRect           int32
+	maskViewport       int32
+	maskUVRect         int32
+	maskSampler        int32
+	maskColor          int32
+	maskAlphaMode      int32
 }
 
 func (r *Renderer) Size() (int, int) { return r.width, r.height }
@@ -329,8 +341,53 @@ func (r *Renderer) DrawImage(img canvas.Image, src image.Rectangle, dst image.Po
 func (*Renderer) DrawImageTransformed(canvas.Image, float64, float64, float64, float64, image.Rectangle) {
 	panic("GLES renderer图片变换尚未实现")
 }
-func (*Renderer) DrawMask([]byte, int, int, image.Point, image.Rectangle, canvas.Color) {
-	panic("GLES renderer字形纹理尚未实现")
+func (r *Renderer) DrawMask(mask []byte, mw, mh int, dst image.Point, clip image.Rectangle, fill canvas.Color) {
+	if mw <= 0 || mh <= 0 || len(mask) < mw*mh {
+		return
+	}
+	visible := image.Rect(dst.X, dst.Y, dst.X+mw, dst.Y+mh).Intersect(clip).Intersect(image.Rect(0, 0, r.width, r.height))
+	if visible.Empty() {
+		return
+	}
+	sx, sy := visible.Min.X-dst.X, visible.Min.Y-dst.Y
+
+	var texture uint32
+	r.api.genTextures(1, &texture)
+	if texture == 0 {
+		panic("glGenTextures returned 0")
+	}
+	defer r.api.deleteTextures(1, &texture)
+	r.api.bindTexture(glTexture2D, texture)
+	r.api.texParameteri(glTexture2D, glTextureMinFilter, glNearest)
+	r.api.texParameteri(glTexture2D, glTextureMagFilter, glNearest)
+	r.api.texParameteri(glTexture2D, glTextureWrapS, glClampToEdge)
+	r.api.texParameteri(glTexture2D, glTextureWrapT, glClampToEdge)
+	r.api.texImage2D(glTexture2D, 0, glAlpha, int32(mw), int32(mh), 0, glAlpha, glUnsignedByte, uintptr(unsafe.Pointer(&mask[0])))
+	runtime.KeepAlive(mask)
+
+	r.api.disable(glScissorTest)
+	r.api.useProgram(r.maskProgram)
+	r.api.uniform4f(r.maskRect, float32(visible.Min.X), float32(visible.Min.Y), float32(visible.Dx()), float32(visible.Dy()))
+	r.api.uniform4f(r.maskUVRect, float32(sx)/float32(mw), float32(sy)/float32(mh), float32(visible.Dx())/float32(mw), float32(visible.Dy())/float32(mh))
+	r.api.uniform4f(r.maskColor, float32(fill.R())/255, float32(fill.G())/255, float32(fill.B())/255, 1)
+	r.api.uniform1i(r.maskSampler, 0)
+	r.api.bindBuffer(glArrayBuffer, r.quadBuffer)
+	r.api.enableVertexAttrib(uint32(r.maskPosition))
+	r.api.vertexAttribPointer(uint32(r.maskPosition), 2, glFloat, 0, 0, 0)
+
+	// Coverage blends RGB; a second alpha-only pass matches the CPU rule that
+	// every non-zero mask pixel makes the destination alpha opaque.
+	r.api.colorMask(1, 1, 1, 0)
+	r.api.enable(glBlend)
+	r.api.blendFuncSeparate(glSrcAlpha, glOneMinusSrcAlpha, glOne, glZero)
+	r.api.uniform1i(r.maskAlphaMode, 0)
+	r.api.drawArrays(glTriangleStrip, 0, 4)
+	r.api.colorMask(0, 0, 0, 1)
+	r.api.disable(glBlend)
+	r.api.uniform1i(r.maskAlphaMode, 1)
+	r.api.drawArrays(glTriangleStrip, 0, 4)
+	r.api.colorMask(1, 1, 1, 1)
+	r.api.uniform1i(r.maskAlphaMode, 0)
 }
 func (*Renderer) Pixel(image.Point) color.NRGBA { panic("GLES renderer单像素读取尚未实现") }
 func (*Renderer) SetPixel(image.Point, color.NRGBA) {
@@ -380,6 +437,22 @@ void main() {
 		gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
 	} else {
 		gl_FragColor = color;
+	}
+}`
+
+const maskFragmentShader = `
+precision mediump float;
+uniform sampler2D u_texture;
+uniform vec4 u_color;
+uniform int u_alpha_only;
+varying vec2 v_uv;
+void main() {
+	float coverage = texture2D(u_texture, v_uv).a;
+	if (coverage == 0.0) discard;
+	if (u_alpha_only != 0) {
+		gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
+	} else {
+		gl_FragColor = vec4(u_color.rgb, coverage);
 	}
 }`
 
@@ -547,6 +620,63 @@ func (r *Renderer) initTexturePipeline() error {
 	return nil
 }
 
+func (r *Renderer) initMaskPipeline() error {
+	vertex, err := compileShader(r.api, glVertexShader, textureVertexShader)
+	if err != nil {
+		return err
+	}
+	defer r.api.deleteShader(vertex)
+	fragment, err := compileShader(r.api, glFragmentShader, maskFragmentShader)
+	if err != nil {
+		return err
+	}
+	defer r.api.deleteShader(fragment)
+
+	program := r.api.createProgram()
+	if program == 0 {
+		return errors.New("glCreateProgram returned 0")
+	}
+	r.api.attachShader(program, vertex)
+	r.api.attachShader(program, fragment)
+	r.api.linkProgram(program)
+	var linked int32
+	r.api.getProgramiv(program, glLinkStatus, &linked)
+	if linked == 0 {
+		log := programLog(r.api, program)
+		r.api.deleteProgram(program)
+		return fmt.Errorf("link GLES mask program: %s", log)
+	}
+	r.maskProgram = program
+
+	positionName, rectName := glName("a_position"), glName("u_rect")
+	viewportName, uvRectName := glName("u_viewport"), glName("u_uv_rect")
+	samplerName, colorName := glName("u_texture"), glName("u_color")
+	alphaModeName := glName("u_alpha_only")
+	r.maskPosition = r.api.getAttribLocation(program, &positionName[0])
+	r.maskRect = r.api.getUniformLocation(program, &rectName[0])
+	r.maskViewport = r.api.getUniformLocation(program, &viewportName[0])
+	r.maskUVRect = r.api.getUniformLocation(program, &uvRectName[0])
+	r.maskSampler = r.api.getUniformLocation(program, &samplerName[0])
+	r.maskColor = r.api.getUniformLocation(program, &colorName[0])
+	r.maskAlphaMode = r.api.getUniformLocation(program, &alphaModeName[0])
+	if r.maskPosition < 0 || r.maskRect < 0 || r.maskViewport < 0 || r.maskUVRect < 0 || r.maskSampler < 0 || r.maskColor < 0 || r.maskAlphaMode < 0 {
+		r.api.deleteProgram(program)
+		r.maskProgram = 0
+		return errors.New("GLES mask shader locations unavailable")
+	}
+	r.api.useProgram(program)
+	r.api.uniform2f(r.maskViewport, float32(r.width), float32(r.height))
+	r.api.uniform1i(r.maskSampler, 0)
+	r.api.uniform1i(r.maskAlphaMode, 0)
+	r.api.pixelStorei(glUnpackAlignment, 1)
+	if code := r.api.glGetError(); code != glNoError {
+		r.api.deleteProgram(program)
+		r.maskProgram = 0
+		return fmt.Errorf("initialize GLES mask pipeline: 0x%x", code)
+	}
+	return nil
+}
+
 func (r *Renderer) releaseGLResources() {
 	if r.quadBuffer != 0 {
 		r.api.deleteBuffers(1, &r.quadBuffer)
@@ -555,6 +685,10 @@ func (r *Renderer) releaseGLResources() {
 	if r.textureProgram != 0 {
 		r.api.deleteProgram(r.textureProgram)
 		r.textureProgram = 0
+	}
+	if r.maskProgram != 0 {
+		r.api.deleteProgram(r.maskProgram)
+		r.maskProgram = 0
 	}
 	if r.colorProgram != 0 {
 		r.api.deleteProgram(r.colorProgram)
@@ -673,6 +807,10 @@ func Open() (_ *Renderer, err error) {
 		renderer.releaseGLResources()
 		return nil, err
 	}
+	if err = renderer.initMaskPipeline(); err != nil {
+		renderer.releaseGLResources()
+		return nil, err
+	}
 	return renderer, nil
 }
 
@@ -716,6 +854,18 @@ func RunProbe() error {
 		}
 	}
 	r.DrawImage(probeImage, image.Rect(20, 10, 150, 110), image.Pt(650, 160), image.Rect(680, 180, 790, 250))
+	maskWidth, maskHeight := 127, 96
+	probeMask := make([]byte, maskWidth*maskHeight)
+	for y := 0; y < maskHeight; y++ {
+		for x := 0; x < maskWidth; x++ {
+			dx, dy := x-maskWidth/2, y-maskHeight/2
+			distance := dx*dx + dy*dy
+			if distance < 42*42 {
+				probeMask[y*maskWidth+x] = uint8(min(255, (42*42-distance)/4))
+			}
+		}
+	}
+	r.DrawMask(probeMask, maskWidth, maskHeight, image.Pt(610, 360), image.Rect(630, 375, 720, 440), canvas.Color(0xffffe050))
 	if code := r.api.glGetError(); code != glNoError {
 		return fmt.Errorf("draw GLES color probe: 0x%x", code)
 	}
