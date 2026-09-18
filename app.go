@@ -558,6 +558,7 @@ func (app *App) AttachAsync() {
 type _FPSCounter struct {
 	start  time.Time
 	frames int
+	fps    float64
 }
 
 func (f *_FPSCounter) Frame() {
@@ -568,11 +569,16 @@ func (f *_FPSCounter) Frame() {
 	f.frames++
 	elapsed := time.Since(f.start)
 	if elapsed >= time.Second {
-		fps := float64(f.frames) / elapsed.Seconds()
+		f.fps = float64(f.frames) / elapsed.Seconds()
 		f.frames = 0
 		f.start = time.Now()
-		log.Printf("帧率: %.1f", fps)
+		log.Printf("帧率: %f", f.fps)
 	}
+}
+
+// 获取实时帧率。
+func (app *App) GetFPS() float64 {
+	return app.fpsCalc.fps
 }
 
 // 真正执行检测是否需要重新布局或重绘的地方。
@@ -641,7 +647,7 @@ func (app *App) sync() {
 
 	// 统计帧率
 	// 意义不大，macOS WindowServer 会锁帧。
-	// app.fpsCalc.Frame()
+	app.fpsCalc.Frame()
 }
 
 // 多桌面空间支持。

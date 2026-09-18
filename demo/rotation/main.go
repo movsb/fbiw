@@ -4,11 +4,20 @@ import (
 	"embed"
 	"image"
 	"image/color"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"time"
 
 	"github.com/movsb/fbiw"
 )
+
+// pprof 性能测试用。
+//
+// go tool pprof -web  http://localhost:8888/debug/pprof/profile?seconds=30
+func init() {
+	go http.ListenAndServe(`0.0.0.0:9999`, nil)
+}
 
 //go:embed main.html
 var embedded embed.FS
@@ -72,6 +81,10 @@ func main() {
 		pictures[selected].Activate()
 		transitions[selected].SetTarget(activeScales[selected])
 	})
-	finite.Rotate(fbiw.RotationOptions{Duration: time.Second, Iterations: 5, Reverse: true})
+	finite.Rotate(fbiw.RotationOptions{Duration: time.Second, Iterations: 0, Reverse: true})
+	doc.SetInterval(time.Second, func() {
+		t := doc.QuerySelector[*fbiw.Text](`#fps`)
+		t.SetTextFormat(`帧率: %f`, app.GetFPS())
+	})
 	app.Run()
 }
