@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"math"
 	"runtime"
 	"unsafe"
 
@@ -217,6 +218,15 @@ type Renderer struct {
 	maskAlphaMode      int32
 	maskTextures       map[maskCacheKey]uint32
 	imageTextures      map[imageCacheKey]imageTexture
+	transformProgram   uint32
+	transformPosition  int32
+	transformRect      int32
+	transformViewport  int32
+	transformCenter    int32
+	transformImageSize int32
+	transformInverse   int32
+	transformSampler   int32
+	transformAlphaMode int32
 }
 
 type maskCacheKey struct {
@@ -321,6 +331,8 @@ func (r *Renderer) DrawImage(img canvas.Image, src image.Rectangle, dst image.Po
 
 	texture := r.imageTexture(img)
 	r.api.bindTexture(glTexture2D, texture)
+	r.api.texParameteri(glTexture2D, glTextureMinFilter, glNearest)
+	r.api.texParameteri(glTexture2D, glTextureMagFilter, glNearest)
 
 	r.api.disable(glScissorTest)
 	r.api.useProgram(r.textureProgram)
@@ -388,8 +400,45 @@ func (r *Renderer) releaseImageTextures() {
 		delete(r.imageTextures, key)
 	}
 }
-func (*Renderer) DrawImageTransformed(canvas.Image, float64, float64, float64, float64, image.Rectangle) {
-	panic("GLES renderer图片变换尚未实现")
+func (r *Renderer) DrawImageTransformed(img canvas.Image, degrees, scale, cx, cy float64, clip image.Rectangle) {
+	if img.Width <= 0 || img.Height <= 0 || len(img.Pixels) < img.Width*img.Height*4 || scale <= 0 {
+		return
+	}
+	sin, cos := math.Sincos(degrees * math.Pi / 180)
+	rx := (math.Abs(cos)*float64(img.Width)+math.Abs(sin)*float64(img.Height))*scale/2 + scale
+	ry := (math.Abs(sin)*float64(img.Width)+math.Abs(cos)*float64(img.Height))*scale/2 + scale
+	visible := image.Rect(int(math.Floor(cx-rx)), int(math.Floor(cy-ry)), int(math.Ceil(cx+rx)), int(math.Ceil(cy+ry)))
+	visible = visible.Intersect(clip).Intersect(image.Rect(0, 0, r.width, r.height))
+	if visible.Empty() {
+		return
+	}
+	sin, cos = sin/scale, cos/scale
+	texture := r.imageTexture(img)
+	r.api.bindTexture(glTexture2D, texture)
+	r.api.texParameteri(glTexture2D, glTextureMinFilter, glNearest)
+	r.api.texParameteri(glTexture2D, glTextureMagFilter, glNearest)
+	r.api.disable(glScissorTest)
+	r.api.useProgram(r.transformProgram)
+	r.api.uniform4f(r.transformRect, float32(visible.Min.X), float32(visible.Min.Y), float32(visible.Dx()), float32(visible.Dy()))
+	r.api.uniform2f(r.transformCenter, float32(cx), float32(cy))
+	r.api.uniform2f(r.transformImageSize, float32(img.Width), float32(img.Height))
+	r.api.uniform4f(r.transformInverse, float32(cos), float32(sin), float32(-sin), float32(cos))
+	r.api.uniform1i(r.transformSampler, 0)
+	r.api.bindBuffer(glArrayBuffer, r.quadBuffer)
+	r.api.enableVertexAttrib(uint32(r.transformPosition))
+	r.api.vertexAttribPointer(uint32(r.transformPosition), 2, glFloat, 0, 0, 0)
+
+	r.api.colorMask(1, 1, 1, 0)
+	r.api.enable(glBlend)
+	r.api.blendFuncSeparate(glSrcAlpha, glOneMinusSrcAlpha, glOne, glZero)
+	r.api.uniform1i(r.transformAlphaMode, 0)
+	r.api.drawArrays(glTriangleStrip, 0, 4)
+	r.api.colorMask(0, 0, 0, 1)
+	r.api.disable(glBlend)
+	r.api.uniform1i(r.transformAlphaMode, 1)
+	r.api.drawArrays(glTriangleStrip, 0, 4)
+	r.api.colorMask(1, 1, 1, 1)
+	r.api.uniform1i(r.transformAlphaMode, 0)
 }
 func (r *Renderer) DrawMask(mask []byte, mw, mh int, dst image.Point, clip image.Rectangle, fill canvas.Color) {
 	if mw <= 0 || mh <= 0 || len(mask) < mw*mh {
@@ -524,6 +573,59 @@ void main() {
 	} else {
 		gl_FragColor = vec4(u_color.rgb, coverage);
 	}
+}`
+
+const transformVertexShader = `
+attribute vec2 a_position;
+uniform vec4 u_rect;
+uniform vec2 u_viewport;
+varying vec2 v_pixel;
+void main() {
+	v_pixel = u_rect.xy + a_position * u_rect.zw;
+	vec2 clip = v_pixel / u_viewport * 2.0 - 1.0;
+	gl_Position = vec4(clip.x, -clip.y, 0.0, 1.0);
+}`
+
+const transformFragmentShader = `
+precision highp float;
+uniform sampler2D u_texture;
+uniform vec2 u_center;
+uniform vec2 u_image_size;
+uniform vec4 u_inverse;
+uniform int u_alpha_only;
+varying vec2 v_pixel;
+
+vec4 sourcePixel(vec2 pixel) {
+	if (pixel.x < 0.0 || pixel.y < 0.0 || pixel.x >= u_image_size.x || pixel.y >= u_image_size.y) {
+		return vec4(0.0);
+	}
+	return texture2D(u_texture, (pixel + 0.5) / u_image_size).bgra;
+}
+
+void main() {
+	vec2 delta = v_pixel - u_center;
+	vec2 source = vec2(
+		u_inverse.x * delta.x + u_inverse.y * delta.y,
+		u_inverse.z * delta.x + u_inverse.w * delta.y
+	) + u_image_size * 0.5 - 0.5;
+	vec2 base = floor(source);
+	vec2 fraction = source - base;
+	vec4 c00 = sourcePixel(base);
+	vec4 c10 = sourcePixel(base + vec2(1.0, 0.0));
+	vec4 c01 = sourcePixel(base + vec2(0.0, 1.0));
+	vec4 c11 = sourcePixel(base + vec2(1.0, 1.0));
+	float w00 = (1.0 - fraction.x) * (1.0 - fraction.y);
+	float w10 = fraction.x * (1.0 - fraction.y);
+	float w01 = (1.0 - fraction.x) * fraction.y;
+	float w11 = fraction.x * fraction.y;
+	float alpha = c00.a*w00 + c10.a*w10 + c01.a*w01 + c11.a*w11;
+	if (alpha <= 0.0) discard;
+	if (u_alpha_only != 0) {
+		gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
+		return;
+	}
+	vec3 premultiplied = c00.rgb*c00.a*w00 + c10.rgb*c10.a*w10 + c01.rgb*c01.a*w01 + c11.rgb*c11.a*w11;
+	gl_FragColor = vec4(premultiplied / alpha, alpha);
 }`
 
 func shaderLog(a *api, shader uint32) string {
@@ -747,6 +849,61 @@ func (r *Renderer) initMaskPipeline() error {
 	return nil
 }
 
+func (r *Renderer) initTransformPipeline() error {
+	vertex, err := compileShader(r.api, glVertexShader, transformVertexShader)
+	if err != nil {
+		return err
+	}
+	defer r.api.deleteShader(vertex)
+	fragment, err := compileShader(r.api, glFragmentShader, transformFragmentShader)
+	if err != nil {
+		return err
+	}
+	defer r.api.deleteShader(fragment)
+	program := r.api.createProgram()
+	if program == 0 {
+		return errors.New("glCreateProgram returned 0")
+	}
+	r.api.attachShader(program, vertex)
+	r.api.attachShader(program, fragment)
+	r.api.linkProgram(program)
+	var linked int32
+	r.api.getProgramiv(program, glLinkStatus, &linked)
+	if linked == 0 {
+		log := programLog(r.api, program)
+		r.api.deleteProgram(program)
+		return fmt.Errorf("link GLES transform program: %s", log)
+	}
+	r.transformProgram = program
+	positionName, rectName := glName("a_position"), glName("u_rect")
+	viewportName, centerName := glName("u_viewport"), glName("u_center")
+	imageSizeName, inverseName := glName("u_image_size"), glName("u_inverse")
+	samplerName, alphaModeName := glName("u_texture"), glName("u_alpha_only")
+	r.transformPosition = r.api.getAttribLocation(program, &positionName[0])
+	r.transformRect = r.api.getUniformLocation(program, &rectName[0])
+	r.transformViewport = r.api.getUniformLocation(program, &viewportName[0])
+	r.transformCenter = r.api.getUniformLocation(program, &centerName[0])
+	r.transformImageSize = r.api.getUniformLocation(program, &imageSizeName[0])
+	r.transformInverse = r.api.getUniformLocation(program, &inverseName[0])
+	r.transformSampler = r.api.getUniformLocation(program, &samplerName[0])
+	r.transformAlphaMode = r.api.getUniformLocation(program, &alphaModeName[0])
+	if r.transformPosition < 0 || r.transformRect < 0 || r.transformViewport < 0 || r.transformCenter < 0 || r.transformImageSize < 0 || r.transformInverse < 0 || r.transformSampler < 0 || r.transformAlphaMode < 0 {
+		r.api.deleteProgram(program)
+		r.transformProgram = 0
+		return errors.New("GLES transform shader locations unavailable")
+	}
+	r.api.useProgram(program)
+	r.api.uniform2f(r.transformViewport, float32(r.width), float32(r.height))
+	r.api.uniform1i(r.transformSampler, 0)
+	r.api.uniform1i(r.transformAlphaMode, 0)
+	if code := r.api.glGetError(); code != glNoError {
+		r.api.deleteProgram(program)
+		r.transformProgram = 0
+		return fmt.Errorf("initialize GLES transform pipeline: 0x%x", code)
+	}
+	return nil
+}
+
 func (r *Renderer) releaseGLResources() {
 	r.releaseMaskTextures()
 	r.releaseImageTextures()
@@ -761,6 +918,10 @@ func (r *Renderer) releaseGLResources() {
 	if r.maskProgram != 0 {
 		r.api.deleteProgram(r.maskProgram)
 		r.maskProgram = 0
+	}
+	if r.transformProgram != 0 {
+		r.api.deleteProgram(r.transformProgram)
+		r.transformProgram = 0
 	}
 	if r.colorProgram != 0 {
 		r.api.deleteProgram(r.colorProgram)
@@ -885,6 +1046,10 @@ func Open() (_ *Renderer, err error) {
 		renderer.releaseGLResources()
 		return nil, err
 	}
+	if err = renderer.initTransformPipeline(); err != nil {
+		renderer.releaseGLResources()
+		return nil, err
+	}
 	return renderer, nil
 }
 
@@ -933,6 +1098,7 @@ func RunProbe() error {
 	if len(r.imageTextures) != cachedImages {
 		return errors.New("GLES image texture cache missed identical storage")
 	}
+	r.DrawImageTransformed(probeImage, 28, 1.35, 850, 390, image.Rect(730, 270, 970, 510))
 	maskWidth, maskHeight := 127, 96
 	probeMask := make([]byte, maskWidth*maskHeight)
 	for y := 0; y < maskHeight; y++ {
