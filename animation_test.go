@@ -388,8 +388,7 @@ func TestAnimationSyncPaintBatch(t *testing.T) {
 		}
 	}
 	doc.root = b
-	app.canvas = NewCanvas(1, 1)
-	app.display = &_Display1{&syncs}
+	app.setDisplay(&_Display1{&syncs})
 	doc.RequestAnimationFrame(func(time.Time) { state++; doc.RequestLayout() })
 	doc.RequestAnimationFrame(func(time.Time) { state++; doc.RequestLayout() })
 	f.now = f.now.Add(animationFrameInterval)

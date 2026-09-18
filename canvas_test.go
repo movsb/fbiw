@@ -8,6 +8,7 @@ import (
 	"testing"
 	"testing/fstest"
 
+	canvascore "github.com/movsb/fbiw/internal/canvas"
 	"golang.org/x/image/font/gofont/goregular"
 )
 
@@ -21,27 +22,29 @@ type recordingCanvasRenderer struct {
 }
 
 func testSoftwareCanvas(width, height int, pixels []byte, x, y int) Canvas {
-	c := *newCanvas(&softwareRenderer{width: width, height: height, buffer: pixels})
+	c := *newCanvas(&softwareRenderer{Width: width, Height: height, Pixels: pixels})
 	c.x, c.y = x, y
 	return c
 }
 
-func (r *recordingCanvasRenderer) size() (int, int) { return r.width, r.height }
-func (*recordingCanvasRenderer) clear()             {}
-func (r *recordingCanvasRenderer) fillRect(rect, clip image.Rectangle, _ Color) {
+func (r *recordingCanvasRenderer) Size() (int, int) { return r.width, r.height }
+func (*recordingCanvasRenderer) BeginFrame()        {}
+func (*recordingCanvasRenderer) EndFrame()          {}
+func (*recordingCanvasRenderer) Clear()             {}
+func (r *recordingCanvasRenderer) FillRect(rect, clip image.Rectangle, _ canvascore.Color) {
 	r.fillRectRect, r.fillRectClip = rect, clip
 }
-func (r *recordingCanvasRenderer) drawImage(_ DecodedImage, src image.Rectangle, dst image.Point, clip image.Rectangle) {
+func (r *recordingCanvasRenderer) DrawImage(_ canvascore.Image, src image.Rectangle, dst image.Point, clip image.Rectangle) {
 	r.imageSrc, r.imageDst, r.imageClip = src, dst, clip
 }
-func (*recordingCanvasRenderer) drawImageTransformed(DecodedImage, float64, float64, float64, float64, image.Rectangle) {
+func (*recordingCanvasRenderer) DrawImageTransformed(canvascore.Image, float64, float64, float64, float64, image.Rectangle) {
 }
-func (*recordingCanvasRenderer) drawMask([]byte, int, int, image.Point, image.Rectangle, Color) {
+func (*recordingCanvasRenderer) DrawMask([]byte, int, int, image.Point, image.Rectangle, canvascore.Color) {
 }
-func (*recordingCanvasRenderer) pixel(image.Point) color.NRGBA { return color.NRGBA{} }
-func (*recordingCanvasRenderer) setPixel(image.Point, color.NRGBA) {
+func (*recordingCanvasRenderer) Pixel(image.Point) color.NRGBA { return color.NRGBA{} }
+func (*recordingCanvasRenderer) SetPixel(image.Point, color.NRGBA) {
 }
-func (r *recordingCanvasRenderer) snapshot() image.Image {
+func (r *recordingCanvasRenderer) Snapshot() image.Image {
 	return image.NewNRGBA(image.Rect(0, 0, r.width, r.height))
 }
 

@@ -29,121 +29,15 @@ import (
 	_ "image/jpeg"
 
 	_ "golang.org/x/image/webp"
+
+	canvascore "github.com/movsb/fbiw/internal/canvas"
+	canvascpu "github.com/movsb/fbiw/internal/canvas/cpu"
 )
 
-// canvasRenderer is the device-independent boundary behind Canvas. Canvas owns
-// coordinate translation and clipping; implementations own pixel production.
-// It is intentionally private while the GLES backend is still being designed.
-type canvasRenderer interface {
-	size() (int, int)
-	clear()
-	fillRect(rect, clip image.Rectangle, color Color)
-	drawImage(img DecodedImage, src image.Rectangle, dst image.Point, clip image.Rectangle)
-	drawImageTransformed(img DecodedImage, degrees, scale, cx, cy float64, clip image.Rectangle)
-	drawMask(mask []byte, maskWidth, maskHeight int, dst image.Point, clip image.Rectangle, color Color)
-	pixel(point image.Point) color.NRGBA
-	setPixel(point image.Point, color color.NRGBA)
-	snapshot() image.Image
-}
+type canvasRenderer = canvascore.Renderer
+type softwareRenderer = canvascpu.Renderer
 
-// softwareRenderer keeps the existing BGRA8888 framebuffer representation.
-type softwareRenderer struct {
-	width, height int
-	buffer        []byte
-}
-
-func newSoftwareRenderer(width, height int) *softwareRenderer {
-	return &softwareRenderer{
-		width:  width,
-		height: height,
-		buffer: make([]byte, width*height*4),
-	}
-}
-
-func (r *softwareRenderer) size() (int, int) { return r.width, r.height }
-
-func (r *softwareRenderer) canvasAt(dst image.Point, clip image.Rectangle) *Canvas {
-	return &Canvas{
-		renderer: r,
-		x:        dst.X,
-		y:        dst.Y,
-		width:    r.width,
-		height:   r.height,
-		clip:     clip,
-	}
-}
-
-func (r *softwareRenderer) clear() { clear(r.buffer) }
-
-func (r *softwareRenderer) fillRect(rect, _ image.Rectangle, color Color) {
-	r.canvasAt(image.Point{}, image.Rect(0, 0, r.width, r.height)).
-		fillRectSoftware(rect.Min.X, rect.Min.Y, rect.Max.X, rect.Max.Y, color)
-}
-
-func (r *softwareRenderer) drawImage(img DecodedImage, src image.Rectangle, dst image.Point, clip image.Rectangle) {
-	r.canvasAt(dst, clip).drawImage5RegionSoftware(img, src.Min.X, src.Min.Y, src.Dx(), src.Dy())
-}
-
-func (r *softwareRenderer) drawImageTransformed(img DecodedImage, degrees, scale, cx, cy float64, clip image.Rectangle) {
-	r.canvasAt(image.Point{}, clip).drawImageTransformedCenterSoftware(img, degrees, scale, cx, cy)
-}
-
-func (r *softwareRenderer) drawMask(mask []byte, maskWidth, maskHeight int, dst image.Point, clip image.Rectangle, color Color) {
-	visible := image.Rect(dst.X, dst.Y, dst.X+maskWidth, dst.Y+maskHeight).
-		Intersect(clip).
-		Intersect(image.Rect(0, 0, r.width, r.height))
-	if visible.Empty() {
-		return
-	}
-
-	colorB, colorG, colorR := uint32(color.B()), uint32(color.G()), uint32(color.R())
-	for y := visible.Min.Y; y < visible.Max.Y; y++ {
-		maskY := y - dst.Y
-		maskRow := mask[maskY*maskWidth : maskY*maskWidth+maskWidth]
-		dstOffset := (y*r.width + visible.Min.X) * 4
-		dstRow := r.buffer[dstOffset : dstOffset+visible.Dx()*4]
-		for x := visible.Min.X; x < visible.Max.X; x++ {
-			alpha := uint32(maskRow[x-dst.X])
-			if alpha == 0 {
-				continue
-			}
-			pixel := dstRow[(x-visible.Min.X)*4:][:4]
-			if alpha == 255 {
-				pixel[0], pixel[1], pixel[2], pixel[3] = byte(colorB), byte(colorG), byte(colorR), 255
-				continue
-			}
-			inverted := uint32(255) - alpha
-			pixel[0] = div255(colorB*alpha + uint32(pixel[0])*inverted)
-			pixel[1] = div255(colorG*alpha + uint32(pixel[1])*inverted)
-			pixel[2] = div255(colorR*alpha + uint32(pixel[2])*inverted)
-			pixel[3] = 255
-		}
-	}
-}
-
-func (r *softwareRenderer) pixel(point image.Point) color.NRGBA {
-	offset := (point.Y*r.width + point.X) * 4
-	p := r.buffer[offset:]
-	return color.NRGBA{R: p[2], G: p[1], B: p[0], A: p[3]}
-}
-
-func (r *softwareRenderer) setPixel(point image.Point, color color.NRGBA) {
-	offset := (point.Y*r.width + point.X) * 4
-	p := r.buffer[offset:]
-	p[0], p[1], p[2], p[3] = color.B, color.G, color.R, color.A
-}
-
-func (r *softwareRenderer) snapshot() image.Image {
-	img := image.NewNRGBA(image.Rect(0, 0, r.width, r.height))
-	for y := 0; y < r.height; y++ {
-		for x := 0; x < r.width; x++ {
-			src := r.buffer[(y*r.width+x)*4:]
-			dst := img.Pix[y*img.Stride+x*4:]
-			dst[0], dst[1], dst[2], dst[3] = src[2], src[1], src[0], src[3]
-		}
-	}
-	return img
-}
+func newSoftwareRenderer(width, height int) *softwareRenderer { return canvascpu.New(width, height) }
 
 // 绘图层。
 //
@@ -172,7 +66,7 @@ func newCanvas(renderer canvasRenderer) *Canvas {
 	if renderer == nil {
 		panic(`Canvas renderer不能为空`)
 	}
-	width, height := renderer.size()
+	width, height := renderer.Size()
 	if width <= 0 || height <= 0 {
 		panic(`无效Canvas大小`)
 	}
@@ -203,7 +97,10 @@ func (c *Canvas) softwareRenderer() *softwareRenderer {
 
 // softwarePixels is deliberately not part of canvasRenderer: a GPU renderer
 // has no persistent CPU-addressable framebuffer.
-func (c *Canvas) softwarePixels() []byte { return c.softwareRenderer().buffer }
+func (c *Canvas) softwarePixels() []byte { return c.softwareRenderer().Pixels }
+
+func (c *Canvas) beginFrame() { c.rendererBackend().BeginFrame() }
+func (c *Canvas) endFrame()   { c.rendererBackend().EndFrame() }
 
 func (c *Canvas) SaveToFile(path string) {
 	fp, err := os.Create(path)
@@ -211,7 +108,7 @@ func (c *Canvas) SaveToFile(path string) {
 		panic(err)
 	}
 	defer fp.Close()
-	if err := png.Encode(fp, c.rendererBackend().snapshot()); err != nil {
+	if err := png.Encode(fp, c.rendererBackend().Snapshot()); err != nil {
 		panic(err)
 	}
 }
@@ -273,7 +170,7 @@ func (c *Canvas) drawImageRotatedCenter(img DecodedImage, degrees, cx, cy float6
 }
 
 func (c *Canvas) drawImageTransformedCenter(img DecodedImage, degrees, scale, cx, cy float64) {
-	c.rendererBackend().drawImageTransformed(img, degrees, scale, cx, cy, c.clipBounds())
+	c.rendererBackend().DrawImageTransformed(toCanvasImage(img), degrees, scale, cx, cy, c.clipBounds())
 }
 
 func (c *Canvas) drawImageTransformedCenterSoftware(img DecodedImage, degrees, scale, cx, cy float64) {
@@ -338,8 +235,8 @@ func (c *Canvas) DrawImageRegion(img DecodedImage, srcX, srcY, width, height int
 	if width <= 0 || height <= 0 {
 		return
 	}
-	c.rendererBackend().drawImage(
-		img,
+	c.rendererBackend().DrawImage(
+		toCanvasImage(img),
 		image.Rect(srcX, srcY, srcX+width, srcY+height),
 		image.Pt(c.x, c.y),
 		c.clipBounds(),
@@ -506,7 +403,7 @@ func (c *Canvas) drawImage5(img DecodedImage, width, height int) {
 }
 
 func (c *Canvas) drawImage5Region(img DecodedImage, srcX, srcY, width, height int) {
-	c.rendererBackend().drawImage(img, image.Rect(srcX, srcY, srcX+width, srcY+height), image.Pt(c.x, c.y), c.clipBounds())
+	c.rendererBackend().DrawImage(toCanvasImage(img), image.Rect(srcX, srcY, srcX+width, srcY+height), image.Pt(c.x, c.y), c.clipBounds())
 }
 
 func (c *Canvas) drawImage5RegionSoftware(img DecodedImage, srcX, srcY, width, height int) {
@@ -616,7 +513,7 @@ func (c *Canvas) drawImageSIMDRegion(img DecodedImage, srcX, srcY, width, height
 
 func (c *Canvas) getPixel(x, y int) color.NRGBA {
 	xx, yy := c.x+x, c.y+y
-	return c.rendererBackend().pixel(image.Pt(xx, yy))
+	return c.rendererBackend().Pixel(image.Pt(xx, yy))
 }
 
 func (c *Canvas) SetPixel(x, y int, color color.NRGBA) {
@@ -627,7 +524,7 @@ func (c *Canvas) SetPixel(x, y int, color color.NRGBA) {
 		return
 	}
 
-	c.rendererBackend().setPixel(image.Pt(c.x+x, c.y+y), color)
+	c.rendererBackend().SetPixel(image.Pt(c.x+x, c.y+y), color)
 }
 
 func (c *Canvas) FillRect(x, y, width, height int, color Color) {
@@ -660,7 +557,7 @@ func (c *Canvas) FillRect(x, y, width, height int, color Color) {
 		y1 = clip.Max.Y
 	}
 
-	c.rendererBackend().fillRect(image.Rect(x0, y0, x1, y1), clip, color)
+	c.rendererBackend().FillRect(image.Rect(x0, y0, x1, y1), clip, canvascore.Color(color))
 }
 
 func (c *Canvas) fillRectSoftware(x0, y0, x1, y1 int, color Color) {
@@ -895,7 +792,7 @@ func fillAlphaBlend5(c *Canvas, color Color, x0, x1, y0, y1 int) {
 // 清屏。
 // 暂时是简单用黑色清。
 func (c *Canvas) Clear() {
-	c.rendererBackend().clear()
+	c.rendererBackend().Clear()
 }
 
 // 返回包含整个 framebuffer 的 image.Image/draw.Image。
@@ -1077,13 +974,13 @@ func (c *Canvas) drawStringDevice2(text string, faces []*FontFace, color Color) 
 		dstX := dot.X.Round() + int(glyph.OffsetX)
 		dstY := dot.Y.Round() + int(glyph.OffsetY)
 
-		c.rendererBackend().drawMask(
+		c.rendererBackend().DrawMask(
 			glyph.Masks,
 			int(glyph.Width),
 			int(glyph.Height),
 			image.Pt(c.x+dstX, c.y+dstY),
 			clip,
-			color,
+			canvascore.Color(color),
 		)
 
 		dot.X += glyph.Advance
@@ -1106,6 +1003,14 @@ type DecodedImage struct {
 	Pixels        []byte // 内存格式：B G R A，长度：width*height*4
 	Width, Height int    // 如果指定了移除透明像素，则保存的是移除后的大小。
 	Opaque        bool   // 整张图片的 Alpha 是否全部为 255；用于选择直接复制路径。
+}
+
+func toCanvasImage(img DecodedImage) canvascore.Image {
+	return canvascore.Image{
+		Pixels: img.Pixels,
+		Width:  img.Width, Height: img.Height,
+		Opaque: img.Opaque,
+	}
 }
 
 // ImageDecodeOptions 控制图片解码时执行的变换。

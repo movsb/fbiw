@@ -151,7 +151,9 @@ func (app *App) setDisplay(display Display) {
 	if stride != width*4 {
 		panic(`暂时不支持Stride!=Width*4的显示设备。`)
 	}
-	app.canvas = NewCanvas(width, height)
+	renderer := newSoftwareRenderer(width, height)
+	renderer.Present = display.Sync
+	app.canvas = newCanvas(renderer)
 }
 
 func (app *App) Close() {
@@ -591,6 +593,7 @@ func (app *App) sync() {
 	}
 
 	// 0. 预备阶段
+	app.canvas.beginFrame()
 	app.canvas.Clear()
 
 	// 1. 布局覆盖层，以计算安全区域。
@@ -615,7 +618,7 @@ func (app *App) sync() {
 		overlay.sync(app.canvas, false, true)
 	}
 
-	app.display.Sync(app.canvas.softwarePixels())
+	app.canvas.endFrame()
 	app.dirty = false
 	app.overlayChanged = false
 
