@@ -34,8 +34,10 @@ const (
 	glBlend              = 0x0be2
 	glArrayBuffer        = 0x8892
 	glStaticDraw         = 0x88e4
+	glDynamicDraw        = 0x88e8
 	glFloat              = 0x1406
 	glTriangleStrip      = 0x0005
+	glTriangles          = 0x0004
 	glVertexShader       = 0x8b31
 	glFragmentShader     = 0x8b30
 	glCompileStatus      = 0x8b81
@@ -114,6 +116,7 @@ type api struct {
 	bindTexture         func(uint32, uint32)
 	texParameteri       func(uint32, uint32, int32)
 	texImage2D          func(uint32, int32, int32, int32, int32, int32, uint32, uint32, uintptr)
+	texSubImage2D       func(uint32, int32, int32, int32, int32, int32, uint32, uint32, uintptr)
 	colorMask           func(uint8, uint8, uint8, uint8)
 	pixelStorei         func(uint32, int32)
 }
@@ -182,6 +185,7 @@ func loadAPI() (*api, func(), error) {
 	purego.RegisterLibFunc(&a.bindTexture, gles, "glBindTexture")
 	purego.RegisterLibFunc(&a.texParameteri, gles, "glTexParameteri")
 	purego.RegisterLibFunc(&a.texImage2D, gles, "glTexImage2D")
+	purego.RegisterLibFunc(&a.texSubImage2D, gles, "glTexSubImage2D")
 	purego.RegisterLibFunc(&a.colorMask, gles, "glColorMask")
 	purego.RegisterLibFunc(&a.pixelStorei, gles, "glPixelStorei")
 	return a, closeLibraries, nil
@@ -210,13 +214,15 @@ type Renderer struct {
 	textureAlphaMode   int32
 	maskProgram        uint32
 	maskPosition       int32
-	maskRect           int32
+	maskUVPosition     int32
 	maskViewport       int32
-	maskUVRect         int32
 	maskSampler        int32
 	maskColor          int32
 	maskAlphaMode      int32
-	maskTextures       map[maskCacheKey]uint32
+	maskBuffer         uint32
+	maskGlyphs         map[maskCacheKey]maskGlyph
+	maskAtlases        []maskAtlas
+	maskBatch          maskBatch
 	imageTextures      map[imageCacheKey]imageTexture
 	transformProgram   uint32
 	transformPosition  int32
@@ -234,7 +240,26 @@ type maskCacheKey struct {
 	width, height int
 }
 
-const maxCachedMasks = 4096
+type maskGlyph struct {
+	atlas               int
+	x, y, width, height int
+}
+
+type maskAtlas struct {
+	texture         uint32
+	x, y, rowHeight int
+}
+
+type maskBatch struct {
+	atlas    int
+	color    canvas.Color
+	vertices []float32
+}
+
+const (
+	maskAtlasSize  = 1024
+	maxMaskAtlases = 8
+)
 
 type imageCacheKey struct {
 	pixels                uintptr
@@ -252,17 +277,20 @@ const maxCachedImages = 256
 func (r *Renderer) Size() (int, int) { return r.width, r.height }
 func (*Renderer) BeginFrame()        {}
 func (r *Renderer) EndFrame() {
+	r.flushMasks()
 	if r.api.swapBuffers(r.display, r.surface) == eglFalse {
 		panic(fmt.Sprintf("eglSwapBuffers: 0x%x", r.api.getError()))
 	}
 }
 func (r *Renderer) Clear() {
+	r.flushMasks()
 	r.api.disable(glScissorTest)
 	r.api.disable(glBlend)
 	r.api.clearColor(0, 0, 0, 0)
 	r.api.clear(glColorBufferBit)
 }
 func (r *Renderer) FillRect(rect, clip image.Rectangle, fill canvas.Color) {
+	r.flushMasks()
 	rect = rect.Intersect(clip).Intersect(image.Rect(0, 0, r.width, r.height))
 	if rect.Empty() {
 		return
@@ -297,6 +325,7 @@ func (r *Renderer) FillRect(rect, clip image.Rectangle, fill canvas.Color) {
 	r.api.drawArrays(glTriangleStrip, 0, 4)
 }
 func (r *Renderer) DrawImage(img canvas.Image, src image.Rectangle, dst image.Point, clip image.Rectangle) {
+	r.flushMasks()
 	w, h := src.Dx(), src.Dy()
 	sx, sy := src.Min.X, src.Min.Y
 	if sx < 0 {
@@ -401,6 +430,7 @@ func (r *Renderer) releaseImageTextures() {
 	}
 }
 func (r *Renderer) DrawImageTransformed(img canvas.Image, degrees, scale, cx, cy float64, clip image.Rectangle) {
+	r.flushMasks()
 	if img.Width <= 0 || img.Height <= 0 || len(img.Pixels) < img.Width*img.Height*4 || scale <= 0 {
 		return
 	}
@@ -449,43 +479,53 @@ func (r *Renderer) DrawMask(mask []byte, mw, mh int, dst image.Point, clip image
 		return
 	}
 	sx, sy := visible.Min.X-dst.X, visible.Min.Y-dst.Y
-
-	texture := r.maskTexture(mask[:mw*mh], mw, mh)
-	r.api.bindTexture(glTexture2D, texture)
-
-	r.api.disable(glScissorTest)
-	r.api.useProgram(r.maskProgram)
-	r.api.uniform4f(r.maskRect, float32(visible.Min.X), float32(visible.Min.Y), float32(visible.Dx()), float32(visible.Dy()))
-	r.api.uniform4f(r.maskUVRect, float32(sx)/float32(mw), float32(sy)/float32(mh), float32(visible.Dx())/float32(mw), float32(visible.Dy())/float32(mh))
-	r.api.uniform4f(r.maskColor, float32(fill.R())/255, float32(fill.G())/255, float32(fill.B())/255, 1)
-	r.api.uniform1i(r.maskSampler, 0)
-	r.api.bindBuffer(glArrayBuffer, r.quadBuffer)
-	r.api.enableVertexAttrib(uint32(r.maskPosition))
-	r.api.vertexAttribPointer(uint32(r.maskPosition), 2, glFloat, 0, 0, 0)
-
-	// Coverage blends RGB; a second alpha-only pass matches the CPU rule that
-	// every non-zero mask pixel makes the destination alpha opaque.
-	r.api.colorMask(1, 1, 1, 0)
-	r.api.enable(glBlend)
-	r.api.blendFuncSeparate(glSrcAlpha, glOneMinusSrcAlpha, glOne, glZero)
-	r.api.uniform1i(r.maskAlphaMode, 0)
-	r.api.drawArrays(glTriangleStrip, 0, 4)
-	r.api.colorMask(0, 0, 0, 1)
-	r.api.disable(glBlend)
-	r.api.uniform1i(r.maskAlphaMode, 1)
-	r.api.drawArrays(glTriangleStrip, 0, 4)
-	r.api.colorMask(1, 1, 1, 1)
-	r.api.uniform1i(r.maskAlphaMode, 0)
+	glyph := r.maskGlyph(mask[:mw*mh], mw, mh)
+	if len(r.maskBatch.vertices) > 0 && (r.maskBatch.atlas != glyph.atlas || r.maskBatch.color != fill) {
+		r.flushMasks()
+	}
+	r.maskBatch.atlas, r.maskBatch.color = glyph.atlas, fill
+	x0, y0 := float32(visible.Min.X), float32(visible.Min.Y)
+	x1, y1 := float32(visible.Max.X), float32(visible.Max.Y)
+	u0 := float32(glyph.x+sx) / maskAtlasSize
+	v0 := float32(glyph.y+sy) / maskAtlasSize
+	u1 := float32(glyph.x+sx+visible.Dx()) / maskAtlasSize
+	v1 := float32(glyph.y+sy+visible.Dy()) / maskAtlasSize
+	r.maskBatch.vertices = append(r.maskBatch.vertices,
+		x0, y0, u0, v0, x1, y0, u1, v0, x0, y1, u0, v1,
+		x0, y1, u0, v1, x1, y0, u1, v0, x1, y1, u1, v1,
+	)
 }
 
-func (r *Renderer) maskTexture(mask []byte, width, height int) uint32 {
+func (r *Renderer) maskGlyph(mask []byte, width, height int) maskGlyph {
 	key := maskCacheKey{digest: sha256.Sum256(mask), width: width, height: height}
-	if texture := r.maskTextures[key]; texture != 0 {
-		return texture
+	if glyph, ok := r.maskGlyphs[key]; ok {
+		return glyph
 	}
-	if len(r.maskTextures) >= maxCachedMasks {
-		r.releaseMaskTextures()
+	if width > maskAtlasSize || height > maskAtlasSize {
+		panic("GLES glyph mask exceeds atlas size")
 	}
+	atlasIndex := len(r.maskAtlases) - 1
+	if atlasIndex < 0 || !r.canPlaceMask(atlasIndex, width, height) {
+		if len(r.maskAtlases) >= maxMaskAtlases {
+			r.flushMasks()
+			r.releaseMaskAtlases()
+		}
+		atlasIndex = r.newMaskAtlas()
+	}
+	var glyph maskGlyph
+	if !r.placeMask(atlasIndex, width, height, &glyph) {
+		panic("GLES glyph mask atlas placement failed")
+	}
+	atlas := &r.maskAtlases[atlasIndex]
+	glyph.atlas = atlasIndex
+	r.api.bindTexture(glTexture2D, atlas.texture)
+	r.api.texSubImage2D(glTexture2D, 0, int32(glyph.x), int32(glyph.y), int32(width), int32(height), glAlpha, glUnsignedByte, uintptr(unsafe.Pointer(&mask[0])))
+	runtime.KeepAlive(mask)
+	r.maskGlyphs[key] = glyph
+	return glyph
+}
+
+func (r *Renderer) newMaskAtlas() int {
 	var texture uint32
 	r.api.genTextures(1, &texture)
 	if texture == 0 {
@@ -496,17 +536,72 @@ func (r *Renderer) maskTexture(mask []byte, width, height int) uint32 {
 	r.api.texParameteri(glTexture2D, glTextureMagFilter, glNearest)
 	r.api.texParameteri(glTexture2D, glTextureWrapS, glClampToEdge)
 	r.api.texParameteri(glTexture2D, glTextureWrapT, glClampToEdge)
-	r.api.texImage2D(glTexture2D, 0, glAlpha, int32(width), int32(height), 0, glAlpha, glUnsignedByte, uintptr(unsafe.Pointer(&mask[0])))
-	runtime.KeepAlive(mask)
-	r.maskTextures[key] = texture
-	return texture
+	r.api.texImage2D(glTexture2D, 0, glAlpha, maskAtlasSize, maskAtlasSize, 0, glAlpha, glUnsignedByte, 0)
+	r.maskAtlases = append(r.maskAtlases, maskAtlas{texture: texture})
+	return len(r.maskAtlases) - 1
 }
 
-func (r *Renderer) releaseMaskTextures() {
-	for key, texture := range r.maskTextures {
-		r.api.deleteTextures(1, &texture)
-		delete(r.maskTextures, key)
+func (r *Renderer) placeMask(index, width, height int, result *maskGlyph) bool {
+	a := &r.maskAtlases[index]
+	if a.x+width > maskAtlasSize {
+		a.x, a.y, a.rowHeight = 0, a.y+a.rowHeight, 0
 	}
+	if a.y+height > maskAtlasSize {
+		return false
+	}
+	if result != nil {
+		*result = maskGlyph{x: a.x, y: a.y, width: width, height: height}
+	}
+	a.x += width
+	a.rowHeight = max(a.rowHeight, height)
+	return true
+}
+
+func (r *Renderer) canPlaceMask(index, width, height int) bool {
+	a := r.maskAtlases[index]
+	if a.x+width > maskAtlasSize {
+		a.x, a.y, a.rowHeight = 0, a.y+a.rowHeight, 0
+	}
+	return a.y+height <= maskAtlasSize
+}
+
+func (r *Renderer) flushMasks() {
+	vertices := r.maskBatch.vertices
+	if len(vertices) == 0 {
+		return
+	}
+	r.api.disable(glScissorTest)
+	r.api.useProgram(r.maskProgram)
+	r.api.bindTexture(glTexture2D, r.maskAtlases[r.maskBatch.atlas].texture)
+	r.api.uniform4f(r.maskColor, float32(r.maskBatch.color.R())/255, float32(r.maskBatch.color.G())/255, float32(r.maskBatch.color.B())/255, 1)
+	r.api.bindBuffer(glArrayBuffer, r.maskBuffer)
+	r.api.bufferData(glArrayBuffer, uintptr(len(vertices))*unsafe.Sizeof(vertices[0]), uintptr(unsafe.Pointer(&vertices[0])), glDynamicDraw)
+	r.api.enableVertexAttrib(uint32(r.maskPosition))
+	r.api.vertexAttribPointer(uint32(r.maskPosition), 2, glFloat, 0, 16, 0)
+	r.api.enableVertexAttrib(uint32(r.maskUVPosition))
+	r.api.vertexAttribPointer(uint32(r.maskUVPosition), 2, glFloat, 0, 16, 8)
+	count := int32(len(vertices) / 4)
+	r.api.colorMask(1, 1, 1, 0)
+	r.api.enable(glBlend)
+	r.api.blendFuncSeparate(glSrcAlpha, glOneMinusSrcAlpha, glOne, glZero)
+	r.api.uniform1i(r.maskAlphaMode, 0)
+	r.api.drawArrays(glTriangles, 0, count)
+	r.api.colorMask(0, 0, 0, 1)
+	r.api.disable(glBlend)
+	r.api.uniform1i(r.maskAlphaMode, 1)
+	r.api.drawArrays(glTriangles, 0, count)
+	r.api.colorMask(1, 1, 1, 1)
+	r.api.uniform1i(r.maskAlphaMode, 0)
+	r.maskBatch.vertices = vertices[:0]
+}
+
+func (r *Renderer) releaseMaskAtlases() {
+	for _, atlas := range r.maskAtlases {
+		texture := atlas.texture
+		r.api.deleteTextures(1, &texture)
+	}
+	clear(r.maskGlyphs)
+	r.maskAtlases = r.maskAtlases[:0]
 }
 func (*Renderer) Pixel(image.Point) color.NRGBA { panic("GLES renderer单像素读取尚未实现") }
 func (*Renderer) SetPixel(image.Point, color.NRGBA) {
@@ -573,6 +668,17 @@ void main() {
 	} else {
 		gl_FragColor = vec4(u_color.rgb, coverage);
 	}
+}`
+
+const maskVertexShader = `
+attribute vec2 a_position;
+attribute vec2 a_uv;
+uniform vec2 u_viewport;
+varying vec2 v_uv;
+void main() {
+	vec2 clip = a_position / u_viewport * 2.0 - 1.0;
+	gl_Position = vec4(clip.x, -clip.y, 0.0, 1.0);
+	v_uv = a_uv;
 }`
 
 const transformVertexShader = `
@@ -793,7 +899,7 @@ func (r *Renderer) initTexturePipeline() error {
 }
 
 func (r *Renderer) initMaskPipeline() error {
-	vertex, err := compileShader(r.api, glVertexShader, textureVertexShader)
+	vertex, err := compileShader(r.api, glVertexShader, maskVertexShader)
 	if err != nil {
 		return err
 	}
@@ -820,18 +926,17 @@ func (r *Renderer) initMaskPipeline() error {
 	}
 	r.maskProgram = program
 
-	positionName, rectName := glName("a_position"), glName("u_rect")
-	viewportName, uvRectName := glName("u_viewport"), glName("u_uv_rect")
+	positionName, uvName := glName("a_position"), glName("a_uv")
+	viewportName := glName("u_viewport")
 	samplerName, colorName := glName("u_texture"), glName("u_color")
 	alphaModeName := glName("u_alpha_only")
 	r.maskPosition = r.api.getAttribLocation(program, &positionName[0])
-	r.maskRect = r.api.getUniformLocation(program, &rectName[0])
+	r.maskUVPosition = r.api.getAttribLocation(program, &uvName[0])
 	r.maskViewport = r.api.getUniformLocation(program, &viewportName[0])
-	r.maskUVRect = r.api.getUniformLocation(program, &uvRectName[0])
 	r.maskSampler = r.api.getUniformLocation(program, &samplerName[0])
 	r.maskColor = r.api.getUniformLocation(program, &colorName[0])
 	r.maskAlphaMode = r.api.getUniformLocation(program, &alphaModeName[0])
-	if r.maskPosition < 0 || r.maskRect < 0 || r.maskViewport < 0 || r.maskUVRect < 0 || r.maskSampler < 0 || r.maskColor < 0 || r.maskAlphaMode < 0 {
+	if r.maskPosition < 0 || r.maskUVPosition < 0 || r.maskViewport < 0 || r.maskSampler < 0 || r.maskColor < 0 || r.maskAlphaMode < 0 {
 		r.api.deleteProgram(program)
 		r.maskProgram = 0
 		return errors.New("GLES mask shader locations unavailable")
@@ -841,7 +946,15 @@ func (r *Renderer) initMaskPipeline() error {
 	r.api.uniform1i(r.maskSampler, 0)
 	r.api.uniform1i(r.maskAlphaMode, 0)
 	r.api.pixelStorei(glUnpackAlignment, 1)
+	r.api.genBuffers(1, &r.maskBuffer)
+	if r.maskBuffer == 0 {
+		r.api.deleteProgram(program)
+		r.maskProgram = 0
+		return errors.New("glGenBuffers for mask batch returned 0")
+	}
 	if code := r.api.glGetError(); code != glNoError {
+		r.api.deleteBuffers(1, &r.maskBuffer)
+		r.maskBuffer = 0
 		r.api.deleteProgram(program)
 		r.maskProgram = 0
 		return fmt.Errorf("initialize GLES mask pipeline: 0x%x", code)
@@ -905,8 +1018,13 @@ func (r *Renderer) initTransformPipeline() error {
 }
 
 func (r *Renderer) releaseGLResources() {
-	r.releaseMaskTextures()
+	r.flushMasks()
+	r.releaseMaskAtlases()
 	r.releaseImageTextures()
+	if r.maskBuffer != 0 {
+		r.api.deleteBuffers(1, &r.maskBuffer)
+		r.maskBuffer = 0
+	}
 	if r.quadBuffer != 0 {
 		r.api.deleteBuffers(1, &r.quadBuffer)
 		r.quadBuffer = 0
@@ -1032,7 +1150,7 @@ func Open() (_ *Renderer, err error) {
 		eglMajor:       major,
 		eglMinor:       minor,
 		closeLibraries: closeLibraries,
-		maskTextures:   make(map[maskCacheKey]uint32),
+		maskGlyphs:     make(map[maskCacheKey]maskGlyph),
 		imageTextures:  make(map[imageCacheKey]imageTexture),
 	}
 	if err = renderer.initColorPipeline(); err != nil {
@@ -1111,9 +1229,9 @@ func RunProbe() error {
 		}
 	}
 	r.DrawMask(probeMask, maskWidth, maskHeight, image.Pt(610, 360), image.Rect(630, 375, 720, 440), canvas.Color(0xffffe050))
-	cachedMasks := len(r.maskTextures)
+	cachedMasks := len(r.maskGlyphs)
 	r.DrawMask(probeMask, maskWidth, maskHeight, image.Pt(750, 360), bounds, canvas.Color(0xff50e0ff))
-	if len(r.maskTextures) != cachedMasks {
+	if len(r.maskGlyphs) != cachedMasks {
 		return errors.New("GLES mask texture cache missed identical content")
 	}
 	if code := r.api.glGetError(); code != glNoError {
