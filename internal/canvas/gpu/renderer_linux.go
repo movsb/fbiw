@@ -44,6 +44,17 @@ const (
 	glOne                = 1
 	glZero               = 0
 	glNoError            = 0
+	glTexture2D          = 0x0de1
+	glTextureMinFilter   = 0x2801
+	glTextureMagFilter   = 0x2800
+	glTextureWrapS       = 0x2802
+	glTextureWrapT       = 0x2803
+	glNearest            = 0x2600
+	glClampToEdge        = 0x812f
+	glRGBA               = 0x1908
+	glUnsignedByte       = 0x1401
+	glSrcAlpha           = 0x0302
+	glOneMinusSrcAlpha   = 0x0303
 )
 
 type api struct {
@@ -93,6 +104,13 @@ type api struct {
 	blendColor          func(float32, float32, float32, float32)
 	blendFuncSeparate   func(uint32, uint32, uint32, uint32)
 	glGetError          func() uint32
+	uniform1i           func(int32, int32)
+	genTextures         func(int32, *uint32)
+	deleteTextures      func(int32, *uint32)
+	bindTexture         func(uint32, uint32)
+	texParameteri       func(uint32, uint32, int32)
+	texImage2D          func(uint32, int32, int32, int32, int32, int32, uint32, uint32, uintptr)
+	colorMask           func(uint8, uint8, uint8, uint8)
 }
 
 func loadAPI() (*api, func(), error) {
@@ -153,6 +171,13 @@ func loadAPI() (*api, func(), error) {
 	purego.RegisterLibFunc(&a.blendColor, gles, "glBlendColor")
 	purego.RegisterLibFunc(&a.blendFuncSeparate, gles, "glBlendFuncSeparate")
 	purego.RegisterLibFunc(&a.glGetError, gles, "glGetError")
+	purego.RegisterLibFunc(&a.uniform1i, gles, "glUniform1i")
+	purego.RegisterLibFunc(&a.genTextures, gles, "glGenTextures")
+	purego.RegisterLibFunc(&a.deleteTextures, gles, "glDeleteTextures")
+	purego.RegisterLibFunc(&a.bindTexture, gles, "glBindTexture")
+	purego.RegisterLibFunc(&a.texParameteri, gles, "glTexParameteri")
+	purego.RegisterLibFunc(&a.texImage2D, gles, "glTexImage2D")
+	purego.RegisterLibFunc(&a.colorMask, gles, "glColorMask")
 	return a, closeLibraries, nil
 }
 
@@ -170,6 +195,13 @@ type Renderer struct {
 	rectLocation       int32
 	viewportLocation   int32
 	colorLocation      int32
+	textureProgram     uint32
+	texturePosition    int32
+	textureRect        int32
+	textureViewport    int32
+	textureUVRect      int32
+	textureSampler     int32
+	textureAlphaMode   int32
 }
 
 func (r *Renderer) Size() (int, int) { return r.width, r.height }
@@ -219,8 +251,80 @@ func (r *Renderer) FillRect(rect, clip image.Rectangle, fill canvas.Color) {
 	r.api.vertexAttribPointer(uint32(r.positionLocation), 2, glFloat, 0, 0, 0)
 	r.api.drawArrays(glTriangleStrip, 0, 4)
 }
-func (*Renderer) DrawImage(canvas.Image, image.Rectangle, image.Point, image.Rectangle) {
-	panic("GLES renderer图片纹理尚未实现")
+func (r *Renderer) DrawImage(img canvas.Image, src image.Rectangle, dst image.Point, clip image.Rectangle) {
+	w, h := src.Dx(), src.Dy()
+	sx, sy := src.Min.X, src.Min.Y
+	if sx < 0 {
+		dst.X -= sx
+		w += sx
+		sx = 0
+	}
+	if sy < 0 {
+		dst.Y -= sy
+		h += sy
+		sy = 0
+	}
+	w, h = min(w, img.Width-sx), min(h, img.Height-sy)
+	clip = clip.Intersect(image.Rect(0, 0, r.width, r.height))
+	if dst.X < clip.Min.X {
+		d := clip.Min.X - dst.X
+		dst.X += d
+		sx += d
+		w -= d
+	}
+	if dst.Y < clip.Min.Y {
+		d := clip.Min.Y - dst.Y
+		dst.Y += d
+		sy += d
+		h -= d
+	}
+	w = min(w, clip.Max.X-dst.X)
+	h = min(h, clip.Max.Y-dst.Y)
+	if w <= 0 || h <= 0 || img.Width <= 0 || img.Height <= 0 || len(img.Pixels) < img.Width*img.Height*4 {
+		return
+	}
+
+	var texture uint32
+	r.api.genTextures(1, &texture)
+	if texture == 0 {
+		panic("glGenTextures returned 0")
+	}
+	defer r.api.deleteTextures(1, &texture)
+	r.api.bindTexture(glTexture2D, texture)
+	r.api.texParameteri(glTexture2D, glTextureMinFilter, glNearest)
+	r.api.texParameteri(glTexture2D, glTextureMagFilter, glNearest)
+	r.api.texParameteri(glTexture2D, glTextureWrapS, glClampToEdge)
+	r.api.texParameteri(glTexture2D, glTextureWrapT, glClampToEdge)
+	r.api.texImage2D(glTexture2D, 0, glRGBA, int32(img.Width), int32(img.Height), 0, glRGBA, glUnsignedByte, uintptr(unsafe.Pointer(&img.Pixels[0])))
+	runtime.KeepAlive(img.Pixels)
+
+	r.api.disable(glScissorTest)
+	r.api.useProgram(r.textureProgram)
+	r.api.uniform4f(r.textureRect, float32(dst.X), float32(dst.Y), float32(w), float32(h))
+	r.api.uniform4f(r.textureUVRect, float32(sx)/float32(img.Width), float32(sy)/float32(img.Height), float32(w)/float32(img.Width), float32(h)/float32(img.Height))
+	r.api.uniform1i(r.textureSampler, 0)
+	r.api.bindBuffer(glArrayBuffer, r.quadBuffer)
+	r.api.enableVertexAttrib(uint32(r.texturePosition))
+	r.api.vertexAttribPointer(uint32(r.texturePosition), 2, glFloat, 0, 0, 0)
+	if img.Opaque {
+		r.api.disable(glBlend)
+		r.api.uniform1i(r.textureAlphaMode, 0)
+		r.api.drawArrays(glTriangleStrip, 0, 4)
+	} else {
+		// Match the CPU backend: fully transparent pixels preserve the target,
+		// while every contributing source pixel makes target alpha opaque.
+		r.api.colorMask(1, 1, 1, 0)
+		r.api.enable(glBlend)
+		r.api.blendFuncSeparate(glSrcAlpha, glOneMinusSrcAlpha, glOne, glZero)
+		r.api.uniform1i(r.textureAlphaMode, 0)
+		r.api.drawArrays(glTriangleStrip, 0, 4)
+		r.api.colorMask(0, 0, 0, 1)
+		r.api.disable(glBlend)
+		r.api.uniform1i(r.textureAlphaMode, 1)
+		r.api.drawArrays(glTriangleStrip, 0, 4)
+		r.api.colorMask(1, 1, 1, 1)
+		r.api.uniform1i(r.textureAlphaMode, 0)
+	}
 }
 func (*Renderer) DrawImageTransformed(canvas.Image, float64, float64, float64, float64, image.Rectangle) {
 	panic("GLES renderer图片变换尚未实现")
@@ -249,6 +353,34 @@ precision mediump float;
 uniform vec4 u_color;
 void main() {
 	gl_FragColor = u_color;
+}`
+
+const textureVertexShader = `
+attribute vec2 a_position;
+uniform vec4 u_rect;
+uniform vec2 u_viewport;
+uniform vec4 u_uv_rect;
+varying vec2 v_uv;
+void main() {
+	vec2 pixel = u_rect.xy + a_position * u_rect.zw;
+	vec2 clip = pixel / u_viewport * 2.0 - 1.0;
+	gl_Position = vec4(clip.x, -clip.y, 0.0, 1.0);
+	v_uv = u_uv_rect.xy + a_position * u_uv_rect.zw;
+}`
+
+const textureFragmentShader = `
+precision mediump float;
+uniform sampler2D u_texture;
+uniform int u_alpha_only;
+varying vec2 v_uv;
+void main() {
+	vec4 color = texture2D(u_texture, v_uv).bgra;
+	if (u_alpha_only != 0) {
+		if (color.a == 0.0) discard;
+		gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
+	} else {
+		gl_FragColor = color;
+	}
 }`
 
 func shaderLog(a *api, shader uint32) string {
@@ -361,6 +493,75 @@ func (r *Renderer) initColorPipeline() error {
 	return nil
 }
 
+func (r *Renderer) initTexturePipeline() error {
+	vertex, err := compileShader(r.api, glVertexShader, textureVertexShader)
+	if err != nil {
+		return err
+	}
+	defer r.api.deleteShader(vertex)
+	fragment, err := compileShader(r.api, glFragmentShader, textureFragmentShader)
+	if err != nil {
+		return err
+	}
+	defer r.api.deleteShader(fragment)
+
+	program := r.api.createProgram()
+	if program == 0 {
+		return errors.New("glCreateProgram returned 0")
+	}
+	r.api.attachShader(program, vertex)
+	r.api.attachShader(program, fragment)
+	r.api.linkProgram(program)
+	var linked int32
+	r.api.getProgramiv(program, glLinkStatus, &linked)
+	if linked == 0 {
+		log := programLog(r.api, program)
+		r.api.deleteProgram(program)
+		return fmt.Errorf("link GLES texture program: %s", log)
+	}
+	r.textureProgram = program
+
+	positionName, rectName := glName("a_position"), glName("u_rect")
+	viewportName, uvRectName := glName("u_viewport"), glName("u_uv_rect")
+	samplerName, alphaModeName := glName("u_texture"), glName("u_alpha_only")
+	r.texturePosition = r.api.getAttribLocation(program, &positionName[0])
+	r.textureRect = r.api.getUniformLocation(program, &rectName[0])
+	r.textureViewport = r.api.getUniformLocation(program, &viewportName[0])
+	r.textureUVRect = r.api.getUniformLocation(program, &uvRectName[0])
+	r.textureSampler = r.api.getUniformLocation(program, &samplerName[0])
+	r.textureAlphaMode = r.api.getUniformLocation(program, &alphaModeName[0])
+	if r.texturePosition < 0 || r.textureRect < 0 || r.textureViewport < 0 || r.textureUVRect < 0 || r.textureSampler < 0 || r.textureAlphaMode < 0 {
+		r.api.deleteProgram(program)
+		r.textureProgram = 0
+		return errors.New("GLES texture shader locations unavailable")
+	}
+	r.api.useProgram(program)
+	r.api.uniform2f(r.textureViewport, float32(r.width), float32(r.height))
+	r.api.uniform1i(r.textureSampler, 0)
+	r.api.uniform1i(r.textureAlphaMode, 0)
+	if code := r.api.glGetError(); code != glNoError {
+		r.api.deleteProgram(program)
+		r.textureProgram = 0
+		return fmt.Errorf("initialize GLES texture pipeline: 0x%x", code)
+	}
+	return nil
+}
+
+func (r *Renderer) releaseGLResources() {
+	if r.quadBuffer != 0 {
+		r.api.deleteBuffers(1, &r.quadBuffer)
+		r.quadBuffer = 0
+	}
+	if r.textureProgram != 0 {
+		r.api.deleteProgram(r.textureProgram)
+		r.textureProgram = 0
+	}
+	if r.colorProgram != 0 {
+		r.api.deleteProgram(r.colorProgram)
+		r.colorProgram = 0
+	}
+}
+
 // Open creates the EGL surface and GLES context for a renderer. The calling
 // goroutine remains locked to its current OS thread until Close is called.
 func Open() (_ *Renderer, err error) {
@@ -468,6 +669,10 @@ func Open() (_ *Renderer, err error) {
 	if err = renderer.initColorPipeline(); err != nil {
 		return nil, err
 	}
+	if err = renderer.initTexturePipeline(); err != nil {
+		renderer.releaseGLResources()
+		return nil, err
+	}
 	return renderer, nil
 }
 
@@ -478,12 +683,7 @@ func (r *Renderer) Close() {
 		return
 	}
 	r.closed = true
-	if r.quadBuffer != 0 {
-		r.api.deleteBuffers(1, &r.quadBuffer)
-	}
-	if r.colorProgram != 0 {
-		r.api.deleteProgram(r.colorProgram)
-	}
+	r.releaseGLResources()
 	r.api.makeCurrent(r.display, 0, 0, 0)
 	r.api.destroyContext(r.display, r.context)
 	r.api.destroySurface(r.display, r.surface)
@@ -505,6 +705,17 @@ func RunProbe() error {
 	r.FillRect(image.Rect(80, 80, 360, 260), bounds, canvas.Color(0xffff8a20))
 	r.FillRect(image.Rect(160, 160, 440, 340), image.Rect(200, 120, 400, 300), canvas.Color(0xff38c972))
 	r.FillRect(image.Rect(300, 220, 620, 460), bounds, canvas.Color(0x808b3dff))
+	probeImage := canvas.Image{Width: 160, Height: 120, Pixels: make([]byte, 160*120*4)}
+	for y := 0; y < probeImage.Height; y++ {
+		for x := 0; x < probeImage.Width; x++ {
+			pixel := probeImage.Pixels[(y*probeImage.Width+x)*4:]
+			pixel[0], pixel[1], pixel[2], pixel[3] = 0x30, 0xd0, 0xff, 0xd0
+			if (x/20+y/20)%2 == 0 {
+				pixel[0], pixel[1], pixel[2] = 0xe0, 0x40, 0x30
+			}
+		}
+	}
+	r.DrawImage(probeImage, image.Rect(20, 10, 150, 110), image.Pt(650, 160), image.Rect(680, 180, 790, 250))
 	if code := r.api.glGetError(); code != glNoError {
 		return fmt.Errorf("draw GLES color probe: 0x%x", code)
 	}
