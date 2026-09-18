@@ -3,6 +3,7 @@
 package gpu
 
 import (
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"image"
@@ -214,7 +215,15 @@ type Renderer struct {
 	maskSampler        int32
 	maskColor          int32
 	maskAlphaMode      int32
+	maskTextures       map[maskCacheKey]uint32
 }
+
+type maskCacheKey struct {
+	digest        [sha256.Size]byte
+	width, height int
+}
+
+const maxCachedMasks = 4096
 
 func (r *Renderer) Size() (int, int) { return r.width, r.height }
 func (*Renderer) BeginFrame()        {}
@@ -351,19 +360,8 @@ func (r *Renderer) DrawMask(mask []byte, mw, mh int, dst image.Point, clip image
 	}
 	sx, sy := visible.Min.X-dst.X, visible.Min.Y-dst.Y
 
-	var texture uint32
-	r.api.genTextures(1, &texture)
-	if texture == 0 {
-		panic("glGenTextures returned 0")
-	}
-	defer r.api.deleteTextures(1, &texture)
+	texture := r.maskTexture(mask[:mw*mh], mw, mh)
 	r.api.bindTexture(glTexture2D, texture)
-	r.api.texParameteri(glTexture2D, glTextureMinFilter, glNearest)
-	r.api.texParameteri(glTexture2D, glTextureMagFilter, glNearest)
-	r.api.texParameteri(glTexture2D, glTextureWrapS, glClampToEdge)
-	r.api.texParameteri(glTexture2D, glTextureWrapT, glClampToEdge)
-	r.api.texImage2D(glTexture2D, 0, glAlpha, int32(mw), int32(mh), 0, glAlpha, glUnsignedByte, uintptr(unsafe.Pointer(&mask[0])))
-	runtime.KeepAlive(mask)
 
 	r.api.disable(glScissorTest)
 	r.api.useProgram(r.maskProgram)
@@ -388,6 +386,37 @@ func (r *Renderer) DrawMask(mask []byte, mw, mh int, dst image.Point, clip image
 	r.api.drawArrays(glTriangleStrip, 0, 4)
 	r.api.colorMask(1, 1, 1, 1)
 	r.api.uniform1i(r.maskAlphaMode, 0)
+}
+
+func (r *Renderer) maskTexture(mask []byte, width, height int) uint32 {
+	key := maskCacheKey{digest: sha256.Sum256(mask), width: width, height: height}
+	if texture := r.maskTextures[key]; texture != 0 {
+		return texture
+	}
+	if len(r.maskTextures) >= maxCachedMasks {
+		r.releaseMaskTextures()
+	}
+	var texture uint32
+	r.api.genTextures(1, &texture)
+	if texture == 0 {
+		panic("glGenTextures returned 0")
+	}
+	r.api.bindTexture(glTexture2D, texture)
+	r.api.texParameteri(glTexture2D, glTextureMinFilter, glNearest)
+	r.api.texParameteri(glTexture2D, glTextureMagFilter, glNearest)
+	r.api.texParameteri(glTexture2D, glTextureWrapS, glClampToEdge)
+	r.api.texParameteri(glTexture2D, glTextureWrapT, glClampToEdge)
+	r.api.texImage2D(glTexture2D, 0, glAlpha, int32(width), int32(height), 0, glAlpha, glUnsignedByte, uintptr(unsafe.Pointer(&mask[0])))
+	runtime.KeepAlive(mask)
+	r.maskTextures[key] = texture
+	return texture
+}
+
+func (r *Renderer) releaseMaskTextures() {
+	for key, texture := range r.maskTextures {
+		r.api.deleteTextures(1, &texture)
+		delete(r.maskTextures, key)
+	}
 }
 func (*Renderer) Pixel(image.Point) color.NRGBA { panic("GLES renderer单像素读取尚未实现") }
 func (*Renderer) SetPixel(image.Point, color.NRGBA) {
@@ -678,6 +707,7 @@ func (r *Renderer) initMaskPipeline() error {
 }
 
 func (r *Renderer) releaseGLResources() {
+	r.releaseMaskTextures()
 	if r.quadBuffer != 0 {
 		r.api.deleteBuffers(1, &r.quadBuffer)
 		r.quadBuffer = 0
@@ -799,6 +829,7 @@ func Open() (_ *Renderer, err error) {
 		eglMajor:       major,
 		eglMinor:       minor,
 		closeLibraries: closeLibraries,
+		maskTextures:   make(map[maskCacheKey]uint32),
 	}
 	if err = renderer.initColorPipeline(); err != nil {
 		return nil, err
@@ -866,6 +897,11 @@ func RunProbe() error {
 		}
 	}
 	r.DrawMask(probeMask, maskWidth, maskHeight, image.Pt(610, 360), image.Rect(630, 375, 720, 440), canvas.Color(0xffffe050))
+	cachedMasks := len(r.maskTextures)
+	r.DrawMask(probeMask, maskWidth, maskHeight, image.Pt(750, 360), bounds, canvas.Color(0xff50e0ff))
+	if len(r.maskTextures) != cachedMasks {
+		return errors.New("GLES mask texture cache missed identical content")
+	}
 	if code := r.api.glGetError(); code != glNoError {
 		return fmt.Errorf("draw GLES color probe: 0x%x", code)
 	}
