@@ -36,10 +36,10 @@ func WithFont(family string, bold, italic bool, fsys fs.FS, path string) Option 
 	}
 }
 
-// 设置显示输出设备。
-func WithDisplay(display Display) Option {
+// 设置显示渲染&输出设备。
+func WithRenderer(renderer Renderer) Option {
 	return func(app *App) {
-		app.setDisplay(display)
+		app.canvas = NewCanvas(renderer)
 	}
 }
 
@@ -58,11 +58,8 @@ type App struct {
 	pending []func()
 	unblock chan struct{}
 
-	display Display
-	canvas  *Canvas
-	// rendererClose is set by renderers that own platform resources, such as
-	// an EGL context. Software renderers are owned by display and leave it nil.
-	rendererClose func()
+	// 绘图层 & 渲染层。
+	canvas *Canvas
 
 	fpsCalc   _FPSCounter
 	animation *_AnimationClock
@@ -128,11 +125,7 @@ func NewApp(options ...Option) *App {
 	}
 
 	if app.canvas == nil {
-		if renderer, closeRenderer, ok := openAcceleratedRenderer(); ok {
-			app.setRenderer(renderer, closeRenderer)
-		} else {
-			app.setDisplay(OpenDisplay())
-		}
+		app.canvas = NewCanvas(OpenDisplay())
 	}
 
 	ctx, cancel := context.WithCancel(app.ctx)
@@ -149,32 +142,8 @@ func NewApp(options ...Option) *App {
 	return app
 }
 
-func (app *App) setDisplay(display Display) {
-	app.display = display
-	width, height, stride := display.GetSize()
-	if width <= 0 || height <= 0 {
-		panic(`无效显示尺寸。`)
-	}
-	if stride != width*4 {
-		panic(`暂时不支持Stride!=Width*4的显示设备。`)
-	}
-	renderer := newSoftwareRenderer(width, height)
-	renderer.Present = display.Sync
-	app.setRenderer(renderer, nil)
-}
-
-func (app *App) setRenderer(renderer canvasRenderer, closeRenderer func()) {
-	app.canvas = newCanvas(renderer)
-	app.rendererClose = closeRenderer
-}
-
 func (app *App) Close() {
-	if app.display != nil {
-		defer app.display.Close()
-	}
-	if app.rendererClose != nil {
-		defer app.rendererClose()
-	}
+	defer app.canvas.Close()
 	defer app.images.Close()
 	defer app.fonts.Close()
 	defer app.animation.close()

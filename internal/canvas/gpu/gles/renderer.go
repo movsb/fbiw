@@ -504,11 +504,15 @@ func (r *Renderer) releaseMaskAtlases() {
 	clear(r.maskGlyphs)
 	r.maskAtlases = r.maskAtlases[:0]
 }
-func (*Renderer) Pixel(image.Point) color.NRGBA { panic("GLES renderer单像素读取尚未实现") }
+func (*Renderer) Pixel(image.Point) color.NRGBA {
+	panic("GLES renderer单像素读取尚未实现")
+}
 func (*Renderer) SetPixel(image.Point, color.NRGBA) {
 	panic("GLES renderer单像素写入尚未实现")
 }
-func (*Renderer) Snapshot() image.Image { panic("GLES renderer截图尚未实现") }
+func (*Renderer) Snapshot() image.Image {
+	panic("GLES renderer截图尚未实现")
+}
 
 func shaderLog(a *api, shader uint32) string {
 	var length int32
@@ -824,11 +828,12 @@ func (r *Renderer) releaseGLResources() {
 }
 
 // Close releases renderer resources and delegates platform teardown.
-func (r *Renderer) Close() {
+func (r *Renderer) Close() error {
 	if r == nil || r.closed {
-		return
+		return nil
 	}
 	r.closed = true
 	r.releaseGLResources()
 	r.closePlatform()
+	return nil
 }

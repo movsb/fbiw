@@ -9,6 +9,7 @@ import (
 	"testing/fstest"
 	"time"
 
+	"github.com/movsb/fbiw/internal/canvas/cpu"
 	"golang.org/x/image/font/basicfont"
 )
 
@@ -94,7 +95,7 @@ func TestDisabledButtonIgnoresClick(t *testing.T) {
 func TestButtonCentersOversizedContent(t *testing.T) {
 	doc, button := newButtonDocument(t, `<document><style>button { width: 360; height: 64; } button text { font-size: 50; }</style><block><button><text>按钮</text></button></block></document>`)
 	doc.fontManager.faces[_FontFaceKey{Family: `system`, Size: 50}] = &FontFace{
-		Face: basicfont.Face7x13, cache: map[rune]GlyphValue{},
+		Face: basicfont.Face7x13,
 	}
 	doc.layout()
 
@@ -223,7 +224,7 @@ func TestToggleDrawsIndicatorAccordingToState(t *testing.T) {
 	_, toggle := newToggleDocument(t, `<document><block><toggle></toggle></block></document>`)
 	trackWidth, trackHeight := toggle.intrinsicSize()
 	toggle.Calc(trackWidth, trackHeight, Constraints{})
-	canvas := NewCanvas(trackWidth, trackHeight)
+	canvas := NewCanvas(cpu.New(trackWidth, trackHeight))
 
 	toggle.Draw(canvas)
 	trackX := 0
@@ -261,7 +262,7 @@ func newAnimatedToggle(t *testing.T, markup string, paint bool) (*App, *Document
 	doc.layout()
 	if paint {
 		layout := toggle.GetLayoutBox()
-		toggle.Draw(NewCanvas(layout.Width, layout.Height))
+		toggle.Draw(NewCanvas(cpu.New(layout.Width, layout.Height)))
 	}
 	return app, doc, toggle, clock
 }
@@ -309,7 +310,7 @@ func TestToggleAnimationPaintOnly(t *testing.T) {
 	if toggle.knobProgress != 0.75 || doc.layoutDirty || !doc.paintDirty || toggle.GetLayoutBox() != layout {
 		t.Fatal("动画未在中间位置只请求重绘")
 	}
-	canvas := NewCanvas(layout.Width, layout.Height)
+	canvas := NewCanvas(cpu.New(layout.Width, layout.Height))
 	toggle.Draw(canvas)
 	inset := min(layout.Width, layout.Height) / 10
 	knobSize := layout.Height - inset*2
@@ -456,7 +457,7 @@ func TestCheckSizeColorsAndDrawing(t *testing.T) {
 	if check.boxColor != ColorFromString(`#112233`) || check.checkedBoxColor != ColorFromString(`#445566`) || check.markColor != ColorFromString(`#ffffff`) {
 		t.Fatal(`check 自定义颜色不正确`)
 	}
-	canvas := NewCanvas(check.layoutBox.Width, check.layoutBox.Height)
+	canvas := NewCanvas(cpu.New(check.layoutBox.Width, check.layoutBox.Height))
 	check.Draw(canvas)
 	if got := canvas.getPixel(check.InsetLeft(), check.InsetTop()); got != check.boxColor.NRGBA() {
 		t.Fatalf(`未选中边框颜色不正确：%v`, got)
@@ -525,7 +526,7 @@ func newAnimatedProgress(t *testing.T, markup string, paint bool) (*App, *Docume
 	doc.layout()
 	if paint {
 		layout := progress.GetLayoutBox()
-		progress.Draw(NewCanvas(layout.Width, layout.Height))
+		progress.Draw(NewCanvas(cpu.New(layout.Width, layout.Height)))
 	}
 	return app, doc, progress, clock
 }
@@ -639,7 +640,7 @@ func TestProgressIndeterminateDraw(t *testing.T) {
 		`<document><block><progress width="12" height="4" indeterminate></progress></block></document>`, false)
 	progress.indeterminatePhase = 0.5
 	progress.Calc(12, 4, Constraints{})
-	canvas := NewCanvas(12, 4)
+	canvas := NewCanvas(cpu.New(12, 4))
 	progress.Draw(canvas)
 	// 色块宽 3，包含轨道外区域的移动距离为 15，中点四舍五入到 x=5。
 	if canvas.getPixel(4, 0) != progress.trackColor.NRGBA() ||
@@ -651,7 +652,7 @@ func TestProgressIndeterminateDraw(t *testing.T) {
 	for _, phase := range []float64{0, 1} {
 		progress.indeterminatePhase = phase
 		// 画布故意比控件宽，确保裁剪发生在轨道边界而不是画布边界。
-		canvas = NewCanvas(20, 4)
+		canvas = NewCanvas(cpu.New(20, 4))
 		progress.Draw(canvas)
 		for x := range 12 {
 			if canvas.getPixel(x, 0) != progress.trackColor.NRGBA() {
@@ -700,7 +701,7 @@ func TestProgressCustomColors(t *testing.T) {
 func TestProgressDrawsValue(t *testing.T) {
 	_, progress := newProgressDocument(t, `<document><block><progress width="10" height="4"></progress></block></document>`)
 	progress.Calc(10, 4, Constraints{})
-	canvas := NewCanvas(10, 4)
+	canvas := NewCanvas(cpu.New(10, 4))
 
 	progress.Draw(canvas)
 	if got := canvas.getPixel(0, 0); got != progress.trackColor.NRGBA() {
@@ -775,7 +776,7 @@ func newSelectPopupDocument(t *testing.T, markup string) (*App, *Document, *Sele
 	app.images = NewImageManager()
 	app.fonts = NewFontManager()
 	app.fonts.faces[_FontFaceKey{Family: `system`, Size: 32}] = &FontFace{
-		Face: basicfont.Face7x13, cache: map[rune]GlyphValue{},
+		Face: basicfont.Face7x13,
 	}
 	doc := app.NewDesktop(fstest.MapFS{
 		`main.html`: &fstest.MapFile{Data: []byte(markup)},
@@ -953,8 +954,7 @@ func newAlertDialogTestApp() (*App, *Document) {
 	app.fonts = NewFontManager()
 	for _, size := range []int{28, 32, 43} {
 		app.fonts.faces[_FontFaceKey{Family: `system`, Size: size}] = &FontFace{
-			Face:  basicfont.Face7x13,
-			cache: map[rune]GlyphValue{},
+			Face: basicfont.Face7x13,
 		}
 	}
 
@@ -1215,14 +1215,14 @@ func TestScrollDrawsClippedOffsetContent(t *testing.T) {
 	doc := newFlexTestDocument(t, `<block><scroll id="scroll" width="20" height="20"><block><block height="20" background-color="#ff0000"></block><block height="20" background-color="#0000ff"></block></block></scroll></block>`, 20, 20)
 	scroll := doc.GetBoxByID[*Scroll](`scroll`)
 
-	canvas := NewCanvas(20, 20)
+	canvas := NewCanvas(cpu.New(20, 20))
 	scroll.Draw(canvas)
 	if got := canvas.getPixel(0, 0); got.R != 255 || got.G != 0 || got.B != 0 || got.A != 255 {
 		t.Fatalf(`top pixel before scrolling = %+v, want opaque red`, got)
 	}
 
 	scroll.ScrollTo(0, 20)
-	canvas = NewCanvas(20, 20)
+	canvas = NewCanvas(cpu.New(20, 20))
 	scroll.Draw(canvas)
 	if got := canvas.getPixel(0, 0); got.R != 0 || got.G != 0 || got.B != 255 || got.A != 255 {
 		t.Fatalf(`top pixel after scrolling = %+v, want opaque blue`, got)

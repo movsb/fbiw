@@ -4,6 +4,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/movsb/fbiw/internal/canvas"
 )
 
 func TestFlexStyleProperties(t *testing.T) {
@@ -471,10 +473,10 @@ func TestSpecialColors(t *testing.T) {
 		t.Fatal("普通透明颜色不应成为特殊颜色")
 	}
 
-	if !ColorNone.IsNone() {
+	if !canvas.ColorNone.IsNone() {
 		t.Fatal("none 编码错误")
 	}
-	if !ColorClear.IsClear() {
+	if !canvas.ColorClear.IsClear() {
 		t.Fatal("clear 编码错误")
 	}
 }

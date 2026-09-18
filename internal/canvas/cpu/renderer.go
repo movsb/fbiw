@@ -12,21 +12,52 @@ import (
 type Renderer struct {
 	Width, Height int
 	Pixels        []byte
-	Present       func([]byte)
+
+	// 呈现最终的渲染结果。
+	// 可以为空。
+	Present func([]byte)
+
+	// 释放 Present 所依赖的平台显示资源。
+	// 可以为空。
+	CloseFunc func()
 }
+
+var _ interface {
+	canvas.Renderer
+	canvas.TestRenderer
+} = (*Renderer)(nil)
 
 func New(width, height int) *Renderer {
-	return &Renderer{Width: width, Height: height, Pixels: make([]byte, width*height*4)}
+	return &Renderer{
+		Width:  width,
+		Height: height,
+		Pixels: make([]byte, width*height*4),
+	}
 }
 
-func (r *Renderer) Size() (int, int) { return r.Width, r.Height }
-func (*Renderer) BeginFrame()        {}
+func (r *Renderer) Close() error {
+	if r.CloseFunc != nil {
+		r.CloseFunc()
+		r.CloseFunc = nil
+	}
+	return nil
+}
+
+func (r *Renderer) Size() (int, int) {
+	return r.Width, r.Height
+}
+
+func (*Renderer) BeginFrame() {}
+
 func (r *Renderer) EndFrame() {
 	if r.Present != nil {
 		r.Present(r.Pixels)
 	}
 }
-func (r *Renderer) Clear() { clear(r.Pixels) }
+
+func (r *Renderer) Clear() {
+	clear(r.Pixels)
+}
 
 func (r *Renderer) FillRect(rect, clip image.Rectangle, fill canvas.Color) {
 	rect = rect.Intersect(clip).Intersect(image.Rect(0, 0, r.Width, r.Height))
@@ -142,8 +173,8 @@ func (r *Renderer) DrawImageTransformed(img canvas.Image, degrees, scale, cx, cy
 			ix, iy := int(math.Floor(sx)), int(math.Floor(sy))
 			fx, fy := sx-float64(ix), sy-float64(iy)
 			var a, b, g, red float64
-			for oy := 0; oy < 2; oy++ {
-				for ox := 0; ox < 2; ox++ {
+			for oy := range 2 {
+				for ox := range 2 {
 					px, py := ix+ox, iy+oy
 					if px < 0 || px >= img.Width || py < 0 || py >= img.Height {
 						continue
@@ -202,10 +233,12 @@ func (r *Renderer) Pixel(p image.Point) color.NRGBA {
 	b := r.Pixels[(p.Y*r.Width+p.X)*4:]
 	return color.NRGBA{R: b[2], G: b[1], B: b[0], A: b[3]}
 }
+
 func (r *Renderer) SetPixel(p image.Point, c color.NRGBA) {
 	b := r.Pixels[(p.Y*r.Width+p.X)*4:]
 	b[0], b[1], b[2], b[3] = c.B, c.G, c.R, c.A
 }
+
 func (r *Renderer) Snapshot() image.Image {
 	out := image.NewNRGBA(image.Rect(0, 0, r.Width, r.Height))
 	for y := 0; y < r.Height; y++ {

@@ -4,7 +4,6 @@ import (
 	"embed"
 	"fmt"
 	"image"
-	"image/draw"
 	"math"
 	"slices"
 	"strconv"
@@ -493,15 +492,7 @@ func drawCheckMark(canvas *Canvas, x, y, width, height int, color Color) {
 	}
 	rasterizer.ClosePath()
 	rasterizer.Draw(mask, mask.Bounds(), image.Opaque, image.Point{})
-	draw.DrawMask(
-		canvas.drawable(),
-		image.Rect(x, y, x+width, y+height),
-		image.NewUniform(color.NRGBA()),
-		image.Point{},
-		mask,
-		image.Point{},
-		draw.Over,
-	)
+	canvas.DrawMask(mask, x, y, color)
 }
 
 func (b *CheckBox) Checked() bool { return b.checked }

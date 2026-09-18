@@ -6,6 +6,9 @@ import (
 	"slices"
 	"testing"
 	"time"
+
+	"github.com/movsb/fbiw/internal/canvas"
+	"github.com/movsb/fbiw/internal/canvas/cpu"
 )
 
 // 不创建 App，直接验证时钟通过注入的入口完成调度和生命周期管理。
@@ -388,7 +391,11 @@ func TestAnimationSyncPaintBatch(t *testing.T) {
 		}
 	}
 	doc.root = b
-	app.setDisplay(&_Display1{&syncs})
+	d := &_Display1{&syncs}
+	width, height, _ := d.GetSize()
+	r := cpu.New(width, height)
+	r.Present = d.Sync
+	app.canvas = NewCanvas(r)
 	doc.RequestAnimationFrame(func(time.Time) { state++; doc.RequestLayout() })
 	doc.RequestAnimationFrame(func(time.Time) { state++; doc.RequestLayout() })
 	f.now = f.now.Add(animationFrameInterval)
@@ -515,8 +522,8 @@ func TestColorAnimator(t *testing.T) {
 		t.Fatal("颜色插值没有截到端点")
 	}
 	for _, test := range []func(){
-		func() { ColorAnimator(ColorNone, to) },
-		func() { ColorAnimator(from, ColorClear) },
+		func() { ColorAnimator(canvas.ColorNone, to) },
+		func() { ColorAnimator(from, canvas.ColorClear) },
 		func() { ColorAnimator(from, to)(math.NaN()) },
 	} {
 		func() {
@@ -1219,6 +1226,6 @@ func TestTransitionValidationPreservesAnimation(t *testing.T) {
 		t.Fatal("valid animation was lost")
 	}
 	mustPanic(func() {
-		doc.NewTransition(ColorNone, TransitionOptions[Color]{Animator: ColorAnimator, OnUpdate: func(Color) {}})
+		doc.NewTransition(canvas.ColorNone, TransitionOptions[Color]{Animator: ColorAnimator, OnUpdate: func(Color) {}})
 	})
 }

@@ -7,6 +7,7 @@ import (
 	"log"
 	"sync/atomic"
 
+	"github.com/movsb/fbiw/internal/canvas/cpu"
 	"github.com/veandco/go-sdl2/sdl"
 )
 
@@ -18,8 +19,8 @@ type _SdlDisplay struct {
 	buffer  *sdl.Surface
 }
 
-func openAcceleratedRenderer() (canvasRenderer, func(), bool) {
-	return nil, nil, false
+func openAcceleratedRenderer() (Renderer, bool) {
+	return nil, false
 }
 
 func (d *_SdlDisplay) GetSize() (int, int, int) {
@@ -41,8 +42,8 @@ func (d *_SdlDisplay) Close() {
 	sdl.Quit()
 }
 
-// 创建一个固定大小的基于SDL2的显示层。
-func OpenDisplay() Display {
+// 创建一个固定大小的基于SDL2的显示层/渲染器。
+func OpenDisplay() Renderer {
 	const (
 		scale        = 1
 		renderWidth  = 1024
@@ -78,13 +79,17 @@ func OpenDisplay() Display {
 		panic(err)
 	}
 
-	return &_SdlDisplay{
+	d := &_SdlDisplay{
 		width:   renderWidth,
 		height:  renderHeight,
 		window:  window,
 		surface: surface,
 		buffer:  buffer,
 	}
+	r := cpu.New(d.width, d.height)
+	r.Present = d.Sync
+	r.CloseFunc = d.Close
+	return r
 }
 
 func pollEvents(

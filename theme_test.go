@@ -5,6 +5,8 @@ import (
 	"testing"
 	"testing/fstest"
 	"time"
+
+	"github.com/movsb/fbiw/internal/canvas"
 )
 
 func TestAppThemeMode(t *testing.T) {
@@ -139,7 +141,7 @@ func TestDocumentRootUsesThemeBackground(t *testing.T) {
 	if err := doc.load(`main.html`); err != nil {
 		t.Fatal(err)
 	}
-	if got := doc.root.GetComputedStyles().BackgroundColor; got != ColorNone {
+	if got := doc.root.GetComputedStyles().BackgroundColor; got != canvas.ColorNone {
 		t.Fatalf(`根节点显式背景未覆盖 Document：%v`, got)
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -15,9 +16,29 @@ import (
 	"time"
 	"unsafe"
 
-	canvasgles "github.com/movsb/fbiw/internal/canvas/gpu/gles"
+	"github.com/movsb/fbiw/internal/canvas/cpu"
+	"github.com/movsb/fbiw/internal/canvas/gpu/gles"
 	"golang.org/x/sys/unix"
 )
+
+func OpenDisplay() Renderer {
+	renderer, err1 := gles.Open()
+	if err1 == nil {
+		return renderer
+	} else {
+		log.Println(`failed to open gpu:`, err1)
+	}
+
+	display := openDisplay()
+	width, height, stride := display.GetSize()
+	if stride != width*4 {
+		panic(`暂时不支持Stride!=Width*4的显示设备。`)
+	}
+	cpuRenderer := cpu.New(width, height)
+	cpuRenderer.Present = display.Sync
+	cpuRenderer.CloseFunc = display.Close
+	return cpuRenderer
+}
 
 type _FramebufferDisplay struct {
 	width, height, stride int
@@ -44,20 +65,9 @@ func (d *_FramebufferDisplay) Close() {
 	unix.Close(d.fd)
 }
 
-func openAcceleratedRenderer() (canvasRenderer, func(), bool) {
-	if os.Getenv("FBIW_RENDERER") != "gpu" {
-		return nil, nil, false
-	}
-	renderer, err := canvasgles.Open()
-	if err != nil {
-		panic(fmt.Errorf("open GPU renderer: %w", err))
-	}
-	return renderer, renderer.Close, true
-}
-
-func OpenDisplay() Display {
+func openDisplay() Display {
 	if os.Getenv("FBIW_GPU_PROBE") == "1" {
-		if err := canvasgles.RunProbe(); err != nil {
+		if err := gles.RunProbe(); err != nil {
 			panic(err)
 		}
 		time.Sleep(2 * time.Second)

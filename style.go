@@ -14,6 +14,8 @@ import (
 	"strings"
 
 	_ "embed"
+
+	"github.com/movsb/fbiw/internal/canvas"
 )
 
 type styleProperty uint64
@@ -633,29 +635,7 @@ func (p Padding) PaddingRight() int  { return int(uint64(p) >> 32 & paddingMask)
 func (p Padding) PaddingBottom() int { return int(uint64(p) >> 16 & paddingMask) }
 func (p Padding) PaddingLeft() int   { return int(uint64(p) & paddingMask) }
 
-// 0xAA_RR_GG_BB
-// 低32位与设备的像素格式匹配（低端序）
-//
-// 颜色包含特殊值，使用前应判断 IsNone，IsClear。
-type Color uint32
-
-// 特殊值的AA始终为零，所以是安全的。
-const (
-	// 特殊值：判断是否为空色。
-	//
-	// 如果父元素设备了背景，子元素不想要。
-	// 这时候如果什么也不写，会导致继承。
-	// 所以只能写个none。
-	ColorNone Color = iota + 1
-
-	// 特殊的打洞色。
-	// 使用此色后，此块屏幕区域会直接清空成透明色。
-	//
-	// 此值的特殊背景：游戏机的GPU可以在UI层下面叠加一层
-	// 视频层，由于在UI层下面，这就要求UI层透明。最简单的办法是
-	// 直接清空需要的区域，而不是隐藏下面的所以文档/控件层，太麻烦了。
-	ColorClear
-)
+type Color = canvas.Color
 
 func ColorFromRGBA(r, g, b, a uint8) Color {
 	if a == 0 {
@@ -668,16 +648,6 @@ func ColorFromRGBA(r, g, b, a uint8) Color {
 	out |= uint32(a) << 24
 	return Color(out)
 }
-
-func (c Color) IsNone() bool       { return c == ColorNone }
-func (c Color) IsClear() bool      { return c == ColorClear }
-func (c Color) R() uint8           { return uint8(c >> 16) }
-func (c Color) G() uint8           { return uint8(c >> 8) }
-func (c Color) B() uint8           { return uint8(c >> 0) }
-func (c Color) A() uint8           { return uint8(c >> 24) }
-func (c Color) NRGBA() color.NRGBA { return color.NRGBA{R: c.R(), G: c.G(), B: c.B(), A: c.A()} }
-func (c Color) Value() uint32      { return uint32(c) }
-func (c Color) String() string     { return fmt.Sprintf(`#%02x%02x%02x%02x`, c.R(), c.G(), c.B(), c.A()) }
 
 // 用结构体而不是直接type为[]string的原因是修改的时候不想重新赋值。
 type Class struct {
@@ -737,9 +707,9 @@ func ParseColor(c string) (_ Color, outErr error) {
 
 	switch c {
 	case `none`:
-		return ColorNone, nil
+		return canvas.ColorNone, nil
 	case `clear`:
-		return ColorClear, nil
+		return canvas.ColorClear, nil
 	}
 
 	defer func() {
@@ -1517,9 +1487,9 @@ func (s _Styler) resolveDeclarationValue(declaration Declaration) (string, error
 		return ``, fmt.Errorf(`主题 %q 未定义颜色 %s`, s.themeName, name)
 	}
 	switch value {
-	case ColorNone:
+	case canvas.ColorNone:
 		return `none`, nil
-	case ColorClear:
+	case canvas.ColorClear:
 		return `clear`, nil
 	default:
 		return fmt.Sprintf(`#%02X%02X%02X%02X`, value.R(), value.G(), value.B(), value.A()), nil

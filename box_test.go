@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/goccy/go-yaml"
+	"github.com/movsb/fbiw/internal/canvas/cpu"
 	"golang.org/x/image/font"
 	"golang.org/x/image/font/basicfont"
 	"golang.org/x/image/font/gofont/goregular"
@@ -24,7 +25,7 @@ func newFlexTestDocument(t *testing.T, body string, width, height int) *Document
 	t.Helper()
 	fm := NewFontManager()
 	fm.faces[_FontFaceKey{Family: `system`, Size: 32}] = &FontFace{
-		Face: basicfont.Face7x13, cache: map[rune]GlyphValue{},
+		Face: basicfont.Face7x13,
 	}
 	doc := _NewDocument(width, height, fstest.MapFS{
 		`main.html`: &fstest.MapFile{Data: []byte(`<document>` + body + `</document>`)},
@@ -65,7 +66,7 @@ func TestFlexDemoLayout(t *testing.T) {
 			}
 			return true
 		})
-		doc.paint(NewCanvas(1024, 768))
+		doc.paint(NewCanvas(cpu.New(1024, 768)))
 	}
 	check()
 	set := func(id, name, value string) {
@@ -389,7 +390,7 @@ func TestDisplayHidesRootAndDescendants(t *testing.T) {
 				t.Fatal("display must not inherit from parent")
 			}
 			doc.layout()
-			canvas := NewCanvas(20, 20)
+			canvas := NewCanvas(cpu.New(20, 20))
 			doc.paint(canvas)
 			if !reflect.DeepEqual(canvas.softwarePixels(), make([]byte, len(canvas.softwarePixels()))) {
 				t.Fatal("hidden root or its child was painted")
@@ -785,8 +786,7 @@ func (f testMetricsFace) Metrics() font.Metrics {
 func TestSegmentInlineStopsWhenFirstCharacterDoesNotFit(t *testing.T) {
 	fontManager := NewFontManager()
 	fontManager.faces[_FontFaceKey{Family: `system`, Size: 32}] = &FontFace{
-		Face:  basicfont.Face7x13,
-		cache: map[rune]GlyphValue{},
+		Face: basicfont.Face7x13,
 	}
 	doc := _NewDocument(100, 100, nil, fontManager, nil)
 	text := NewText(doc)
@@ -813,7 +813,6 @@ func TestSegmentBlockKeepsLineHeightWhenAvailableHeightIsSmaller(t *testing.T) {
 				Descent: fixed.I(8),
 			},
 		},
-		cache: map[rune]GlyphValue{},
 	}
 	doc := _NewDocument(100, 30, nil, fontManager, nil)
 	text := NewText(doc)
@@ -1441,7 +1440,7 @@ func TestListChildClipsOverflowingContent(t *testing.T) {
 	wrapper.AppendChild(child)
 	child.computedStyles.SetBackgroundColor(ColorFromRGBA(255, 255, 255, 255))
 
-	canvas := NewCanvas(20, 6)
+	canvas := NewCanvas(cpu.New(20, 6))
 	wrapper.Draw(canvas)
 	for x := 0; x < 20; x++ {
 		painted := canvas.softwarePixels()[x*4+3] != 0
@@ -1514,7 +1513,7 @@ func TestRotationInvalidOptions(t *testing.T) {
 
 func TestRotatedRectangleAndClip(t *testing.T) {
 	img := DecodedImage{Width: 3, Height: 1, Pixels: []byte{0, 0, 255, 255, 0, 255, 0, 255, 255, 0, 0, 255}}
-	c := NewCanvas(7, 7)
+	c := NewCanvas(cpu.New(7, 7))
 	c.Offset(2, 3).DrawImageRotated(img, 90)
 	for y, want := range [][]byte{{0, 0, 255, 255}, {0, 255, 0, 255}, {255, 0, 0, 255}} {
 		got := c.softwarePixels()[((y+2)*7+3)*4:][:4]
@@ -1522,7 +1521,7 @@ func TestRotatedRectangleAndClip(t *testing.T) {
 			t.Fatalf("pixel %d: %v", y, got)
 		}
 	}
-	clipped := NewCanvas(7, 7)
+	clipped := NewCanvas(cpu.New(7, 7))
 	clipped.Clip(3, 3, 1, 1).Offset(2, 3).DrawImageRotated(img, 90)
 	for y := 0; y < 7; y++ {
 		for x := 0; x < 7; x++ {
@@ -1531,8 +1530,8 @@ func TestRotatedRectangleAndClip(t *testing.T) {
 			}
 		}
 	}
-	zero := NewCanvas(7, 7)
-	plain := NewCanvas(7, 7)
+	zero := NewCanvas(cpu.New(7, 7))
+	plain := NewCanvas(cpu.New(7, 7))
 	zero.Offset(2, 3).DrawImageRotated(img, 360)
 	plain.Offset(2, 3).DrawImage(img)
 	if !bytes.Equal(zero.softwarePixels(), plain.softwarePixels()) {
@@ -1543,7 +1542,7 @@ func TestRotatedRectangleAndClip(t *testing.T) {
 func TestRotatedTransparentSampling(t *testing.T) {
 	// 隐藏的蓝色不能污染半透明红色的插值。
 	img := DecodedImage{Width: 2, Height: 1, Pixels: []byte{0, 0, 255, 128, 255, 0, 0, 0}}
-	c := NewCanvas(5, 5)
+	c := NewCanvas(cpu.New(5, 5))
 	c.Offset(1, 2).DrawImageRotated(img, 45)
 	found := false
 	for i := 0; i < len(c.softwarePixels()); i += 4 {
@@ -1566,7 +1565,7 @@ func BenchmarkDrawImageRotated(b *testing.B) {
 			for i := range img.Pixels {
 				img.Pixels[i] = 255
 			}
-			c := NewCanvas(size, size)
+			c := NewCanvas(cpu.New(size, size))
 			b.ReportAllocs()
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
@@ -1615,7 +1614,7 @@ func TestImageRotationClipsAndKeepsLayout(t *testing.T) {
 	img.layoutBox.Height = 3
 	original := img.layoutBox
 	img.SetRotation(90)
-	c := NewCanvas(5, 5)
+	c := NewCanvas(cpu.New(5, 5))
 	img.Draw(c.Offset(1, 1))
 	if c.softwarePixels()[(2*5+2)*4+2] != 255 {
 		t.Fatal("center moved")
@@ -1623,7 +1622,7 @@ func TestImageRotationClipsAndKeepsLayout(t *testing.T) {
 	if img.layoutBox != original {
 		t.Fatal("rotation changed layout")
 	}
-	offscreen := NewCanvas(5, 5)
+	offscreen := NewCanvas(cpu.New(5, 5))
 	img.Draw(offscreen.Clip(0, 0, 1, 1).Offset(2, 2))
 	if !bytes.Equal(offscreen.softwarePixels(), make([]byte, len(offscreen.softwarePixels()))) {
 		t.Fatal("empty intersection escaped clip")
@@ -1644,7 +1643,7 @@ func TestImageRotationOverflow(t *testing.T) {
 	draw := func(allow bool) *Canvas {
 		stop := img.Rotate(RotationOptions{Duration: time.Second, Overflow: allow})
 		stop()
-		c := NewCanvas(11, 11)
+		c := NewCanvas(cpu.New(11, 11))
 		img.Draw(c.Offset(3, 3))
 		return c
 	}
@@ -1660,7 +1659,7 @@ func TestImageRotationOverflow(t *testing.T) {
 	}
 	stop := img.Rotate(RotationOptions{Duration: time.Second, Overflow: true})
 	stop()
-	parent := NewCanvas(11, 11)
+	parent := NewCanvas(cpu.New(11, 11))
 	img.Draw(parent.Clip(4, 4, 3, 3).Offset(3, 3))
 	for y := 0; y < 11; y++ {
 		for x := 0; x < 11; x++ {
@@ -1670,7 +1669,7 @@ func TestImageRotationOverflow(t *testing.T) {
 		}
 	}
 	// 组件本身在父裁剪范围外，其旋转后的溢出仍可见。
-	edge := NewCanvas(11, 11)
+	edge := NewCanvas(cpu.New(11, 11))
 	img.Draw(edge.Clip(5, 2, 1, 1).Offset(3, 3))
 	if edge.softwarePixels()[(2*11+5)*4+3] == 0 {
 		t.Fatal("culled visible overflow")
@@ -1684,7 +1683,7 @@ func TestImageRotationOverflow(t *testing.T) {
 	}
 	// 屏幕边界安全裁剪。
 	img.SetRotation(45)
-	img.Draw(NewCanvas(2, 2).Offset(-1, -1))
+	img.Draw(NewCanvas(cpu.New(2, 2)).Offset(-1, -1))
 }
 
 func TestRotationDirection(t *testing.T) {
@@ -1753,7 +1752,7 @@ func TestImageScaleDrawing(t *testing.T) {
 	img.SetScale(2)
 	for _, angle := range []float64{0, 90} {
 		img.SetRotation(angle)
-		c := NewCanvas(9, 9)
+		c := NewCanvas(cpu.New(9, 9))
 		img.Draw(c.Offset(3, 3))
 		if c.softwarePixels()[(4*9+4)*4] != 255 {
 			t.Fatal("center shifted")
@@ -1761,7 +1760,7 @@ func TestImageScaleDrawing(t *testing.T) {
 		if c.softwarePixels()[(4*9+2)*4] == 0 {
 			t.Fatal("scale did not expand drawing")
 		}
-		parent := NewCanvas(9, 9)
+		parent := NewCanvas(cpu.New(9, 9))
 		img.Draw(parent.Clip(3, 3, 3, 3).Offset(3, 3))
 		if parent.softwarePixels()[(4*9+2)*4] != 0 {
 			t.Fatal("scale escaped parent clip")
@@ -1772,7 +1771,7 @@ func TestImageScaleDrawing(t *testing.T) {
 	}
 	stop = img.Rotate(RotationOptions{Duration: time.Second})
 	stop()
-	c := NewCanvas(9, 9)
+	c := NewCanvas(cpu.New(9, 9))
 	img.Draw(c.Offset(3, 3))
 	if c.softwarePixels()[(4*9+2)*4] != 0 {
 		t.Fatal("scale escaped component clip")
