@@ -31,11 +31,125 @@ import (
 	_ "golang.org/x/image/webp"
 )
 
+// canvasRenderer is the device-independent boundary behind Canvas. Canvas owns
+// coordinate translation and clipping; implementations own pixel production.
+// It is intentionally private while the GLES backend is still being designed.
+type canvasRenderer interface {
+	size() (int, int)
+	clear()
+	fillRect(rect, clip image.Rectangle, color Color)
+	drawImage(img DecodedImage, src image.Rectangle, dst image.Point, clip image.Rectangle)
+	drawImageTransformed(img DecodedImage, degrees, scale, cx, cy float64, clip image.Rectangle)
+	drawMask(mask []byte, maskWidth, maskHeight int, dst image.Point, clip image.Rectangle, color Color)
+	pixel(point image.Point) color.NRGBA
+	setPixel(point image.Point, color color.NRGBA)
+	snapshot() image.Image
+}
+
+// softwareRenderer keeps the existing BGRA8888 framebuffer representation.
+type softwareRenderer struct {
+	width, height int
+	buffer        []byte
+}
+
+func newSoftwareRenderer(width, height int) *softwareRenderer {
+	return &softwareRenderer{
+		width:  width,
+		height: height,
+		buffer: make([]byte, width*height*4),
+	}
+}
+
+func (r *softwareRenderer) size() (int, int) { return r.width, r.height }
+
+func (r *softwareRenderer) canvasAt(dst image.Point, clip image.Rectangle) *Canvas {
+	return &Canvas{
+		renderer: r,
+		x:        dst.X,
+		y:        dst.Y,
+		width:    r.width,
+		height:   r.height,
+		clip:     clip,
+	}
+}
+
+func (r *softwareRenderer) clear() { clear(r.buffer) }
+
+func (r *softwareRenderer) fillRect(rect, _ image.Rectangle, color Color) {
+	r.canvasAt(image.Point{}, image.Rect(0, 0, r.width, r.height)).
+		fillRectSoftware(rect.Min.X, rect.Min.Y, rect.Max.X, rect.Max.Y, color)
+}
+
+func (r *softwareRenderer) drawImage(img DecodedImage, src image.Rectangle, dst image.Point, clip image.Rectangle) {
+	r.canvasAt(dst, clip).drawImage5RegionSoftware(img, src.Min.X, src.Min.Y, src.Dx(), src.Dy())
+}
+
+func (r *softwareRenderer) drawImageTransformed(img DecodedImage, degrees, scale, cx, cy float64, clip image.Rectangle) {
+	r.canvasAt(image.Point{}, clip).drawImageTransformedCenterSoftware(img, degrees, scale, cx, cy)
+}
+
+func (r *softwareRenderer) drawMask(mask []byte, maskWidth, maskHeight int, dst image.Point, clip image.Rectangle, color Color) {
+	visible := image.Rect(dst.X, dst.Y, dst.X+maskWidth, dst.Y+maskHeight).
+		Intersect(clip).
+		Intersect(image.Rect(0, 0, r.width, r.height))
+	if visible.Empty() {
+		return
+	}
+
+	colorB, colorG, colorR := uint32(color.B()), uint32(color.G()), uint32(color.R())
+	for y := visible.Min.Y; y < visible.Max.Y; y++ {
+		maskY := y - dst.Y
+		maskRow := mask[maskY*maskWidth : maskY*maskWidth+maskWidth]
+		dstOffset := (y*r.width + visible.Min.X) * 4
+		dstRow := r.buffer[dstOffset : dstOffset+visible.Dx()*4]
+		for x := visible.Min.X; x < visible.Max.X; x++ {
+			alpha := uint32(maskRow[x-dst.X])
+			if alpha == 0 {
+				continue
+			}
+			pixel := dstRow[(x-visible.Min.X)*4:][:4]
+			if alpha == 255 {
+				pixel[0], pixel[1], pixel[2], pixel[3] = byte(colorB), byte(colorG), byte(colorR), 255
+				continue
+			}
+			inverted := uint32(255) - alpha
+			pixel[0] = div255(colorB*alpha + uint32(pixel[0])*inverted)
+			pixel[1] = div255(colorG*alpha + uint32(pixel[1])*inverted)
+			pixel[2] = div255(colorR*alpha + uint32(pixel[2])*inverted)
+			pixel[3] = 255
+		}
+	}
+}
+
+func (r *softwareRenderer) pixel(point image.Point) color.NRGBA {
+	offset := (point.Y*r.width + point.X) * 4
+	p := r.buffer[offset:]
+	return color.NRGBA{R: p[2], G: p[1], B: p[0], A: p[3]}
+}
+
+func (r *softwareRenderer) setPixel(point image.Point, color color.NRGBA) {
+	offset := (point.Y*r.width + point.X) * 4
+	p := r.buffer[offset:]
+	p[0], p[1], p[2], p[3] = color.B, color.G, color.R, color.A
+}
+
+func (r *softwareRenderer) snapshot() image.Image {
+	img := image.NewNRGBA(image.Rect(0, 0, r.width, r.height))
+	for y := 0; y < r.height; y++ {
+		for x := 0; x < r.width; x++ {
+			src := r.buffer[(y*r.width+x)*4:]
+			dst := img.Pix[y*img.Stride+x*4:]
+			dst[0], dst[1], dst[2], dst[3] = src[2], src[1], src[0], src[3]
+		}
+	}
+	return img
+}
+
 // 绘图层。
 //
 // 提供基础绘制工具。
 type Canvas struct {
-	buffer []byte
+	renderer canvasRenderer
 
 	// 渲染的偏移坐标。
 	x, y int
@@ -51,15 +165,45 @@ func NewCanvas(width, height int) *Canvas {
 	if width <= 0 || height <= 0 {
 		panic(`无效Canvas大小`)
 	}
+	return newCanvas(newSoftwareRenderer(width, height))
+}
+
+func newCanvas(renderer canvasRenderer) *Canvas {
+	if renderer == nil {
+		panic(`Canvas renderer不能为空`)
+	}
+	width, height := renderer.size()
+	if width <= 0 || height <= 0 {
+		panic(`无效Canvas大小`)
+	}
 	return &Canvas{
-		width:  width,
-		height: height,
-		x:      0,
-		y:      0,
-		buffer: make([]byte, width*height*4),
-		clip:   image.Rect(0, 0, width, height),
+		renderer: renderer,
+		width:    width,
+		height:   height,
+		x:        0,
+		y:        0,
+		clip:     image.Rect(0, 0, width, height),
 	}
 }
+
+func (c *Canvas) rendererBackend() canvasRenderer {
+	if c.renderer == nil {
+		panic("Canvas renderer未初始化")
+	}
+	return c.renderer
+}
+
+func (c *Canvas) softwareRenderer() *softwareRenderer {
+	r, ok := c.rendererBackend().(*softwareRenderer)
+	if !ok {
+		panic("操作只适用于软件Canvas")
+	}
+	return r
+}
+
+// softwarePixels is deliberately not part of canvasRenderer: a GPU renderer
+// has no persistent CPU-addressable framebuffer.
+func (c *Canvas) softwarePixels() []byte { return c.softwareRenderer().buffer }
 
 func (c *Canvas) SaveToFile(path string) {
 	fp, err := os.Create(path)
@@ -67,7 +211,7 @@ func (c *Canvas) SaveToFile(path string) {
 		panic(err)
 	}
 	defer fp.Close()
-	if err := png.Encode(fp, c.framebuffer()); err != nil {
+	if err := png.Encode(fp, c.rendererBackend().snapshot()); err != nil {
 		panic(err)
 	}
 }
@@ -94,17 +238,17 @@ func (c *Canvas) Offset(x, y int) *Canvas {
 		return c
 	}
 	return &Canvas{
-		buffer: c.buffer,
-		x:      c.x + x,
-		y:      c.y + y,
-		width:  c.width,
-		height: c.height,
-		clip:   c.clip,
+		renderer: c.renderer,
+		x:        c.x + x,
+		y:        c.y + y,
+		width:    c.width,
+		height:   c.height,
+		clip:     c.clip,
 	}
 }
 
 func (c *Canvas) DrawImage(img DecodedImage) {
-	c.drawImage5Region(img, 0, 0, img.Width, img.Height)
+	c.DrawImageRegion(img, 0, 0, img.Width, img.Height)
 }
 
 // DrawImageRotated 绕图片中心顺时针旋转 degrees 度并绘制。
@@ -129,6 +273,11 @@ func (c *Canvas) drawImageRotatedCenter(img DecodedImage, degrees, cx, cy float6
 }
 
 func (c *Canvas) drawImageTransformedCenter(img DecodedImage, degrees, scale, cx, cy float64) {
+	c.rendererBackend().drawImageTransformed(img, degrees, scale, cx, cy, c.clipBounds())
+}
+
+func (c *Canvas) drawImageTransformedCenterSoftware(img DecodedImage, degrees, scale, cx, cy float64) {
+	pixels := c.softwarePixels()
 	sin, cos := math.Sincos(degrees * math.Pi / 180)
 	// 多留一个采样像素，覆盖双线性插值在透明边界的贡献。
 	rx := (math.Abs(cos)*float64(img.Width)+math.Abs(sin)*float64(img.Height))*scale/2 + scale
@@ -172,7 +321,7 @@ func (c *Canvas) drawImageTransformedCenter(img DecodedImage, degrees, scale, cx
 				}
 			}
 			if a > 0 {
-				p := c.buffer[(y*c.width+x)*4:][:4]
+				p := pixels[(y*c.width+x)*4:][:4]
 				p[0] = uint8(math.Round(min(255, blue+(1-a)*float64(p[0]))))
 				p[1] = uint8(math.Round(min(255, green+(1-a)*float64(p[1]))))
 				p[2] = uint8(math.Round(min(255, red+(1-a)*float64(p[2]))))
@@ -186,7 +335,15 @@ func (c *Canvas) drawImageTransformedCenter(img DecodedImage, degrees, scale, cx
 
 // DrawImageRegion 把图片的指定区域绘制到 Canvas 当前原点。
 func (c *Canvas) DrawImageRegion(img DecodedImage, srcX, srcY, width, height int) {
-	c.drawImage5Region(img, srcX, srcY, width, height)
+	if width <= 0 || height <= 0 {
+		return
+	}
+	c.rendererBackend().drawImage(
+		img,
+		image.Rect(srcX, srcY, srcX+width, srcY+height),
+		image.Pt(c.x, c.y),
+		c.clipBounds(),
+	)
 }
 
 type imageDrawRegion struct {
@@ -245,9 +402,10 @@ func (c *Canvas) drawImage1(img DecodedImage, width, height int) {
 	}
 	width, height = r.width, r.height
 
+	pixels := c.softwarePixels()
 	for y := range r.height {
 		offset := (r.dstY+y)*c.width*4 + r.dstX*4
-		dst := c.buffer[offset:]
+		dst := pixels[offset:]
 		src := img.Pixels[((r.srcY+y)*img.Width+r.srcX)*4:]
 		// len := width * 4
 		// copy(dst, src[0:len])
@@ -283,10 +441,11 @@ func (c *Canvas) drawImage2(img DecodedImage, width, height int) {
 	width, height = r.width, r.height
 
 	const maskBR = uint32(0x00ff00ff)
+	pixels := c.softwarePixels()
 	for y := range r.height {
 		dstOffset := ((r.dstY+y)*c.width + r.dstX) * 4
 		srcOffset := ((r.srcY+y)*img.Width + r.srcX) * 4
-		dstBytes := c.buffer[dstOffset : dstOffset+width*4]
+		dstBytes := pixels[dstOffset : dstOffset+width*4]
 		srcBytes := img.Pixels[srcOffset : srcOffset+width*4]
 		dst := unsafe.Slice((*uint32)(unsafe.Pointer(&dstBytes[0])), width)
 		src := unsafe.Slice((*uint32)(unsafe.Pointer(&srcBytes[0])), width)
@@ -347,6 +506,10 @@ func (c *Canvas) drawImage5(img DecodedImage, width, height int) {
 }
 
 func (c *Canvas) drawImage5Region(img DecodedImage, srcX, srcY, width, height int) {
+	c.rendererBackend().drawImage(img, image.Rect(srcX, srcY, srcX+width, srcY+height), image.Pt(c.x, c.y), c.clipBounds())
+}
+
+func (c *Canvas) drawImage5RegionSoftware(img DecodedImage, srcX, srcY, width, height int) {
 	if !img.Opaque {
 		c.drawImageSIMDRegion(img, srcX, srcY, width, height, false)
 		return
@@ -356,10 +519,11 @@ func (c *Canvas) drawImage5Region(img DecodedImage, srcX, srcY, width, height in
 	if !ok {
 		return
 	}
+	pixels := c.softwarePixels()
 	for y := range r.height {
 		dstOffset := ((r.dstY+y)*c.width + r.dstX) * 4
 		srcOffset := ((r.srcY+y)*img.Width + r.srcX) * 4
-		copy(c.buffer[dstOffset:dstOffset+r.width*4], img.Pixels[srcOffset:srcOffset+r.width*4])
+		copy(pixels[dstOffset:dstOffset+r.width*4], img.Pixels[srcOffset:srcOffset+r.width*4])
 	}
 }
 
@@ -383,10 +547,11 @@ func (c *Canvas) drawImageSIMDRegion(img DecodedImage, srcX, srcY, width, height
 	vOpaque := archsimd.BroadcastUint32x4(0xff000000)
 	vectorWidth := width &^ 3
 
+	pixels := c.softwarePixels()
 	for y := range height {
 		dstOffset := ((r.dstY+y)*c.width + r.dstX) * 4
 		srcOffset := ((r.srcY+y)*img.Width + r.srcX) * 4
-		dstBytes := c.buffer[dstOffset : dstOffset+width*4]
+		dstBytes := pixels[dstOffset : dstOffset+width*4]
 		srcBytes := img.Pixels[srcOffset : srcOffset+width*4]
 		dst := unsafe.Slice((*uint32)(unsafe.Pointer(&dstBytes[0])), width)
 		src := unsafe.Slice((*uint32)(unsafe.Pointer(&srcBytes[0])), width)
@@ -451,10 +616,7 @@ func (c *Canvas) drawImageSIMDRegion(img DecodedImage, srcX, srcY, width, height
 
 func (c *Canvas) getPixel(x, y int) color.NRGBA {
 	xx, yy := c.x+x, c.y+y
-	offset := c.width*4*yy + xx*4
-
-	p := c.buffer[offset:]
-	return color.NRGBA{p[2], p[1], p[0], p[3]}
+	return c.rendererBackend().pixel(image.Pt(xx, yy))
 }
 
 func (c *Canvas) SetPixel(x, y int, color color.NRGBA) {
@@ -465,15 +627,7 @@ func (c *Canvas) SetPixel(x, y int, color color.NRGBA) {
 		return
 	}
 
-	xx, yy := c.x+x, c.y+y
-	offset := c.width*yy*4 + xx*4
-
-	p := c.buffer[offset:]
-	_ = p[3]
-	p[0] = color.B
-	p[1] = color.G
-	p[2] = color.R
-	p[3] = color.A
+	c.rendererBackend().setPixel(image.Pt(c.x+x, c.y+y), color)
 }
 
 func (c *Canvas) FillRect(x, y, width, height int, color Color) {
@@ -506,6 +660,11 @@ func (c *Canvas) FillRect(x, y, width, height int, color Color) {
 		y1 = clip.Max.Y
 	}
 
+	c.rendererBackend().fillRect(image.Rect(x0, y0, x1, y1), clip, color)
+}
+
+func (c *Canvas) fillRectSoftware(x0, y0, x1, y1 int, color Color) {
+	pixels := c.softwarePixels()
 	// 如果是完全不透明色，则直接覆盖。
 	// 或者是需要“打洞”的颜色。
 	if color.A() == 255 || color.IsClear() {
@@ -516,13 +675,13 @@ func (c *Canvas) FillRect(x, y, width, height int, color Color) {
 		for yy := y0; yy < y1; yy++ {
 			offset := c.width*4*yy + x0*4
 			if yy == y0 {
-				line0 = c.buffer[offset : offset+(x1-x0)*4]
+				line0 = pixels[offset : offset+(x1-x0)*4]
 				for i := 0; i < (x1-x0)*4; i += 4 {
-					p := c.buffer[offset+i : offset+i+4]
+					p := pixels[offset+i : offset+i+4]
 					*(*uint32)(unsafe.Pointer(&p[0])) = color.Value()
 				}
 			} else {
-				copy(c.buffer[offset:], line0)
+				copy(pixels[offset:], line0)
 			}
 		}
 		return
@@ -536,10 +695,11 @@ func (c *Canvas) FillRect(x, y, width, height int, color Color) {
 // 基线标准
 func fillAlphaBlend1(c *Canvas, color Color, x0, x1, y0, y1 int) {
 	a, ia := color.A(), 255-color.A()
+	pixels := c.softwarePixels()
 	for yy := y0; yy < y1; yy++ {
 		offset := c.width*4*yy + x0*4
 		for i := 0; i < (x1-x0)*4; i += 4 {
-			p := c.buffer[offset+i : offset+i+4]
+			p := pixels[offset+i : offset+i+4]
 			p[0] = uint8((int(color.B())*int(a) + int(p[0])*int(ia)) / 255)
 			p[1] = uint8((int(color.G())*int(a) + int(p[1])*int(ia)) / 255)
 			p[2] = uint8((int(color.R())*int(a) + int(p[2])*int(ia)) / 255)
@@ -568,10 +728,11 @@ func fillAlphaBlend2(c *Canvas, color Color, x0, x1, y0, y1 int) {
 	}
 
 	rowBytes := (x1 - x0) * 4
+	pixels := c.softwarePixels()
 
 	for yy := y0; yy < y1; yy++ {
 		offset := (yy*c.width + x0) * 4
-		p := c.buffer[offset : offset+rowBytes]
+		p := pixels[offset : offset+rowBytes]
 
 		for i := 0; i < rowBytes; i += 4 {
 			p[i+0] = blendB[p[i+0]]
@@ -604,10 +765,11 @@ func fillAlphaBlend3(c *Canvas, color Color, x0, x1, y0, y1 int) {
 	}
 
 	rowBytes := (x1 - x0) * 4
+	pixels := c.softwarePixels()
 
 	for yy := y0; yy < y1; yy++ {
 		offset := (yy*c.width + x0) * 4
-		p := c.buffer[offset : offset+rowBytes]
+		p := pixels[offset : offset+rowBytes]
 
 		for i := 0; i < rowBytes; i += 4 {
 			p[i+0] = blendB[p[i+0]]
@@ -630,12 +792,13 @@ func fillAlphaBlend4(c *Canvas, color Color, x0, x1, y0, y1 int) {
 	srcG := uint32(color.G()) * a
 
 	width := x1 - x0
+	pixels := c.softwarePixels()
 
 	for yy := y0; yy < y1; yy++ {
 		offset := (yy*c.width + x0) * 4
 
 		for x := range width {
-			p := (*uint32)(unsafe.Pointer(&c.buffer[offset+x*4]))
+			p := (*uint32)(unsafe.Pointer(&pixels[offset+x*4]))
 			dst := *p
 
 			// B 和 R 一次计算。
@@ -672,11 +835,12 @@ func fillAlphaBlend5(c *Canvas, color Color, x0, x1, y0, y1 int) {
 
 	width := x1 - x0
 	vectorWidth := width &^ 3
+	pixelBuffer := c.softwarePixels()
 
 	for yy := y0; yy < y1; yy++ {
 		offset := (yy*c.width + x0) * 4
 
-		row := c.buffer[offset : offset+width*4]
+		row := pixelBuffer[offset : offset+width*4]
 
 		// BGRA8888 => 每 4 字节一个 uint32。
 		pixels := unsafe.Slice(
@@ -731,7 +895,7 @@ func fillAlphaBlend5(c *Canvas, color Color, x0, x1, y0, y1 int) {
 // 清屏。
 // 暂时是简单用黑色清。
 func (c *Canvas) Clear() {
-	clear(c.buffer)
+	c.rendererBackend().clear()
 }
 
 // 返回包含整个 framebuffer 的 image.Image/draw.Image。
@@ -812,6 +976,7 @@ func (c *Canvas) drawStringDevice(text string, faces []*FontFace, color Color) {
 func (c *Canvas) drawStringDevice1(text string, faces []*FontFace, color Color) {
 	prev := rune(-1)
 	dot := fixed.Point26_6{X: 0, Y: faces[0].Metrics().Ascent}
+	pixels := c.softwarePixels()
 	for _, next := range text {
 		if prev >= 0 {
 			dot.X += faces[0].Kern(prev, next)
@@ -852,7 +1017,7 @@ func (c *Canvas) drawStringDevice1(text string, faces []*FontFace, color Color) 
 				}
 
 				dstOffset := sy*c.width*4 + sx*4
-				pixel := c.buffer[dstOffset : dstOffset+4]
+				pixel := pixels[dstOffset : dstOffset+4]
 				if alpha == 255 {
 					*(*uint32)(unsafe.Pointer(&pixel[0])) = uint32(color)
 					continue
@@ -881,11 +1046,6 @@ func (c *Canvas) drawStringDevice2(text string, faces []*FontFace, color Color) 
 	prev := rune(-1)
 	dot := fixed.Point26_6{X: 0, Y: faces[0].Metrics().Ascent}
 
-	// Color 的通道提取包含移位和类型转换。颜色在整段文本中不会改变，
-	// 提前计算一次，避免在每个半透明像素上重复执行。
-	colorB := uint32(color.B())
-	colorG := uint32(color.G())
-	colorR := uint32(color.R())
 	clip := c.clipBounds()
 	for _, next := range text {
 		// 字偶距始终按主字体计算，以保持与原来的排版行为一致。
@@ -917,54 +1077,14 @@ func (c *Canvas) drawStringDevice2(text string, faces []*FontFace, color Color) 
 		dstX := dot.X.Round() + int(glyph.OffsetX)
 		dstY := dot.Y.Round() + int(glyph.OffsetY)
 
-		// 先在“字形坐标系”中计算字形与屏幕的交集。原实现对每个像素分别
-		// 判断 sx/sy 是否越界；绝大多数字形完全在屏幕内，这些重复判断会
-		// 占据内层循环的可观开销。
-		//
-		// sx0/sy0 是字形左上角在屏幕中的绝对坐标；x0..x1、y0..y1 则是
-		// 真正需要绘制的 mask 范围。字形完全位于屏幕外时区间为空。
-		glyphWidth := int(glyph.Width)
-		glyphHeight := int(glyph.Height)
-		sx0 := c.x + dstX
-		sy0 := c.y + dstY
-		x0, y0 := max(0, clip.Min.X-sx0), max(0, clip.Min.Y-sy0)
-		x1, y1 := min(glyphWidth, clip.Max.X-sx0), min(glyphHeight, clip.Max.Y-sy0)
-
-		if x0 < x1 && y0 < y1 {
-			for y := y0; y < y1; y++ {
-				// 每行只计算一次 mask 和显存切片。这样内层循环使用相对下标，
-				// 不必反复计算 y*width、屏幕偏移以及切出整个 buffer 的尾部。
-				maskRow := glyph.Masks[y*glyphWidth : y*glyphWidth+glyphWidth]
-				dstOffset := ((sy0+y)*c.width + sx0 + x0) * 4
-				dstRow := c.buffer[dstOffset : dstOffset+(x1-x0)*4]
-
-				for x := x0; x < x1; x++ {
-					alpha := uint32(maskRow[x])
-					if alpha == 0 {
-						continue
-					}
-
-					pixel := dstRow[(x-x0)*4 : (x-x0)*4+4]
-					// 完全覆盖时直接写入一个 BGRA 像素，不需要混色。
-					if alpha == 255 {
-						*(*uint32)(unsafe.Pointer(&pixel[0])) = uint32(color)
-						continue
-					}
-
-					inverted := uint32(255) - alpha
-					// mask 的 alpha 表示前景覆盖率：
-					// out = (foreground*alpha + background*(255-alpha)) / 255。
-					// 三个通道分别混合，最后通过 div255 精确完成除法。
-					b := colorB*alpha + uint32(pixel[0])*inverted
-					g := colorG*alpha + uint32(pixel[1])*inverted
-					r := colorR*alpha + uint32(pixel[2])*inverted
-					pixel[0] = div255(b)
-					pixel[1] = div255(g)
-					pixel[2] = div255(r)
-					pixel[3] = 255
-				}
-			}
-		}
+		c.rendererBackend().drawMask(
+			glyph.Masks,
+			int(glyph.Width),
+			int(glyph.Height),
+			image.Pt(c.x+dstX, c.y+dstY),
+			clip,
+			color,
+		)
 
 		dot.X += glyph.Advance
 		prev = next

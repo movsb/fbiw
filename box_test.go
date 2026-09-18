@@ -391,7 +391,7 @@ func TestDisplayHidesRootAndDescendants(t *testing.T) {
 			doc.layout()
 			canvas := NewCanvas(20, 20)
 			doc.paint(canvas)
-			if !reflect.DeepEqual(canvas.buffer, make([]byte, len(canvas.buffer))) {
+			if !reflect.DeepEqual(canvas.softwarePixels(), make([]byte, len(canvas.softwarePixels()))) {
 				t.Fatal("hidden root or its child was painted")
 			}
 			if err := root.SetProp(`display`, `true`); err != nil {
@@ -399,7 +399,7 @@ func TestDisplayHidesRootAndDescendants(t *testing.T) {
 			}
 			doc.layout()
 			doc.paint(canvas)
-			if reflect.DeepEqual(canvas.buffer, make([]byte, len(canvas.buffer))) {
+			if reflect.DeepEqual(canvas.softwarePixels(), make([]byte, len(canvas.softwarePixels()))) {
 				t.Fatal("root was not painted after showing it")
 			}
 		})
@@ -1444,7 +1444,7 @@ func TestListChildClipsOverflowingContent(t *testing.T) {
 	canvas := NewCanvas(20, 6)
 	wrapper.Draw(canvas)
 	for x := 0; x < 20; x++ {
-		painted := canvas.buffer[x*4+3] != 0
+		painted := canvas.softwarePixels()[x*4+3] != 0
 		if painted != (x < 10) {
 			t.Fatalf(`pixel x=%d painted=%t, want %t`, x, painted, x < 10)
 		}
@@ -1517,7 +1517,7 @@ func TestRotatedRectangleAndClip(t *testing.T) {
 	c := NewCanvas(7, 7)
 	c.Offset(2, 3).DrawImageRotated(img, 90)
 	for y, want := range [][]byte{{0, 0, 255, 255}, {0, 255, 0, 255}, {255, 0, 0, 255}} {
-		got := c.buffer[((y+2)*7+3)*4:][:4]
+		got := c.softwarePixels()[((y+2)*7+3)*4:][:4]
 		if !bytes.Equal(got, want) {
 			t.Fatalf("pixel %d: %v", y, got)
 		}
@@ -1526,7 +1526,7 @@ func TestRotatedRectangleAndClip(t *testing.T) {
 	clipped.Clip(3, 3, 1, 1).Offset(2, 3).DrawImageRotated(img, 90)
 	for y := 0; y < 7; y++ {
 		for x := 0; x < 7; x++ {
-			if (x != 3 || y != 3) && !bytes.Equal(clipped.buffer[(y*7+x)*4:][:4], make([]byte, 4)) {
+			if (x != 3 || y != 3) && !bytes.Equal(clipped.softwarePixels()[(y*7+x)*4:][:4], make([]byte, 4)) {
 				t.Fatal("escaped clip")
 			}
 		}
@@ -1535,7 +1535,7 @@ func TestRotatedRectangleAndClip(t *testing.T) {
 	plain := NewCanvas(7, 7)
 	zero.Offset(2, 3).DrawImageRotated(img, 360)
 	plain.Offset(2, 3).DrawImage(img)
-	if !bytes.Equal(zero.buffer, plain.buffer) {
+	if !bytes.Equal(zero.softwarePixels(), plain.softwarePixels()) {
 		t.Fatal("zero path differs")
 	}
 }
@@ -1546,11 +1546,11 @@ func TestRotatedTransparentSampling(t *testing.T) {
 	c := NewCanvas(5, 5)
 	c.Offset(1, 2).DrawImageRotated(img, 45)
 	found := false
-	for i := 0; i < len(c.buffer); i += 4 {
-		if c.buffer[i] != 0 {
+	for i := 0; i < len(c.softwarePixels()); i += 4 {
+		if c.softwarePixels()[i] != 0 {
 			t.Fatal("transparent color leaked")
 		}
-		if c.buffer[i+2] > 0 {
+		if c.softwarePixels()[i+2] > 0 {
 			found = true
 		}
 	}
@@ -1617,7 +1617,7 @@ func TestImageRotationClipsAndKeepsLayout(t *testing.T) {
 	img.SetRotation(90)
 	c := NewCanvas(5, 5)
 	img.Draw(c.Offset(1, 1))
-	if c.buffer[(2*5+2)*4+2] != 255 {
+	if c.softwarePixels()[(2*5+2)*4+2] != 255 {
 		t.Fatal("center moved")
 	}
 	if img.layoutBox != original {
@@ -1625,7 +1625,7 @@ func TestImageRotationClipsAndKeepsLayout(t *testing.T) {
 	}
 	offscreen := NewCanvas(5, 5)
 	img.Draw(offscreen.Clip(0, 0, 1, 1).Offset(2, 2))
-	if !bytes.Equal(offscreen.buffer, make([]byte, len(offscreen.buffer))) {
+	if !bytes.Equal(offscreen.softwarePixels(), make([]byte, len(offscreen.softwarePixels()))) {
 		t.Fatal("empty intersection escaped clip")
 	}
 }
@@ -1649,13 +1649,13 @@ func TestImageRotationOverflow(t *testing.T) {
 		return c
 	}
 	clipped, overflow := draw(false), draw(true)
-	if clipped.buffer[(2*11+5)*4+3] != 0 || overflow.buffer[(2*11+5)*4+3] == 0 {
+	if clipped.softwarePixels()[(2*11+5)*4+3] != 0 || overflow.softwarePixels()[(2*11+5)*4+3] == 0 {
 		t.Fatal("overflow toggle failed")
 	}
 	if img.layoutBox != original {
 		t.Fatal("overflow changed layout")
 	}
-	if !bytes.Equal(clipped.buffer, draw(false).buffer) {
+	if !bytes.Equal(clipped.softwarePixels(), draw(false).softwarePixels()) {
 		t.Fatal("disabling overflow did not restore clipping")
 	}
 	stop := img.Rotate(RotationOptions{Duration: time.Second, Overflow: true})
@@ -1664,7 +1664,7 @@ func TestImageRotationOverflow(t *testing.T) {
 	img.Draw(parent.Clip(4, 4, 3, 3).Offset(3, 3))
 	for y := 0; y < 11; y++ {
 		for x := 0; x < 11; x++ {
-			if (x < 4 || x >= 7 || y < 4 || y >= 7) && parent.buffer[(y*11+x)*4+3] != 0 {
+			if (x < 4 || x >= 7 || y < 4 || y >= 7) && parent.softwarePixels()[(y*11+x)*4+3] != 0 {
 				t.Fatal("escaped parent clip")
 			}
 		}
@@ -1672,14 +1672,14 @@ func TestImageRotationOverflow(t *testing.T) {
 	// 组件本身在父裁剪范围外，其旋转后的溢出仍可见。
 	edge := NewCanvas(11, 11)
 	img.Draw(edge.Clip(5, 2, 1, 1).Offset(3, 3))
-	if edge.buffer[(2*11+5)*4+3] == 0 {
+	if edge.softwarePixels()[(2*11+5)*4+3] == 0 {
 		t.Fatal("culled visible overflow")
 	}
 	// 图片大于组件时，零角度也保持溢出策略。
 	img.layoutBox.Width, img.layoutBox.Height = 3, 3
 	img.SetRotation(0)
 	zero := draw(true)
-	if zero.buffer[(2*11+2)*4+3] == 0 {
+	if zero.softwarePixels()[(2*11+2)*4+3] == 0 {
 		t.Fatal("zero angle lost overflow")
 	}
 	// 屏幕边界安全裁剪。
@@ -1755,15 +1755,15 @@ func TestImageScaleDrawing(t *testing.T) {
 		img.SetRotation(angle)
 		c := NewCanvas(9, 9)
 		img.Draw(c.Offset(3, 3))
-		if c.buffer[(4*9+4)*4] != 255 {
+		if c.softwarePixels()[(4*9+4)*4] != 255 {
 			t.Fatal("center shifted")
 		}
-		if c.buffer[(4*9+2)*4] == 0 {
+		if c.softwarePixels()[(4*9+2)*4] == 0 {
 			t.Fatal("scale did not expand drawing")
 		}
 		parent := NewCanvas(9, 9)
 		img.Draw(parent.Clip(3, 3, 3, 3).Offset(3, 3))
-		if parent.buffer[(4*9+2)*4] != 0 {
+		if parent.softwarePixels()[(4*9+2)*4] != 0 {
 			t.Fatal("scale escaped parent clip")
 		}
 	}
@@ -1774,7 +1774,7 @@ func TestImageScaleDrawing(t *testing.T) {
 	stop()
 	c := NewCanvas(9, 9)
 	img.Draw(c.Offset(3, 3))
-	if c.buffer[(4*9+2)*4] != 0 {
+	if c.softwarePixels()[(4*9+2)*4] != 0 {
 		t.Fatal("scale escaped component clip")
 	}
 	for _, scale := range []float64{0, -1, math.NaN(), math.Inf(1)} {

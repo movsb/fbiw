@@ -388,7 +388,7 @@ func TestAnimationSyncPaintBatch(t *testing.T) {
 		}
 	}
 	doc.root = b
-	app.canvas = &Canvas{width: 1, height: 1, buffer: make([]byte, 4)}
+	app.canvas = NewCanvas(1, 1)
 	app.display = &_Display1{&syncs}
 	doc.RequestAnimationFrame(func(time.Time) { state++; doc.RequestLayout() })
 	doc.RequestAnimationFrame(func(time.Time) { state++; doc.RequestLayout() })

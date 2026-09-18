@@ -615,7 +615,7 @@ func (app *App) sync() {
 		overlay.sync(app.canvas, false, true)
 	}
 
-	app.display.Sync(app.canvas.buffer)
+	app.display.Sync(app.canvas.softwarePixels())
 	app.dirty = false
 	app.overlayChanged = false
 

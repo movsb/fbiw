@@ -11,6 +11,65 @@ import (
 	"golang.org/x/image/font/gofont/goregular"
 )
 
+type recordingCanvasRenderer struct {
+	width, height int
+	fillRectRect  image.Rectangle
+	fillRectClip  image.Rectangle
+	imageSrc      image.Rectangle
+	imageDst      image.Point
+	imageClip     image.Rectangle
+}
+
+func testSoftwareCanvas(width, height int, pixels []byte, x, y int) Canvas {
+	c := *newCanvas(&softwareRenderer{width: width, height: height, buffer: pixels})
+	c.x, c.y = x, y
+	return c
+}
+
+func (r *recordingCanvasRenderer) size() (int, int) { return r.width, r.height }
+func (*recordingCanvasRenderer) clear()             {}
+func (r *recordingCanvasRenderer) fillRect(rect, clip image.Rectangle, _ Color) {
+	r.fillRectRect, r.fillRectClip = rect, clip
+}
+func (r *recordingCanvasRenderer) drawImage(_ DecodedImage, src image.Rectangle, dst image.Point, clip image.Rectangle) {
+	r.imageSrc, r.imageDst, r.imageClip = src, dst, clip
+}
+func (*recordingCanvasRenderer) drawImageTransformed(DecodedImage, float64, float64, float64, float64, image.Rectangle) {
+}
+func (*recordingCanvasRenderer) drawMask([]byte, int, int, image.Point, image.Rectangle, Color) {
+}
+func (*recordingCanvasRenderer) pixel(image.Point) color.NRGBA { return color.NRGBA{} }
+func (*recordingCanvasRenderer) setPixel(image.Point, color.NRGBA) {
+}
+func (r *recordingCanvasRenderer) snapshot() image.Image {
+	return image.NewNRGBA(image.Rect(0, 0, r.width, r.height))
+}
+
+func TestCanvasDelegatesAbsoluteCoordinatesAndClip(t *testing.T) {
+	renderer := &recordingCanvasRenderer{width: 20, height: 12}
+	root := newCanvas(renderer)
+	canvas := root.Offset(3, 2).Clip(1, 1, 8, 6).Offset(2, 1)
+
+	if root.renderer != canvas.renderer {
+		t.Fatal("derived Canvas does not share its renderer")
+	}
+
+	canvas.FillRect(-10, -10, 20, 20, ColorFromString("red"))
+	wantClip := image.Rect(4, 3, 12, 9)
+	if renderer.fillRectRect != wantClip || renderer.fillRectClip != wantClip {
+		t.Fatalf("FillRect rect/clip = %v/%v, want %v", renderer.fillRectRect, renderer.fillRectClip, wantClip)
+	}
+
+	img := DecodedImage{Width: 5, Height: 4, Pixels: make([]byte, 5*4*4)}
+	canvas.DrawImageRegion(img, 1, 2, 3, 2)
+	if renderer.imageSrc != image.Rect(1, 2, 4, 4) {
+		t.Fatalf("DrawImageRegion source = %v", renderer.imageSrc)
+	}
+	if renderer.imageDst != image.Pt(5, 3) || renderer.imageClip != wantClip {
+		t.Fatalf("DrawImageRegion dst/clip = %v/%v, want %v/%v", renderer.imageDst, renderer.imageClip, image.Pt(5, 3), wantClip)
+	}
+}
+
 func TestDecodeImageTrimTransparentBorder(t *testing.T) {
 	source := image.NewNRGBA(image.Rect(0, 0, 6, 5))
 	source.SetNRGBA(2, 1, color.NRGBA{R: 10, G: 20, B: 30, A: 128})
@@ -75,11 +134,7 @@ func TestCanvasImageAlwaysRepresentsEntireFramebuffer(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		canvas := Canvas{
-			buffer: make([]byte, width*height*4),
-			x:      tt.x, y: tt.y,
-			width: width, height: height,
-		}
+		canvas := testSoftwareCanvas(width, height, make([]byte, width*height*4), tt.x, tt.y)
 		if got := canvas.framebuffer().Bounds(); got != tt.wantImage {
 			t.Errorf("offset=(%d,%d): Image.Bounds()=%v, want %v", tt.x, tt.y, got, tt.wantImage)
 		}
@@ -139,11 +194,11 @@ func TestDrawImageVersions(t *testing.T) {
 		buffer3 := bytes.Clone(buffer1)
 		buffer4 := bytes.Clone(buffer1)
 		buffer5 := bytes.Clone(buffer1)
-		canvas1 := Canvas{buffer: buffer1, x: tc.x, y: tc.y, width: canvasWidth, height: canvasHeight}
-		canvas2 := Canvas{buffer: buffer2, x: tc.x, y: tc.y, width: canvasWidth, height: canvasHeight}
-		canvas3 := Canvas{buffer: buffer3, x: tc.x, y: tc.y, width: canvasWidth, height: canvasHeight}
-		canvas4 := Canvas{buffer: buffer4, x: tc.x, y: tc.y, width: canvasWidth, height: canvasHeight}
-		canvas5 := Canvas{buffer: buffer5, x: tc.x, y: tc.y, width: canvasWidth, height: canvasHeight}
+		canvas1 := testSoftwareCanvas(canvasWidth, canvasHeight, buffer1, tc.x, tc.y)
+		canvas2 := testSoftwareCanvas(canvasWidth, canvasHeight, buffer2, tc.x, tc.y)
+		canvas3 := testSoftwareCanvas(canvasWidth, canvasHeight, buffer3, tc.x, tc.y)
+		canvas4 := testSoftwareCanvas(canvasWidth, canvasHeight, buffer4, tc.x, tc.y)
+		canvas5 := testSoftwareCanvas(canvasWidth, canvasHeight, buffer5, tc.x, tc.y)
 
 		canvas1.drawImage1(image, tc.width, tc.height)
 		canvas2.drawImage2(image, tc.width, tc.height)
@@ -171,12 +226,12 @@ func TestDrawImageRegion(t *testing.T) {
 		img.Pixels[i*4] = byte(i + 1)
 		img.Pixels[i*4+3] = 255
 	}
-	canvas := Canvas{buffer: make([]byte, 3*2*4), width: 3, height: 2}
+	canvas := testSoftwareCanvas(3, 2, make([]byte, 3*2*4), 0, 0)
 	canvas.DrawImageRegion(img, 1, 1, 3, 2)
 
 	for y := 0; y < 2; y++ {
 		for x := 0; x < 3; x++ {
-			got := canvas.buffer[(y*3+x)*4]
+			got := canvas.softwarePixels()[(y*3+x)*4]
 			want := byte((y+1)*4 + (x + 1) + 1)
 			if got != want {
 				t.Fatalf("pixel (%d,%d)=%d, want %d", x, y, got, want)
@@ -192,7 +247,7 @@ func TestCanvasClipLimitsDrawing(t *testing.T) {
 
 	for y := range 10 {
 		for x := range 10 {
-			painted := canvas.buffer[(y*10+x)*4+3] != 0
+			painted := canvas.softwarePixels()[(y*10+x)*4+3] != 0
 			want := x >= 2 && x < 6 && y >= 3 && y < 5
 			if painted != want {
 				t.Fatalf(`pixel (%d,%d) painted=%t, want %t`, x, y, painted, want)
@@ -221,8 +276,8 @@ func TestDrawImage5Opaque(t *testing.T) {
 		buffer1[i] = uint8(i*17 + 9)
 	}
 	buffer5 := bytes.Clone(buffer1)
-	canvas1 := Canvas{buffer: buffer1, width: width, height: height}
-	canvas5 := Canvas{buffer: buffer5, width: width, height: height}
+	canvas1 := testSoftwareCanvas(width, height, buffer1, 0, 0)
+	canvas5 := testSoftwareCanvas(width, height, buffer5, 0, 0)
 	canvas1.drawImage1(image, width, height)
 	canvas5.drawImage5(image, width, height)
 	if !bytes.Equal(buffer1, buffer5) {
@@ -276,9 +331,9 @@ func TestDrawStringDeviceVersions(t *testing.T) {
 				}
 				buffer2 := bytes.Clone(buffer1)
 				buffer3 := bytes.Clone(buffer1)
-				canvas1 := Canvas{buffer: buffer1, x: offset.x, y: offset.y, width: width, height: height}
-				canvas2 := Canvas{buffer: buffer2, x: offset.x, y: offset.y, width: width, height: height}
-				canvas3 := Canvas{buffer: buffer3, x: offset.x, y: offset.y, width: width, height: height}
+				canvas1 := testSoftwareCanvas(width, height, buffer1, offset.x, offset.y)
+				canvas2 := testSoftwareCanvas(width, height, buffer2, offset.x, offset.y)
+				canvas3 := testSoftwareCanvas(width, height, buffer3, offset.x, offset.y)
 
 				canvas1.drawStringDevice1(text, []*FontFace{face}, color)
 				canvas2.drawStringDevice2(text, []*FontFace{face}, color)
@@ -338,7 +393,7 @@ func BenchmarkDrawImage(b *testing.B) {
 	}
 
 	b.Run("dev1", func(b *testing.B) {
-		canvas := Canvas{buffer: make([]byte, width*height*4), width: width, height: height}
+		canvas := testSoftwareCanvas(width, height, make([]byte, width*height*4), 0, 0)
 		b.ReportAllocs()
 		b.ResetTimer()
 		for b.Loop() {
@@ -346,7 +401,7 @@ func BenchmarkDrawImage(b *testing.B) {
 		}
 	})
 	b.Run("dev2", func(b *testing.B) {
-		canvas := Canvas{buffer: make([]byte, width*height*4), width: width, height: height}
+		canvas := testSoftwareCanvas(width, height, make([]byte, width*height*4), 0, 0)
 		b.ReportAllocs()
 		b.ResetTimer()
 		for b.Loop() {
@@ -354,7 +409,7 @@ func BenchmarkDrawImage(b *testing.B) {
 		}
 	})
 	b.Run("dev3", func(b *testing.B) {
-		canvas := Canvas{buffer: make([]byte, width*height*4), width: width, height: height}
+		canvas := testSoftwareCanvas(width, height, make([]byte, width*height*4), 0, 0)
 		b.ReportAllocs()
 		b.ResetTimer()
 		for b.Loop() {
@@ -362,7 +417,7 @@ func BenchmarkDrawImage(b *testing.B) {
 		}
 	})
 	b.Run("dev4", func(b *testing.B) {
-		canvas := Canvas{buffer: make([]byte, width*height*4), width: width, height: height}
+		canvas := testSoftwareCanvas(width, height, make([]byte, width*height*4), 0, 0)
 		b.ReportAllocs()
 		b.ResetTimer()
 		for b.Loop() {
@@ -370,7 +425,7 @@ func BenchmarkDrawImage(b *testing.B) {
 		}
 	})
 	b.Run("dev5", func(b *testing.B) {
-		canvas := Canvas{buffer: make([]byte, width*height*4), width: width, height: height}
+		canvas := testSoftwareCanvas(width, height, make([]byte, width*height*4), 0, 0)
 		b.ReportAllocs()
 		b.ResetTimer()
 		for b.Loop() {
@@ -408,7 +463,7 @@ func BenchmarkDrawImageOpaque(b *testing.B) {
 	}
 	for _, version := range versions {
 		b.Run(version.name, func(b *testing.B) {
-			canvas := Canvas{buffer: make([]byte, width*height*4), width: width, height: height}
+			canvas := testSoftwareCanvas(width, height, make([]byte, width*height*4), 0, 0)
 			b.ReportAllocs()
 			b.ResetTimer()
 			for b.Loop() {
@@ -449,11 +504,7 @@ func BenchmarkFillAlphaBlend(b *testing.B) {
 	color := Color(0x8000ff00)
 
 	b.Run("fillAlphaBlend_baseline", func(b *testing.B) {
-		canvas := &Canvas{
-			buffer: make([]byte, width*height*4),
-			width:  width,
-			height: height,
-		}
+		canvas := NewCanvas(width, height)
 
 		b.ReportAllocs()
 		b.ResetTimer()
@@ -464,11 +515,7 @@ func BenchmarkFillAlphaBlend(b *testing.B) {
 	})
 
 	b.Run("fillAlphaBlend_lut", func(b *testing.B) {
-		canvas := &Canvas{
-			buffer: make([]byte, width*height*4),
-			width:  width,
-			height: height,
-		}
+		canvas := NewCanvas(width, height)
 
 		b.ReportAllocs()
 		b.ResetTimer()
@@ -479,11 +526,7 @@ func BenchmarkFillAlphaBlend(b *testing.B) {
 	})
 
 	b.Run("fillAlphaBlend_lut&/256", func(b *testing.B) {
-		canvas := &Canvas{
-			buffer: make([]byte, width*height*4),
-			width:  width,
-			height: height,
-		}
+		canvas := NewCanvas(width, height)
 
 		b.ReportAllocs()
 		b.ResetTimer()
@@ -494,11 +537,7 @@ func BenchmarkFillAlphaBlend(b *testing.B) {
 	})
 
 	b.Run("fillAlphaBlend_uint32&swar&/256", func(b *testing.B) {
-		canvas := &Canvas{
-			buffer: make([]byte, width*height*4),
-			width:  width,
-			height: height,
-		}
+		canvas := NewCanvas(width, height)
 
 		b.ReportAllocs()
 		b.ResetTimer()
@@ -508,11 +547,7 @@ func BenchmarkFillAlphaBlend(b *testing.B) {
 		}
 	})
 	b.Run("fillAlphaBlend_simd", func(b *testing.B) {
-		canvas := &Canvas{
-			buffer: make([]byte, width*height*4),
-			width:  width,
-			height: height,
-		}
+		canvas := NewCanvas(width, height)
 
 		b.ReportAllocs()
 		b.ResetTimer()
@@ -593,31 +628,19 @@ func BenchmarkDrawString(b *testing.B) {
 		b.Fatal(err)
 	}
 	b.Run(`std`, func(b *testing.B) {
-		canvas := Canvas{
-			buffer: make([]byte, 1024*768*4),
-			width:  1024,
-			height: 768,
-		}
+		canvas := *NewCanvas(1024, 768)
 		for b.Loop() {
 			canvas.drawStringStd(`Canvas text rendering benchmark`, []*FontFace{face}, ColorFromString(`red`))
 		}
 	})
 	b.Run(`dev1`, func(b *testing.B) {
-		canvas := Canvas{
-			buffer: make([]byte, 1024*768*4),
-			width:  1024,
-			height: 768,
-		}
+		canvas := *NewCanvas(1024, 768)
 		for b.Loop() {
 			canvas.drawStringDevice1(`Canvas text rendering benchmark`, []*FontFace{face}, ColorFromString(`red`))
 		}
 	})
 	b.Run(`dev2`, func(b *testing.B) {
-		canvas := Canvas{
-			buffer: make([]byte, 1024*768*4),
-			width:  1024,
-			height: 768,
-		}
+		canvas := *NewCanvas(1024, 768)
 		for b.Loop() {
 			canvas.drawStringDevice2(`Canvas text rendering benchmark`, []*FontFace{face}, ColorFromString(`red`))
 		}

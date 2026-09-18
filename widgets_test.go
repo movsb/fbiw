@@ -223,11 +223,7 @@ func TestToggleDrawsIndicatorAccordingToState(t *testing.T) {
 	_, toggle := newToggleDocument(t, `<document><block><toggle></toggle></block></document>`)
 	trackWidth, trackHeight := toggle.intrinsicSize()
 	toggle.Calc(trackWidth, trackHeight, Constraints{})
-	canvas := &Canvas{
-		buffer: make([]byte, trackWidth*trackHeight*4),
-		width:  trackWidth,
-		height: trackHeight,
-	}
+	canvas := NewCanvas(trackWidth, trackHeight)
 
 	toggle.Draw(canvas)
 	trackX := 0
@@ -704,7 +700,7 @@ func TestProgressCustomColors(t *testing.T) {
 func TestProgressDrawsValue(t *testing.T) {
 	_, progress := newProgressDocument(t, `<document><block><progress width="10" height="4"></progress></block></document>`)
 	progress.Calc(10, 4, Constraints{})
-	canvas := &Canvas{buffer: make([]byte, 10*4*4), width: 10, height: 4}
+	canvas := NewCanvas(10, 4)
 
 	progress.Draw(canvas)
 	if got := canvas.getPixel(0, 0); got != progress.trackColor.NRGBA() {
