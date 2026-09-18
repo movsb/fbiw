@@ -15,7 +15,7 @@ import (
 	"time"
 	"unsafe"
 
-	canvasgpu "github.com/movsb/fbiw/internal/canvas/gpu"
+	canvasgles "github.com/movsb/fbiw/internal/canvas/gpu/gles"
 	"golang.org/x/sys/unix"
 )
 
@@ -48,7 +48,7 @@ func openAcceleratedRenderer() (canvasRenderer, func(), bool) {
 	if os.Getenv("FBIW_RENDERER") != "gpu" {
 		return nil, nil, false
 	}
-	renderer, err := canvasgpu.Open()
+	renderer, err := canvasgles.Open()
 	if err != nil {
 		panic(fmt.Errorf("open GPU renderer: %w", err))
 	}
@@ -57,7 +57,7 @@ func openAcceleratedRenderer() (canvasRenderer, func(), bool) {
 
 func OpenDisplay() Display {
 	if os.Getenv("FBIW_GPU_PROBE") == "1" {
-		if err := canvasgpu.RunProbe(); err != nil {
+		if err := canvasgles.RunProbe(); err != nil {
 			panic(err)
 		}
 		time.Sleep(2 * time.Second)

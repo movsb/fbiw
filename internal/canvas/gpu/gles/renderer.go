@@ -1,6 +1,4 @@
-//go:build linux
-
-package gpu
+package gles
 
 import (
 	"crypto/sha256"
@@ -12,23 +10,10 @@ import (
 	"runtime"
 	"unsafe"
 
-	"github.com/ebitengine/purego"
-	canvas "github.com/movsb/fbiw/internal/canvas"
+	"github.com/movsb/fbiw/internal/canvas"
 )
 
 const (
-	eglFalse             = 0
-	eglNone              = 0x3038
-	eglRenderableType    = 0x3040
-	eglOpenGLES2Bit      = 0x0004
-	eglRedSize           = 0x3024
-	eglGreenSize         = 0x3023
-	eglBlueSize          = 0x3022
-	eglAlphaSize         = 0x3021
-	eglSamples           = 0x3031
-	eglContextClientVers = 0x3098
-	eglWidth             = 0x3057
-	eglHeight            = 0x3056
 	glColorBufferBit     = 0x00004000
 	glScissorTest        = 0x0c11
 	glBlend              = 0x0be2
@@ -64,19 +49,6 @@ const (
 )
 
 type api struct {
-	getDisplay          func(uintptr) uintptr
-	initialize          func(uintptr, *int32, *int32) uint32
-	chooseConfig        func(uintptr, *int32, *uintptr, int32, *int32) uint32
-	getConfigAttrib     func(uintptr, uintptr, int32, *int32) uint32
-	createWindowSurface func(uintptr, uintptr, uintptr, *int32) uintptr
-	createContext       func(uintptr, uintptr, uintptr, *int32) uintptr
-	makeCurrent         func(uintptr, uintptr, uintptr, uintptr) uint32
-	querySurface        func(uintptr, uintptr, int32, *int32) uint32
-	swapBuffers         func(uintptr, uintptr) uint32
-	getError            func() int32
-	destroySurface      func(uintptr, uintptr) uint32
-	destroyContext      func(uintptr, uintptr) uint32
-	terminate           func(uintptr) uint32
 	clearColor          func(float32, float32, float32, float32)
 	clear               func(uint32)
 	enable              func(uint32)
@@ -121,83 +93,12 @@ type api struct {
 	pixelStorei         func(uint32, int32)
 }
 
-func loadAPI() (*api, func(), error) {
-	egl, err := purego.Dlopen("libEGL.so.1", purego.RTLD_NOW|purego.RTLD_GLOBAL)
-	if err != nil {
-		return nil, nil, fmt.Errorf("load libEGL.so.1: %w", err)
-	}
-	gles, err := purego.Dlopen("libGLESv2.so.2", purego.RTLD_NOW|purego.RTLD_GLOBAL)
-	if err != nil {
-		purego.Dlclose(egl)
-		return nil, nil, fmt.Errorf("load libGLESv2.so.2: %w", err)
-	}
-	closeLibraries := func() { purego.Dlclose(gles); purego.Dlclose(egl) }
-	a := &api{}
-	purego.RegisterLibFunc(&a.getDisplay, egl, "eglGetDisplay")
-	purego.RegisterLibFunc(&a.initialize, egl, "eglInitialize")
-	purego.RegisterLibFunc(&a.chooseConfig, egl, "eglChooseConfig")
-	purego.RegisterLibFunc(&a.getConfigAttrib, egl, "eglGetConfigAttrib")
-	purego.RegisterLibFunc(&a.createWindowSurface, egl, "eglCreateWindowSurface")
-	purego.RegisterLibFunc(&a.createContext, egl, "eglCreateContext")
-	purego.RegisterLibFunc(&a.makeCurrent, egl, "eglMakeCurrent")
-	purego.RegisterLibFunc(&a.querySurface, egl, "eglQuerySurface")
-	purego.RegisterLibFunc(&a.swapBuffers, egl, "eglSwapBuffers")
-	purego.RegisterLibFunc(&a.getError, egl, "eglGetError")
-	purego.RegisterLibFunc(&a.destroySurface, egl, "eglDestroySurface")
-	purego.RegisterLibFunc(&a.destroyContext, egl, "eglDestroyContext")
-	purego.RegisterLibFunc(&a.terminate, egl, "eglTerminate")
-	purego.RegisterLibFunc(&a.clearColor, gles, "glClearColor")
-	purego.RegisterLibFunc(&a.clear, gles, "glClear")
-	purego.RegisterLibFunc(&a.enable, gles, "glEnable")
-	purego.RegisterLibFunc(&a.disable, gles, "glDisable")
-	purego.RegisterLibFunc(&a.scissor, gles, "glScissor")
-	purego.RegisterLibFunc(&a.viewport, gles, "glViewport")
-	purego.RegisterLibFunc(&a.createShader, gles, "glCreateShader")
-	purego.RegisterLibFunc(&a.shaderSource, gles, "glShaderSource")
-	purego.RegisterLibFunc(&a.compileShader, gles, "glCompileShader")
-	purego.RegisterLibFunc(&a.getShaderiv, gles, "glGetShaderiv")
-	purego.RegisterLibFunc(&a.getShaderInfoLog, gles, "glGetShaderInfoLog")
-	purego.RegisterLibFunc(&a.deleteShader, gles, "glDeleteShader")
-	purego.RegisterLibFunc(&a.createProgram, gles, "glCreateProgram")
-	purego.RegisterLibFunc(&a.attachShader, gles, "glAttachShader")
-	purego.RegisterLibFunc(&a.linkProgram, gles, "glLinkProgram")
-	purego.RegisterLibFunc(&a.getProgramiv, gles, "glGetProgramiv")
-	purego.RegisterLibFunc(&a.getProgramInfoLog, gles, "glGetProgramInfoLog")
-	purego.RegisterLibFunc(&a.deleteProgram, gles, "glDeleteProgram")
-	purego.RegisterLibFunc(&a.useProgram, gles, "glUseProgram")
-	purego.RegisterLibFunc(&a.getAttribLocation, gles, "glGetAttribLocation")
-	purego.RegisterLibFunc(&a.getUniformLocation, gles, "glGetUniformLocation")
-	purego.RegisterLibFunc(&a.uniform2f, gles, "glUniform2f")
-	purego.RegisterLibFunc(&a.uniform4f, gles, "glUniform4f")
-	purego.RegisterLibFunc(&a.genBuffers, gles, "glGenBuffers")
-	purego.RegisterLibFunc(&a.deleteBuffers, gles, "glDeleteBuffers")
-	purego.RegisterLibFunc(&a.bindBuffer, gles, "glBindBuffer")
-	purego.RegisterLibFunc(&a.bufferData, gles, "glBufferData")
-	purego.RegisterLibFunc(&a.enableVertexAttrib, gles, "glEnableVertexAttribArray")
-	purego.RegisterLibFunc(&a.vertexAttribPointer, gles, "glVertexAttribPointer")
-	purego.RegisterLibFunc(&a.drawArrays, gles, "glDrawArrays")
-	purego.RegisterLibFunc(&a.blendColor, gles, "glBlendColor")
-	purego.RegisterLibFunc(&a.blendFuncSeparate, gles, "glBlendFuncSeparate")
-	purego.RegisterLibFunc(&a.glGetError, gles, "glGetError")
-	purego.RegisterLibFunc(&a.uniform1i, gles, "glUniform1i")
-	purego.RegisterLibFunc(&a.genTextures, gles, "glGenTextures")
-	purego.RegisterLibFunc(&a.deleteTextures, gles, "glDeleteTextures")
-	purego.RegisterLibFunc(&a.bindTexture, gles, "glBindTexture")
-	purego.RegisterLibFunc(&a.texParameteri, gles, "glTexParameteri")
-	purego.RegisterLibFunc(&a.texImage2D, gles, "glTexImage2D")
-	purego.RegisterLibFunc(&a.texSubImage2D, gles, "glTexSubImage2D")
-	purego.RegisterLibFunc(&a.colorMask, gles, "glColorMask")
-	purego.RegisterLibFunc(&a.pixelStorei, gles, "glPixelStorei")
-	return a, closeLibraries, nil
-}
-
 type Renderer struct {
 	api                *api
-	display, surface   uintptr
-	context            uintptr
 	width, height      int
-	eglMajor, eglMinor int32
-	closeLibraries     func()
+	swapBuffers        func() error
+	closePlatform      func()
+	platformInfo       string
 	closed             bool
 	colorProgram       uint32
 	quadBuffer         uint32
@@ -278,8 +179,8 @@ func (r *Renderer) Size() (int, int) { return r.width, r.height }
 func (*Renderer) BeginFrame()        {}
 func (r *Renderer) EndFrame() {
 	r.flushMasks()
-	if r.api.swapBuffers(r.display, r.surface) == eglFalse {
-		panic(fmt.Sprintf("eglSwapBuffers: 0x%x", r.api.getError()))
+	if err := r.swapBuffers(); err != nil {
+		panic(err)
 	}
 }
 func (r *Renderer) Clear() {
@@ -609,131 +510,6 @@ func (*Renderer) SetPixel(image.Point, color.NRGBA) {
 }
 func (*Renderer) Snapshot() image.Image { panic("GLES renderer截图尚未实现") }
 
-const colorVertexShader = `
-attribute vec2 a_position;
-uniform vec4 u_rect;
-uniform vec2 u_viewport;
-void main() {
-	vec2 pixel = u_rect.xy + a_position * u_rect.zw;
-	vec2 clip = pixel / u_viewport * 2.0 - 1.0;
-	gl_Position = vec4(clip.x, -clip.y, 0.0, 1.0);
-}`
-
-const colorFragmentShader = `
-precision mediump float;
-uniform vec4 u_color;
-void main() {
-	gl_FragColor = u_color;
-}`
-
-const textureVertexShader = `
-attribute vec2 a_position;
-uniform vec4 u_rect;
-uniform vec2 u_viewport;
-uniform vec4 u_uv_rect;
-varying vec2 v_uv;
-void main() {
-	vec2 pixel = u_rect.xy + a_position * u_rect.zw;
-	vec2 clip = pixel / u_viewport * 2.0 - 1.0;
-	gl_Position = vec4(clip.x, -clip.y, 0.0, 1.0);
-	v_uv = u_uv_rect.xy + a_position * u_uv_rect.zw;
-}`
-
-const textureFragmentShader = `
-precision mediump float;
-uniform sampler2D u_texture;
-uniform int u_alpha_only;
-varying vec2 v_uv;
-void main() {
-	vec4 color = texture2D(u_texture, v_uv).bgra;
-	if (u_alpha_only != 0) {
-		if (color.a == 0.0) discard;
-		gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
-	} else {
-		gl_FragColor = color;
-	}
-}`
-
-const maskFragmentShader = `
-precision mediump float;
-uniform sampler2D u_texture;
-uniform vec4 u_color;
-uniform int u_alpha_only;
-varying vec2 v_uv;
-void main() {
-	float coverage = texture2D(u_texture, v_uv).a;
-	if (coverage == 0.0) discard;
-	if (u_alpha_only != 0) {
-		gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
-	} else {
-		gl_FragColor = vec4(u_color.rgb, coverage);
-	}
-}`
-
-const maskVertexShader = `
-attribute vec2 a_position;
-attribute vec2 a_uv;
-uniform vec2 u_viewport;
-varying vec2 v_uv;
-void main() {
-	vec2 clip = a_position / u_viewport * 2.0 - 1.0;
-	gl_Position = vec4(clip.x, -clip.y, 0.0, 1.0);
-	v_uv = a_uv;
-}`
-
-const transformVertexShader = `
-attribute vec2 a_position;
-uniform vec4 u_rect;
-uniform vec2 u_viewport;
-varying vec2 v_pixel;
-void main() {
-	v_pixel = u_rect.xy + a_position * u_rect.zw;
-	vec2 clip = v_pixel / u_viewport * 2.0 - 1.0;
-	gl_Position = vec4(clip.x, -clip.y, 0.0, 1.0);
-}`
-
-const transformFragmentShader = `
-precision highp float;
-uniform sampler2D u_texture;
-uniform vec2 u_center;
-uniform vec2 u_image_size;
-uniform vec4 u_inverse;
-uniform int u_alpha_only;
-varying vec2 v_pixel;
-
-vec4 sourcePixel(vec2 pixel) {
-	if (pixel.x < 0.0 || pixel.y < 0.0 || pixel.x >= u_image_size.x || pixel.y >= u_image_size.y) {
-		return vec4(0.0);
-	}
-	return texture2D(u_texture, (pixel + 0.5) / u_image_size).bgra;
-}
-
-void main() {
-	vec2 delta = v_pixel - u_center;
-	vec2 source = vec2(
-		u_inverse.x * delta.x + u_inverse.y * delta.y,
-		u_inverse.z * delta.x + u_inverse.w * delta.y
-	) + u_image_size * 0.5 - 0.5;
-	vec2 base = floor(source);
-	vec2 fraction = source - base;
-	vec4 c00 = sourcePixel(base);
-	vec4 c10 = sourcePixel(base + vec2(1.0, 0.0));
-	vec4 c01 = sourcePixel(base + vec2(0.0, 1.0));
-	vec4 c11 = sourcePixel(base + vec2(1.0, 1.0));
-	float w00 = (1.0 - fraction.x) * (1.0 - fraction.y);
-	float w10 = fraction.x * (1.0 - fraction.y);
-	float w01 = (1.0 - fraction.x) * fraction.y;
-	float w11 = fraction.x * fraction.y;
-	float alpha = c00.a*w00 + c10.a*w10 + c01.a*w01 + c11.a*w11;
-	if (alpha <= 0.0) discard;
-	if (u_alpha_only != 0) {
-		gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
-		return;
-	}
-	vec3 premultiplied = c00.rgb*c00.a*w00 + c10.rgb*c10.a*w10 + c01.rgb*c01.a*w01 + c11.rgb*c11.a*w11;
-	gl_FragColor = vec4(premultiplied / alpha, alpha);
-}`
-
 func shaderLog(a *api, shader uint32) string {
 	var length int32
 	a.getShaderiv(shader, glInfoLogLength, &length)
@@ -1047,197 +823,12 @@ func (r *Renderer) releaseGLResources() {
 	}
 }
 
-// Open creates the EGL surface and GLES context for a renderer. The calling
-// goroutine remains locked to its current OS thread until Close is called.
-func Open() (_ *Renderer, err error) {
-	runtime.LockOSThread()
-	var (
-		a              *api
-		closeLibraries func()
-		display        uintptr
-		surface        uintptr
-		context        uintptr
-		current        bool
-	)
-	defer func() {
-		if err == nil {
-			return
-		}
-		if a != nil {
-			if current {
-				a.makeCurrent(display, 0, 0, 0)
-			}
-			if context != 0 {
-				a.destroyContext(display, context)
-			}
-			if surface != 0 {
-				a.destroySurface(display, surface)
-			}
-			if display != 0 {
-				a.terminate(display)
-			}
-		}
-		if closeLibraries != nil {
-			closeLibraries()
-		}
-		runtime.UnlockOSThread()
-	}()
-
-	a, closeLibraries, err = loadAPI()
-	if err != nil {
-		return nil, err
-	}
-	display = a.getDisplay(0)
-	if display == 0 {
-		return nil, errors.New("eglGetDisplay returned EGL_NO_DISPLAY")
-	}
-	var major, minor int32
-	if a.initialize(display, &major, &minor) == eglFalse {
-		return nil, fmt.Errorf("eglInitialize: 0x%x", a.getError())
-	}
-	attrs := []int32{eglRedSize, 8, eglGreenSize, 8, eglBlueSize, 8, eglAlphaSize, 8, eglSamples, 4, eglRenderableType, eglOpenGLES2Bit, eglNone}
-	var count int32
-	if a.chooseConfig(display, &attrs[0], nil, 0, &count) == eglFalse || count == 0 {
-		return nil, fmt.Errorf("eglChooseConfig: count=%d error=0x%x", count, a.getError())
-	}
-	configs := make([]uintptr, count)
-	if a.chooseConfig(display, &attrs[0], &configs[0], count, &count) == eglFalse {
-		return nil, fmt.Errorf("eglChooseConfig list: 0x%x", a.getError())
-	}
-	wanted := []struct{ attribute, value int32 }{{eglRedSize, 8}, {eglGreenSize, 8}, {eglBlueSize, 8}, {eglAlphaSize, 8}, {eglSamples, 4}}
-	var config uintptr
-	for _, candidate := range configs[:count] {
-		matches := true
-		for _, want := range wanted {
-			var value int32
-			if a.getConfigAttrib(display, candidate, want.attribute, &value) == eglFalse || value != want.value {
-				matches = false
-				break
-			}
-		}
-		if matches {
-			config = candidate
-			break
-		}
-	}
-	if config == 0 {
-		return nil, errors.New("no exact RGBA8 MSAA4 EGL config")
-	}
-	surface = a.createWindowSurface(display, config, 0, nil)
-	if surface == 0 {
-		return nil, fmt.Errorf("eglCreateWindowSurface: 0x%x", a.getError())
-	}
-	contextAttrs := []int32{eglContextClientVers, 2, eglNone}
-	context = a.createContext(display, config, 0, &contextAttrs[0])
-	if context == 0 {
-		return nil, fmt.Errorf("eglCreateContext: 0x%x", a.getError())
-	}
-	if a.makeCurrent(display, surface, surface, context) == eglFalse {
-		return nil, fmt.Errorf("eglMakeCurrent: 0x%x", a.getError())
-	}
-	current = true
-	var width, height int32
-	if a.querySurface(display, surface, eglWidth, &width) == eglFalse || a.querySurface(display, surface, eglHeight, &height) == eglFalse {
-		return nil, fmt.Errorf("eglQuerySurface: 0x%x", a.getError())
-	}
-	renderer := &Renderer{
-		api:            a,
-		display:        display,
-		surface:        surface,
-		context:        context,
-		width:          int(width),
-		height:         int(height),
-		eglMajor:       major,
-		eglMinor:       minor,
-		closeLibraries: closeLibraries,
-		maskGlyphs:     make(map[maskCacheKey]maskGlyph),
-		imageTextures:  make(map[imageCacheKey]imageTexture),
-	}
-	if err = renderer.initColorPipeline(); err != nil {
-		return nil, err
-	}
-	if err = renderer.initTexturePipeline(); err != nil {
-		renderer.releaseGLResources()
-		return nil, err
-	}
-	if err = renderer.initMaskPipeline(); err != nil {
-		renderer.releaseGLResources()
-		return nil, err
-	}
-	if err = renderer.initTransformPipeline(); err != nil {
-		renderer.releaseGLResources()
-		return nil, err
-	}
-	return renderer, nil
-}
-
-// Close releases all EGL resources and unlocks the OS thread locked by Open.
-// It must be called by the same goroutine that called Open.
+// Close releases renderer resources and delegates platform teardown.
 func (r *Renderer) Close() {
 	if r == nil || r.closed {
 		return
 	}
 	r.closed = true
 	r.releaseGLResources()
-	r.api.makeCurrent(r.display, 0, 0, 0)
-	r.api.destroyContext(r.display, r.context)
-	r.api.destroySurface(r.display, r.surface)
-	r.api.terminate(r.display)
-	r.closeLibraries()
-	runtime.UnlockOSThread()
-}
-
-func RunProbe() error {
-	r, err := Open()
-	if err != nil {
-		return err
-	}
-	defer r.Close()
-	r.BeginFrame()
-	r.Clear()
-	bounds := image.Rect(0, 0, r.width, r.height)
-	r.FillRect(bounds, bounds, canvas.Color(0xff1f5cc7))
-	r.FillRect(image.Rect(80, 80, 360, 260), bounds, canvas.Color(0xffff8a20))
-	r.FillRect(image.Rect(160, 160, 440, 340), image.Rect(200, 120, 400, 300), canvas.Color(0xff38c972))
-	r.FillRect(image.Rect(300, 220, 620, 460), bounds, canvas.Color(0x808b3dff))
-	probeImage := canvas.Image{Width: 160, Height: 120, Pixels: make([]byte, 160*120*4)}
-	for y := 0; y < probeImage.Height; y++ {
-		for x := 0; x < probeImage.Width; x++ {
-			pixel := probeImage.Pixels[(y*probeImage.Width+x)*4:]
-			pixel[0], pixel[1], pixel[2], pixel[3] = 0x30, 0xd0, 0xff, 0xd0
-			if (x/20+y/20)%2 == 0 {
-				pixel[0], pixel[1], pixel[2] = 0xe0, 0x40, 0x30
-			}
-		}
-	}
-	r.DrawImage(probeImage, image.Rect(20, 10, 150, 110), image.Pt(650, 160), image.Rect(680, 180, 790, 250))
-	cachedImages := len(r.imageTextures)
-	r.DrawImage(probeImage, image.Rect(0, 0, 80, 60), image.Pt(820, 160), bounds)
-	if len(r.imageTextures) != cachedImages {
-		return errors.New("GLES image texture cache missed identical storage")
-	}
-	r.DrawImageTransformed(probeImage, 28, 1.35, 850, 390, image.Rect(730, 270, 970, 510))
-	maskWidth, maskHeight := 127, 96
-	probeMask := make([]byte, maskWidth*maskHeight)
-	for y := 0; y < maskHeight; y++ {
-		for x := 0; x < maskWidth; x++ {
-			dx, dy := x-maskWidth/2, y-maskHeight/2
-			distance := dx*dx + dy*dy
-			if distance < 42*42 {
-				probeMask[y*maskWidth+x] = uint8(min(255, (42*42-distance)/4))
-			}
-		}
-	}
-	r.DrawMask(probeMask, maskWidth, maskHeight, image.Pt(610, 360), image.Rect(630, 375, 720, 440), canvas.Color(0xffffe050))
-	cachedMasks := len(r.maskGlyphs)
-	r.DrawMask(probeMask, maskWidth, maskHeight, image.Pt(750, 360), bounds, canvas.Color(0xff50e0ff))
-	if len(r.maskGlyphs) != cachedMasks {
-		return errors.New("GLES mask texture cache missed identical content")
-	}
-	if code := r.api.glGetError(); code != glNoError {
-		return fmt.Errorf("draw GLES color probe: 0x%x", code)
-	}
-	r.EndFrame()
-	fmt.Printf("GLES renderer probe OK: EGL %d.%d, surface %dx%d\n", r.eglMajor, r.eglMinor, r.width, r.height)
-	return nil
+	r.closePlatform()
 }
