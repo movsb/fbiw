@@ -44,6 +44,17 @@ func (d *_FramebufferDisplay) Close() {
 	unix.Close(d.fd)
 }
 
+func openAcceleratedRenderer() (canvasRenderer, func(), bool) {
+	if os.Getenv("FBIW_RENDERER") != "gpu" {
+		return nil, nil, false
+	}
+	renderer, err := canvasgpu.Open()
+	if err != nil {
+		panic(fmt.Errorf("open GPU renderer: %w", err))
+	}
+	return renderer, renderer.Close, true
+}
+
 func OpenDisplay() Display {
 	if os.Getenv("FBIW_GPU_PROBE") == "1" {
 		if err := canvasgpu.RunProbe(); err != nil {

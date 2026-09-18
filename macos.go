@@ -18,6 +18,10 @@ type _SdlDisplay struct {
 	buffer  *sdl.Surface
 }
 
+func openAcceleratedRenderer() (canvasRenderer, func(), bool) {
+	return nil, nil, false
+}
+
 func (d *_SdlDisplay) GetSize() (int, int, int) {
 	return d.width, d.height, d.width * 4
 }

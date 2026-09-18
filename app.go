@@ -60,6 +60,9 @@ type App struct {
 
 	display Display
 	canvas  *Canvas
+	// rendererClose is set by renderers that own platform resources, such as
+	// an EGL context. Software renderers are owned by display and leave it nil.
+	rendererClose func()
 
 	fpsCalc   _FPSCounter
 	animation *_AnimationClock
@@ -124,8 +127,12 @@ func NewApp(options ...Option) *App {
 		app.ctx = context.Background()
 	}
 
-	if app.display == nil {
-		app.setDisplay(OpenDisplay())
+	if app.canvas == nil {
+		if renderer, closeRenderer, ok := openAcceleratedRenderer(); ok {
+			app.setRenderer(renderer, closeRenderer)
+		} else {
+			app.setDisplay(OpenDisplay())
+		}
 	}
 
 	ctx, cancel := context.WithCancel(app.ctx)
@@ -153,11 +160,21 @@ func (app *App) setDisplay(display Display) {
 	}
 	renderer := newSoftwareRenderer(width, height)
 	renderer.Present = display.Sync
+	app.setRenderer(renderer, nil)
+}
+
+func (app *App) setRenderer(renderer canvasRenderer, closeRenderer func()) {
 	app.canvas = newCanvas(renderer)
+	app.rendererClose = closeRenderer
 }
 
 func (app *App) Close() {
-	defer app.display.Close()
+	if app.display != nil {
+		defer app.display.Close()
+	}
+	if app.rendererClose != nil {
+		defer app.rendererClose()
+	}
 	defer app.images.Close()
 	defer app.fonts.Close()
 	defer app.animation.close()

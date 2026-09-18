@@ -85,9 +85,13 @@ func loadAPI() (*api, func(), error) {
 }
 
 type Renderer struct {
-	api              *api
-	display, surface uintptr
-	width, height    int
+	api                *api
+	display, surface   uintptr
+	context            uintptr
+	width, height      int
+	eglMajor, eglMinor int32
+	closeLibraries     func()
+	closed             bool
 }
 
 func (r *Renderer) Size() (int, int) { return r.width, r.height }
@@ -133,31 +137,62 @@ func (*Renderer) SetPixel(image.Point, color.NRGBA) {
 }
 func (*Renderer) Snapshot() image.Image { panic("GLES renderer截图尚未实现") }
 
-func RunProbe() error {
+// Open creates the EGL surface and GLES context for a renderer. The calling
+// goroutine remains locked to its current OS thread until Close is called.
+func Open() (_ *Renderer, err error) {
 	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
-	a, closeLibraries, err := loadAPI()
+	var (
+		a              *api
+		closeLibraries func()
+		display        uintptr
+		surface        uintptr
+		context        uintptr
+		current        bool
+	)
+	defer func() {
+		if err == nil {
+			return
+		}
+		if a != nil {
+			if current {
+				a.makeCurrent(display, 0, 0, 0)
+			}
+			if context != 0 {
+				a.destroyContext(display, context)
+			}
+			if surface != 0 {
+				a.destroySurface(display, surface)
+			}
+			if display != 0 {
+				a.terminate(display)
+			}
+		}
+		if closeLibraries != nil {
+			closeLibraries()
+		}
+		runtime.UnlockOSThread()
+	}()
+
+	a, closeLibraries, err = loadAPI()
 	if err != nil {
-		return err
+		return nil, err
 	}
-	defer closeLibraries()
-	display := a.getDisplay(0)
+	display = a.getDisplay(0)
 	if display == 0 {
-		return errors.New("eglGetDisplay returned EGL_NO_DISPLAY")
+		return nil, errors.New("eglGetDisplay returned EGL_NO_DISPLAY")
 	}
 	var major, minor int32
 	if a.initialize(display, &major, &minor) == eglFalse {
-		return fmt.Errorf("eglInitialize: 0x%x", a.getError())
+		return nil, fmt.Errorf("eglInitialize: 0x%x", a.getError())
 	}
-	defer a.terminate(display)
 	attrs := []int32{eglRedSize, 8, eglGreenSize, 8, eglBlueSize, 8, eglAlphaSize, 8, eglSamples, 4, eglRenderableType, eglOpenGLES2Bit, eglNone}
 	var count int32
 	if a.chooseConfig(display, &attrs[0], nil, 0, &count) == eglFalse || count == 0 {
-		return fmt.Errorf("eglChooseConfig: count=%d error=0x%x", count, a.getError())
+		return nil, fmt.Errorf("eglChooseConfig: count=%d error=0x%x", count, a.getError())
 	}
 	configs := make([]uintptr, count)
 	if a.chooseConfig(display, &attrs[0], &configs[0], count, &count) == eglFalse {
-		return fmt.Errorf("eglChooseConfig list: 0x%x", a.getError())
+		return nil, fmt.Errorf("eglChooseConfig list: 0x%x", a.getError())
 	}
 	wanted := []struct{ attribute, value int32 }{{eglRedSize, 8}, {eglGreenSize, 8}, {eglBlueSize, 8}, {eglAlphaSize, 8}, {eglSamples, 4}}
 	var config uintptr
@@ -176,27 +211,59 @@ func RunProbe() error {
 		}
 	}
 	if config == 0 {
-		return errors.New("no exact RGBA8 MSAA4 EGL config")
+		return nil, errors.New("no exact RGBA8 MSAA4 EGL config")
 	}
-	surface := a.createWindowSurface(display, config, 0, nil)
+	surface = a.createWindowSurface(display, config, 0, nil)
 	if surface == 0 {
-		return fmt.Errorf("eglCreateWindowSurface: 0x%x", a.getError())
+		return nil, fmt.Errorf("eglCreateWindowSurface: 0x%x", a.getError())
 	}
-	defer a.destroySurface(display, surface)
 	contextAttrs := []int32{eglContextClientVers, 2, eglNone}
-	context := a.createContext(display, config, 0, &contextAttrs[0])
+	context = a.createContext(display, config, 0, &contextAttrs[0])
 	if context == 0 {
-		return fmt.Errorf("eglCreateContext: 0x%x", a.getError())
+		return nil, fmt.Errorf("eglCreateContext: 0x%x", a.getError())
 	}
-	defer a.destroyContext(display, context)
 	if a.makeCurrent(display, surface, surface, context) == eglFalse {
-		return fmt.Errorf("eglMakeCurrent: 0x%x", a.getError())
+		return nil, fmt.Errorf("eglMakeCurrent: 0x%x", a.getError())
 	}
+	current = true
 	var width, height int32
 	if a.querySurface(display, surface, eglWidth, &width) == eglFalse || a.querySurface(display, surface, eglHeight, &height) == eglFalse {
-		return fmt.Errorf("eglQuerySurface: 0x%x", a.getError())
+		return nil, fmt.Errorf("eglQuerySurface: 0x%x", a.getError())
 	}
-	r := &Renderer{api: a, display: display, surface: surface, width: int(width), height: int(height)}
+	return &Renderer{
+		api:            a,
+		display:        display,
+		surface:        surface,
+		context:        context,
+		width:          int(width),
+		height:         int(height),
+		eglMajor:       major,
+		eglMinor:       minor,
+		closeLibraries: closeLibraries,
+	}, nil
+}
+
+// Close releases all EGL resources and unlocks the OS thread locked by Open.
+// It must be called by the same goroutine that called Open.
+func (r *Renderer) Close() {
+	if r == nil || r.closed {
+		return
+	}
+	r.closed = true
+	r.api.makeCurrent(r.display, 0, 0, 0)
+	r.api.destroyContext(r.display, r.context)
+	r.api.destroySurface(r.display, r.surface)
+	r.api.terminate(r.display)
+	r.closeLibraries()
+	runtime.UnlockOSThread()
+}
+
+func RunProbe() error {
+	r, err := Open()
+	if err != nil {
+		return err
+	}
+	defer r.Close()
 	r.BeginFrame()
 	r.Clear()
 	bounds := image.Rect(0, 0, r.width, r.height)
@@ -204,6 +271,6 @@ func RunProbe() error {
 	r.FillRect(image.Rect(80, 80, 360, 260), bounds, canvas.Color(0xffff8a20))
 	r.FillRect(image.Rect(160, 160, 440, 340), image.Rect(200, 120, 400, 300), canvas.Color(0xff38c972))
 	r.EndFrame()
-	fmt.Printf("GLES renderer probe OK: EGL %d.%d, surface %dx%d\n", major, minor, width, height)
+	fmt.Printf("GLES renderer probe OK: EGL %d.%d, surface %dx%d\n", r.eglMajor, r.eglMinor, r.width, r.height)
 	return nil
 }
