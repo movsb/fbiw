@@ -88,7 +88,7 @@ func (r *Renderer) FillRect(rect, clip image.Rectangle, fill canvas.Color) {
 			p[0] = div255(uint32(fill.B())*a + uint32(p[0])*ia)
 			p[1] = div255(uint32(fill.G())*a + uint32(p[1])*ia)
 			p[2] = div255(uint32(fill.R())*a + uint32(p[2])*ia)
-			p[3] = 255
+			p[3] = div255(255*a + uint32(p[3])*ia)
 		}
 	}
 }
@@ -150,7 +150,7 @@ func (r *Renderer) DrawImage(img canvas.Image, src image.Rectangle, dst image.Po
 			d[0] = div255(uint32(s[0])*a + uint32(d[0])*ia)
 			d[1] = div255(uint32(s[1])*a + uint32(d[1])*ia)
 			d[2] = div255(uint32(s[2])*a + uint32(d[2])*ia)
-			d[3] = 255
+			d[3] = div255(255*a + uint32(d[3])*ia)
 		}
 	}
 }
@@ -196,7 +196,7 @@ func (r *Renderer) DrawImageTransformed(img canvas.Image, degrees, scale, cx, cy
 				p[0] = uint8(math.Round(min(255, b+(1-a)*float64(p[0]))))
 				p[1] = uint8(math.Round(min(255, g+(1-a)*float64(p[1]))))
 				p[2] = uint8(math.Round(min(255, red+(1-a)*float64(p[2]))))
-				p[3] = 255
+				p[3] = uint8(math.Round(min(255, a*255+(1-a)*float64(p[3]))))
 			}
 			sx += cos
 			sy -= sin
@@ -221,7 +221,7 @@ func (r *Renderer) DrawMask(mask []byte, mw, mh int, dst image.Point, clip image
 			p[0] = div255(uint32(fill.B())*a + uint32(p[0])*ia)
 			p[1] = div255(uint32(fill.G())*a + uint32(p[1])*ia)
 			p[2] = div255(uint32(fill.R())*a + uint32(p[2])*ia)
-			p[3] = 255
+			p[3] = div255(255*a + uint32(p[3])*ia)
 		}
 	}
 }

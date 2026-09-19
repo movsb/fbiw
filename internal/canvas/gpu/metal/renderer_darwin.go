@@ -42,6 +42,7 @@ type Renderer struct {
 
 func Open(window *sdl.Window, width, height int, closePlatform func()) (*Renderer, error) {
 	sdl.SetHint(sdl.HINT_RENDER_DRIVER, "metal")
+	sdl.SetHint(sdl.HINT_RENDER_SCALE_QUALITY, "linear")
 	sr, err := sdl.CreateRenderer(window, -1, sdl.RENDERER_ACCELERATED|sdl.RENDERER_PRESENTVSYNC|sdl.RENDERER_TARGETTEXTURE)
 	if err != nil {
 		return nil, err

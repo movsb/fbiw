@@ -227,10 +227,10 @@ func (r *Renderer) FillRect(rect, clip image.Rectangle, fill canvas.Color) {
 	if fill.A() == 255 || fill.A() == 0 {
 		r.api.disable(glBlend)
 	} else {
-		a := float32(fill.A()) / 256
+		a := float32(fill.A()) / 255
 		r.api.enable(glBlend)
 		r.api.blendColor(0, 0, 0, a)
-		r.api.blendFuncSeparate(glConstantAlpha, glOneMinusConstAlpha, glOne, glZero)
+		r.api.blendFuncSeparate(glConstantAlpha, glOneMinusConstAlpha, glConstantAlpha, glOneMinusConstAlpha)
 	}
 	r.api.useProgram(r.colorProgram)
 	r.api.uniform4f(r.rectLocation, float32(rect.Min.X), float32(rect.Min.Y), float32(rect.Dx()), float32(rect.Dy()))
@@ -296,19 +296,10 @@ func (r *Renderer) DrawImage(img canvas.Image, src image.Rectangle, dst image.Po
 		r.api.uniform1i(r.textureAlphaMode, 0)
 		r.api.drawArrays(glTriangleStrip, 0, 4)
 	} else {
-		// Match the CPU backend: fully transparent pixels preserve the target,
-		// while every contributing source pixel makes target alpha opaque.
-		r.api.colorMask(1, 1, 1, 0)
 		r.api.enable(glBlend)
-		r.api.blendFuncSeparate(glSrcAlpha, glOneMinusSrcAlpha, glOne, glZero)
+		r.api.blendFuncSeparate(glSrcAlpha, glOneMinusSrcAlpha, glOne, glOneMinusSrcAlpha)
 		r.api.uniform1i(r.textureAlphaMode, 0)
 		r.api.drawArrays(glTriangleStrip, 0, 4)
-		r.api.colorMask(0, 0, 0, 1)
-		r.api.disable(glBlend)
-		r.api.uniform1i(r.textureAlphaMode, 1)
-		r.api.drawArrays(glTriangleStrip, 0, 4)
-		r.api.colorMask(1, 1, 1, 1)
-		r.api.uniform1i(r.textureAlphaMode, 0)
 	}
 }
 
@@ -378,17 +369,10 @@ func (r *Renderer) DrawImageTransformed(img canvas.Image, degrees, scale, cx, cy
 	r.api.enableVertexAttrib(uint32(r.transformPosition))
 	r.api.vertexAttribPointer(uint32(r.transformPosition), 2, glFloat, 0, 0, 0)
 
-	r.api.colorMask(1, 1, 1, 0)
 	r.api.enable(glBlend)
-	r.api.blendFuncSeparate(glSrcAlpha, glOneMinusSrcAlpha, glOne, glZero)
+	r.api.blendFuncSeparate(glSrcAlpha, glOneMinusSrcAlpha, glOne, glOneMinusSrcAlpha)
 	r.api.uniform1i(r.transformAlphaMode, 0)
 	r.api.drawArrays(glTriangleStrip, 0, 4)
-	r.api.colorMask(0, 0, 0, 1)
-	r.api.disable(glBlend)
-	r.api.uniform1i(r.transformAlphaMode, 1)
-	r.api.drawArrays(glTriangleStrip, 0, 4)
-	r.api.colorMask(1, 1, 1, 1)
-	r.api.uniform1i(r.transformAlphaMode, 0)
 }
 func (r *Renderer) DrawMask(mask []byte, mw, mh int, dst image.Point, clip image.Rectangle, fill canvas.Color) {
 	if mw <= 0 || mh <= 0 || len(mask) < mw*mh {
@@ -501,17 +485,10 @@ func (r *Renderer) flushMasks() {
 	r.api.enableVertexAttrib(uint32(r.maskUVPosition))
 	r.api.vertexAttribPointer(uint32(r.maskUVPosition), 2, glFloat, 0, 16, 8)
 	count := int32(len(vertices) / 4)
-	r.api.colorMask(1, 1, 1, 0)
 	r.api.enable(glBlend)
-	r.api.blendFuncSeparate(glSrcAlpha, glOneMinusSrcAlpha, glOne, glZero)
+	r.api.blendFuncSeparate(glSrcAlpha, glOneMinusSrcAlpha, glOne, glOneMinusSrcAlpha)
 	r.api.uniform1i(r.maskAlphaMode, 0)
 	r.api.drawArrays(glTriangles, 0, count)
-	r.api.colorMask(0, 0, 0, 1)
-	r.api.disable(glBlend)
-	r.api.uniform1i(r.maskAlphaMode, 1)
-	r.api.drawArrays(glTriangles, 0, count)
-	r.api.colorMask(1, 1, 1, 1)
-	r.api.uniform1i(r.maskAlphaMode, 0)
 	r.maskBatch.vertices = vertices[:0]
 }
 

@@ -678,10 +678,24 @@ func TestDrawImageVersions(t *testing.T) {
 		if !bytes.Equal(buffer1, buffer4) {
 			t.Fatalf("offset=(%d,%d) size=(%d,%d): drawImage1 和 drawImage4 的结果不同", tc.x, tc.y, tc.width, tc.height)
 		}
-		if !bytes.Equal(buffer1, buffer5) {
-			t.Fatalf("offset=(%d,%d) size=(%d,%d): drawImage1 和 drawImage5 的结果不同", tc.x, tc.y, tc.width, tc.height)
+		// 版本 1-4 保留旧 framebuffer 强制不透明 Alpha 的实现用于历史
+		// 性能对照；生产版本 5 已改为标准 Source Over，只比较 RGB。
+		if !equalRGB(buffer1, buffer5) {
+			t.Fatalf("offset=(%d,%d) size=(%d,%d): drawImage1 和 drawImage5 的 RGB 结果不同", tc.x, tc.y, tc.width, tc.height)
 		}
 	}
+}
+
+func equalRGB(a, b []byte) bool {
+	if len(a) != len(b) || len(a)%4 != 0 {
+		return false
+	}
+	for i := 0; i < len(a); i += 4 {
+		if !bytes.Equal(a[i:i+3], b[i:i+3]) {
+			return false
+		}
+	}
+	return true
 }
 
 func TestDrawImage5Opaque(t *testing.T) {
