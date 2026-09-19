@@ -13,84 +13,92 @@ import (
 )
 
 const (
-	glColorBufferBit     = 0x00004000
-	glScissorTest        = 0x0c11
-	glBlend              = 0x0be2
-	glArrayBuffer        = 0x8892
-	glStaticDraw         = 0x88e4
-	glDynamicDraw        = 0x88e8
-	glFloat              = 0x1406
-	glTriangleStrip      = 0x0005
-	glTriangles          = 0x0004
-	glVertexShader       = 0x8b31
-	glFragmentShader     = 0x8b30
-	glCompileStatus      = 0x8b81
-	glLinkStatus         = 0x8b82
-	glInfoLogLength      = 0x8b84
-	glConstantAlpha      = 0x8003
-	glOneMinusConstAlpha = 0x8004
-	glOne                = 1
-	glZero               = 0
-	glNoError            = 0
-	glTexture2D          = 0x0de1
-	glTextureMinFilter   = 0x2801
-	glTextureMagFilter   = 0x2800
-	glTextureWrapS       = 0x2802
-	glTextureWrapT       = 0x2803
-	glNearest            = 0x2600
-	glClampToEdge        = 0x812f
-	glRGBA               = 0x1908
-	glUnsignedByte       = 0x1401
-	glSrcAlpha           = 0x0302
-	glOneMinusSrcAlpha   = 0x0303
-	glAlpha              = 0x1906
-	glUnpackAlignment    = 0x0cf5
+	glColorBufferBit      = 0x00004000
+	glScissorTest         = 0x0c11
+	glBlend               = 0x0be2
+	glArrayBuffer         = 0x8892
+	glStaticDraw          = 0x88e4
+	glDynamicDraw         = 0x88e8
+	glFloat               = 0x1406
+	glTriangleStrip       = 0x0005
+	glTriangles           = 0x0004
+	glVertexShader        = 0x8b31
+	glFragmentShader      = 0x8b30
+	glCompileStatus       = 0x8b81
+	glLinkStatus          = 0x8b82
+	glInfoLogLength       = 0x8b84
+	glConstantAlpha       = 0x8003
+	glOneMinusConstAlpha  = 0x8004
+	glOne                 = 1
+	glZero                = 0
+	glNoError             = 0
+	glTexture2D           = 0x0de1
+	glTextureMinFilter    = 0x2801
+	glTextureMagFilter    = 0x2800
+	glTextureWrapS        = 0x2802
+	glTextureWrapT        = 0x2803
+	glNearest             = 0x2600
+	glClampToEdge         = 0x812f
+	glRGBA                = 0x1908
+	glUnsignedByte        = 0x1401
+	glSrcAlpha            = 0x0302
+	glOneMinusSrcAlpha    = 0x0303
+	glAlpha               = 0x1906
+	glUnpackAlignment     = 0x0cf5
+	glFramebuffer         = 0x8d40
+	glColorAttachment0    = 0x8ce0
+	glFramebufferComplete = 0x8cd5
 )
 
 type api struct {
-	clearColor          func(float32, float32, float32, float32)
-	clear               func(uint32)
-	enable              func(uint32)
-	disable             func(uint32)
-	scissor             func(int32, int32, int32, int32)
-	viewport            func(int32, int32, int32, int32)
-	createShader        func(uint32) uint32
-	shaderSource        func(uint32, int32, *uintptr, *int32)
-	compileShader       func(uint32)
-	getShaderiv         func(uint32, uint32, *int32)
-	getShaderInfoLog    func(uint32, int32, *int32, *byte)
-	deleteShader        func(uint32)
-	createProgram       func() uint32
-	attachShader        func(uint32, uint32)
-	linkProgram         func(uint32)
-	getProgramiv        func(uint32, uint32, *int32)
-	getProgramInfoLog   func(uint32, int32, *int32, *byte)
-	deleteProgram       func(uint32)
-	useProgram          func(uint32)
-	getAttribLocation   func(uint32, *byte) int32
-	getUniformLocation  func(uint32, *byte) int32
-	uniform2f           func(int32, float32, float32)
-	uniform4f           func(int32, float32, float32, float32, float32)
-	genBuffers          func(int32, *uint32)
-	deleteBuffers       func(int32, *uint32)
-	bindBuffer          func(uint32, uint32)
-	bufferData          func(uint32, uintptr, uintptr, uint32)
-	enableVertexAttrib  func(uint32)
-	vertexAttribPointer func(uint32, int32, uint32, uint8, int32, uintptr)
-	drawArrays          func(uint32, int32, int32)
-	blendColor          func(float32, float32, float32, float32)
-	blendFuncSeparate   func(uint32, uint32, uint32, uint32)
-	glGetError          func() uint32
-	uniform1i           func(int32, int32)
-	genTextures         func(int32, *uint32)
-	deleteTextures      func(int32, *uint32)
-	bindTexture         func(uint32, uint32)
-	texParameteri       func(uint32, uint32, int32)
-	texImage2D          func(uint32, int32, int32, int32, int32, int32, uint32, uint32, uintptr)
-	texSubImage2D       func(uint32, int32, int32, int32, int32, int32, uint32, uint32, uintptr)
-	colorMask           func(uint8, uint8, uint8, uint8)
-	pixelStorei         func(uint32, int32)
-	readPixels          func(int32, int32, int32, int32, uint32, uint32, uintptr)
+	clearColor             func(float32, float32, float32, float32)
+	clear                  func(uint32)
+	enable                 func(uint32)
+	disable                func(uint32)
+	scissor                func(int32, int32, int32, int32)
+	viewport               func(int32, int32, int32, int32)
+	createShader           func(uint32) uint32
+	shaderSource           func(uint32, int32, *uintptr, *int32)
+	compileShader          func(uint32)
+	getShaderiv            func(uint32, uint32, *int32)
+	getShaderInfoLog       func(uint32, int32, *int32, *byte)
+	deleteShader           func(uint32)
+	createProgram          func() uint32
+	attachShader           func(uint32, uint32)
+	linkProgram            func(uint32)
+	getProgramiv           func(uint32, uint32, *int32)
+	getProgramInfoLog      func(uint32, int32, *int32, *byte)
+	deleteProgram          func(uint32)
+	useProgram             func(uint32)
+	getAttribLocation      func(uint32, *byte) int32
+	getUniformLocation     func(uint32, *byte) int32
+	uniform2f              func(int32, float32, float32)
+	uniform4f              func(int32, float32, float32, float32, float32)
+	genBuffers             func(int32, *uint32)
+	deleteBuffers          func(int32, *uint32)
+	bindBuffer             func(uint32, uint32)
+	bufferData             func(uint32, uintptr, uintptr, uint32)
+	enableVertexAttrib     func(uint32)
+	vertexAttribPointer    func(uint32, int32, uint32, uint8, int32, uintptr)
+	drawArrays             func(uint32, int32, int32)
+	blendColor             func(float32, float32, float32, float32)
+	blendFuncSeparate      func(uint32, uint32, uint32, uint32)
+	glGetError             func() uint32
+	uniform1i              func(int32, int32)
+	genTextures            func(int32, *uint32)
+	deleteTextures         func(int32, *uint32)
+	bindTexture            func(uint32, uint32)
+	texParameteri          func(uint32, uint32, int32)
+	texImage2D             func(uint32, int32, int32, int32, int32, int32, uint32, uint32, uintptr)
+	texSubImage2D          func(uint32, int32, int32, int32, int32, int32, uint32, uint32, uintptr)
+	colorMask              func(uint8, uint8, uint8, uint8)
+	pixelStorei            func(uint32, int32)
+	readPixels             func(int32, int32, int32, int32, uint32, uint32, uintptr)
+	genFramebuffers        func(int32, *uint32)
+	deleteFramebuffers     func(int32, *uint32)
+	bindFramebuffer        func(uint32, uint32)
+	framebufferTexture2D   func(uint32, uint32, uint32, uint32, int32)
+	checkFramebufferStatus func(uint32) uint32
 }
 
 type Renderer struct {
@@ -134,6 +142,11 @@ type Renderer struct {
 	transformInverse   int32
 	transformSampler   int32
 	transformAlphaMode int32
+	framebuffer        uint32
+	frameTexture       uint32
+	presentProgram     uint32
+	presentPosition    int32
+	presentSampler     int32
 }
 
 type maskCacheKey struct {
@@ -176,12 +189,18 @@ type imageTexture struct {
 const maxCachedImages = 256
 
 func (r *Renderer) Size() (int, int) { return r.width, r.height }
-func (*Renderer) BeginFrame()        {}
+func (r *Renderer) BeginFrame() {
+	r.api.bindFramebuffer(glFramebuffer, r.framebuffer)
+}
 func (r *Renderer) EndFrame() {
 	r.flushMasks()
+	r.present()
 	if err := r.swapBuffers(); err != nil {
 		panic(err)
 	}
+	// Keep the offscreen target current between frames so Snapshot remains
+	// independent of the EGL back buffer's post-swap preservation behavior.
+	r.api.bindFramebuffer(glFramebuffer, r.framebuffer)
 }
 func (r *Renderer) Clear() {
 	r.flushMasks()
@@ -509,6 +528,7 @@ func (r *Renderer) Snapshot() image.Image {
 	// 文字绘制会批量延迟到下一次非文字操作或帧结束；读取前必须先提交，
 	// 否则截图可能缺少帧尾的文字。
 	r.flushMasks()
+	r.api.bindFramebuffer(glFramebuffer, r.framebuffer)
 
 	// OpenGL framebuffer 的原点位于左下角，而 image.NRGBA 的原点位于
 	// 左上角。先读取连续 RGBA 数据，再逐行倒序复制到目标图片。
@@ -521,6 +541,21 @@ func (r *Renderer) Snapshot() image.Image {
 	}
 
 	return snapshotImage(pixels, r.width, r.height)
+}
+
+func (r *Renderer) present() {
+	r.api.bindFramebuffer(glFramebuffer, 0)
+	r.api.viewport(0, 0, int32(r.width), int32(r.height))
+	r.api.disable(glScissorTest)
+	r.api.disable(glBlend)
+	r.api.colorMask(1, 1, 1, 1)
+	r.api.useProgram(r.presentProgram)
+	r.api.bindTexture(glTexture2D, r.frameTexture)
+	r.api.uniform1i(r.presentSampler, 0)
+	r.api.bindBuffer(glArrayBuffer, r.quadBuffer)
+	r.api.enableVertexAttrib(uint32(r.presentPosition))
+	r.api.vertexAttribPointer(uint32(r.presentPosition), 2, glFloat, 0, 0, 0)
+	r.api.drawArrays(glTriangleStrip, 0, 4)
 }
 
 func snapshotImage(pixels []byte, width, height int) *image.NRGBA {
@@ -816,10 +851,82 @@ func (r *Renderer) initTransformPipeline() error {
 	return nil
 }
 
+func (r *Renderer) initFramebuffer() error {
+	r.api.genTextures(1, &r.frameTexture)
+	if r.frameTexture == 0 {
+		return errors.New("glGenTextures for framebuffer returned 0")
+	}
+	r.api.bindTexture(glTexture2D, r.frameTexture)
+	r.api.texParameteri(glTexture2D, glTextureMinFilter, glNearest)
+	r.api.texParameteri(glTexture2D, glTextureMagFilter, glNearest)
+	r.api.texParameteri(glTexture2D, glTextureWrapS, glClampToEdge)
+	r.api.texParameteri(glTexture2D, glTextureWrapT, glClampToEdge)
+	r.api.texImage2D(glTexture2D, 0, glRGBA, int32(r.width), int32(r.height), 0, glRGBA, glUnsignedByte, 0)
+
+	r.api.genFramebuffers(1, &r.framebuffer)
+	if r.framebuffer == 0 {
+		return errors.New("glGenFramebuffers returned 0")
+	}
+	r.api.bindFramebuffer(glFramebuffer, r.framebuffer)
+	r.api.framebufferTexture2D(glFramebuffer, glColorAttachment0, glTexture2D, r.frameTexture, 0)
+	if status := r.api.checkFramebufferStatus(glFramebuffer); status != glFramebufferComplete {
+		return fmt.Errorf("create GLES framebuffer: status=0x%x", status)
+	}
+	if code := r.api.glGetError(); code != glNoError {
+		return fmt.Errorf("initialize GLES framebuffer: 0x%x", code)
+	}
+	return nil
+}
+
+func (r *Renderer) initPresentPipeline() error {
+	vertex, err := compileShader(r.api, glVertexShader, presentVertexShader)
+	if err != nil {
+		return err
+	}
+	defer r.api.deleteShader(vertex)
+	fragment, err := compileShader(r.api, glFragmentShader, presentFragmentShader)
+	if err != nil {
+		return err
+	}
+	defer r.api.deleteShader(fragment)
+	program := r.api.createProgram()
+	if program == 0 {
+		return errors.New("glCreateProgram returned 0")
+	}
+	r.api.attachShader(program, vertex)
+	r.api.attachShader(program, fragment)
+	r.api.linkProgram(program)
+	var linked int32
+	r.api.getProgramiv(program, glLinkStatus, &linked)
+	if linked == 0 {
+		log := programLog(r.api, program)
+		r.api.deleteProgram(program)
+		return fmt.Errorf("link GLES present program: %s", log)
+	}
+	r.presentProgram = program
+	positionName, samplerName := glName("a_position"), glName("u_texture")
+	r.presentPosition = r.api.getAttribLocation(program, &positionName[0])
+	r.presentSampler = r.api.getUniformLocation(program, &samplerName[0])
+	if r.presentPosition < 0 || r.presentSampler < 0 {
+		r.api.deleteProgram(program)
+		r.presentProgram = 0
+		return errors.New("GLES present shader locations unavailable")
+	}
+	return nil
+}
+
 func (r *Renderer) releaseGLResources() {
 	r.flushMasks()
 	r.releaseMaskAtlases()
 	r.releaseImageTextures()
+	if r.framebuffer != 0 {
+		r.api.deleteFramebuffers(1, &r.framebuffer)
+		r.framebuffer = 0
+	}
+	if r.frameTexture != 0 {
+		r.api.deleteTextures(1, &r.frameTexture)
+		r.frameTexture = 0
+	}
 	if r.maskBuffer != 0 {
 		r.api.deleteBuffers(1, &r.maskBuffer)
 		r.maskBuffer = 0
@@ -843,6 +950,10 @@ func (r *Renderer) releaseGLResources() {
 	if r.colorProgram != 0 {
 		r.api.deleteProgram(r.colorProgram)
 		r.colorProgram = 0
+	}
+	if r.presentProgram != 0 {
+		r.api.deleteProgram(r.presentProgram)
+		r.presentProgram = 0
 	}
 }
 

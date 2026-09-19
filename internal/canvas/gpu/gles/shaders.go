@@ -19,4 +19,8 @@ var (
 	transformVertexShader string
 	//go:embed shaders/transform.frag.glsl
 	transformFragmentShader string
+	//go:embed shaders/present.vert.glsl
+	presentVertexShader string
+	//go:embed shaders/present.frag.glsl
+	presentFragmentShader string
 )

@@ -112,6 +112,11 @@ func loadAPI() (*platformAPI, *api, func(), error) {
 	purego.RegisterLibFunc(&a.colorMask, gles, "glColorMask")
 	purego.RegisterLibFunc(&a.pixelStorei, gles, "glPixelStorei")
 	purego.RegisterLibFunc(&a.readPixels, gles, "glReadPixels")
+	purego.RegisterLibFunc(&a.genFramebuffers, gles, "glGenFramebuffers")
+	purego.RegisterLibFunc(&a.deleteFramebuffers, gles, "glDeleteFramebuffers")
+	purego.RegisterLibFunc(&a.bindFramebuffer, gles, "glBindFramebuffer")
+	purego.RegisterLibFunc(&a.framebufferTexture2D, gles, "glFramebufferTexture2D")
+	purego.RegisterLibFunc(&a.checkFramebufferStatus, gles, "glCheckFramebufferStatus")
 	return p, a, closeLibraries, nil
 }
 
@@ -232,6 +237,14 @@ func Open() (_ *Renderer, err error) {
 	if err = renderer.initColorPipeline(); err != nil {
 		return nil, err
 	}
+	if err = renderer.initFramebuffer(); err != nil {
+		renderer.releaseGLResources()
+		return nil, err
+	}
+	if err = renderer.initPresentPipeline(); err != nil {
+		renderer.releaseGLResources()
+		return nil, err
+	}
 	if err = renderer.initTexturePipeline(); err != nil {
 		renderer.releaseGLResources()
 		return nil, err
@@ -305,6 +318,10 @@ func RunProbe() error {
 		return fmt.Errorf("GLES snapshot pixel at (100,100): %v", got)
 	}
 	r.EndFrame()
+	postSwap := r.Snapshot().(*image.NRGBA)
+	if got := postSwap.NRGBAAt(100, 100); got != (color.NRGBA{R: 0xff, G: 0x8a, B: 0x20, A: 0xff}) {
+		return fmt.Errorf("GLES post-swap snapshot pixel at (100,100): %v", got)
+	}
 	fmt.Printf("GLES renderer probe OK: %s, surface %dx%d\n", r.platformInfo, r.width, r.height)
 	return nil
 }
