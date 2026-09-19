@@ -15,6 +15,8 @@ type textureKey struct {
 	pixels                uintptr
 	length, width, height int
 	opaque                bool
+	// 旋转绘制使用带透明边框的预乘纹理，不能和普通图片纹理共用缓存。
+	padded bool
 }
 type maskKey struct {
 	digest        [sha256.Size]byte
@@ -42,6 +44,8 @@ type Renderer struct {
 
 func Open(window *sdl.Window, width, height int, closePlatform func()) (*Renderer, error) {
 	sdl.SetHint(sdl.HINT_RENDER_DRIVER, "metal")
+	// CopyExF 负责旋转和缩放。线性采样才能匹配 CPU/GLES 的双线性插值；
+	// 普通图片目前都是 1:1 Copy，因此不会因此变模糊。
 	sdl.SetHint(sdl.HINT_RENDER_SCALE_QUALITY, "linear")
 	sr, err := sdl.CreateRenderer(window, -1, sdl.RENDERER_ACCELERATED|sdl.RENDERER_PRESENTVSYNC|sdl.RENDERER_TARGETTEXTURE)
 	if err != nil {
@@ -76,6 +80,8 @@ func Open(window *sdl.Window, width, height int, closePlatform func()) (*Rendere
 func (r *Renderer) Size() (int, int) { return r.width, r.height }
 func (r *Renderer) BeginFrame()      { must(r.renderer.SetRenderTarget(r.target)) }
 func (r *Renderer) EndFrame() {
+	// target 是稳定的离屏帧内容。每帧只在这里复制到 SDL 管理的 Metal
+	// drawable；Present 后再切回 target，使 Snapshot 不依赖 drawable 是否保留。
 	must(r.renderer.SetRenderTarget(nil))
 	must(r.renderer.SetClipRect(nil))
 	must(r.renderer.Copy(r.target, nil, nil))
@@ -133,7 +139,7 @@ func (r *Renderer) DrawImage(img canvas.Image, src image.Rectangle, dst image.Po
 	if w <= 0 || h <= 0 || len(img.Pixels) < img.Width*img.Height*4 {
 		return
 	}
-	t := r.imageTexture(img)
+	t := r.imageTexture(img, false)
 	s := sdl.Rect{X: int32(sx), Y: int32(sy), W: int32(w), H: int32(h)}
 	d := sdl.Rect{X: int32(dst.X), Y: int32(dst.Y), W: int32(w), H: int32(h)}
 	must(r.renderer.Copy(t, &s, &d))
@@ -148,9 +154,12 @@ func (r *Renderer) DrawImageTransformed(img canvas.Image, degrees, scale, cx, cy
 	}
 	setClip(r.renderer, clip)
 	defer r.renderer.SetClipRect(nil)
-	w, h := float64(img.Width)*scale, float64(img.Height)*scale
+	// CPU/GLES 的双线性采样允许图片边缘外一像素的透明样本参与插值。
+	// SDL_RenderCopyExF 只栅格化目标四边形，所以这里把旋转专用纹理的
+	// 一像素透明边框也计入目标尺寸，否则边缘会被提前截断。
+	w, h := float64(img.Width+2)*scale, float64(img.Height+2)*scale
 	d := sdl.FRect{X: float32(cx - w/2), Y: float32(cy - h/2), W: float32(w), H: float32(h)}
-	must(r.renderer.CopyExF(r.imageTexture(img), nil, &d, degrees, nil, sdl.FLIP_NONE))
+	must(r.renderer.CopyExF(r.imageTexture(img, true), nil, &d, degrees, nil, sdl.FLIP_NONE))
 }
 func (r *Renderer) DrawMask(mask []byte, w, h int, dst image.Point, clip image.Rectangle, c canvas.Color) {
 	if w <= 0 || h <= 0 || len(mask) < w*h {
@@ -189,6 +198,7 @@ func (r *Renderer) DrawMask(mask []byte, w, h int, dst image.Point, clip image.R
 func (r *Renderer) Snapshot() image.Image {
 	must(r.renderer.SetRenderTarget(r.target))
 	out := image.NewNRGBA(image.Rect(0, 0, r.width, r.height))
+	// ABGR8888 在当前小端平台的内存字节顺序正好是 NRGBA 所需的 RGBA。
 	must(r.renderer.ReadPixels(nil, sdl.PIXELFORMAT_ABGR8888, unsafe.Pointer(&out.Pix[0]), out.Stride))
 	runtime.KeepAlive(out.Pix)
 	return out
@@ -208,8 +218,8 @@ func (r *Renderer) Close() error {
 	return err
 }
 
-func (r *Renderer) imageTexture(img canvas.Image) *sdl.Texture {
-	key := textureKey{uintptr(unsafe.Pointer(&img.Pixels[0])), len(img.Pixels), img.Width, img.Height, img.Opaque}
+func (r *Renderer) imageTexture(img canvas.Image, padded bool) *sdl.Texture {
+	key := textureKey{uintptr(unsafe.Pointer(&img.Pixels[0])), len(img.Pixels), img.Width, img.Height, img.Opaque, padded}
 	if v, ok := r.images[key]; ok {
 		return v.texture
 	}
@@ -219,16 +229,44 @@ func (r *Renderer) imageTexture(img canvas.Image) *sdl.Texture {
 			delete(r.images, key)
 		}
 	}
-	t, err := r.renderer.CreateTexture(sdl.PIXELFORMAT_ARGB8888, sdl.TEXTUREACCESS_STATIC, int32(img.Width), int32(img.Height))
+	width, height, pixels := img.Width, img.Height, img.Pixels
+	if padded {
+		// SDL 的线性过滤会直接插值纹理中的 RGB。若保留 straight-alpha
+		// 颜色，透明边缘的 RGB 也会参与插值并产生色边。先预乘 RGB，便与
+		// CPU 及 GLES transform shader 的“颜色×Alpha 后插值”语义一致。
+		width, height = img.Width+2, img.Height+2
+		pixels = make([]byte, width*height*4)
+		for y := range img.Height {
+			for x := range img.Width {
+				source := img.Pixels[(y*img.Width+x)*4:]
+				target := pixels[((y+1)*width+x+1)*4:]
+				a := uint32(source[3])
+				target[0] = uint8((uint32(source[0])*a + 127) / 255)
+				target[1] = uint8((uint32(source[1])*a + 127) / 255)
+				target[2] = uint8((uint32(source[2])*a + 127) / 255)
+				target[3] = source[3]
+			}
+		}
+	}
+	t, err := r.renderer.CreateTexture(sdl.PIXELFORMAT_ARGB8888, sdl.TEXTUREACCESS_STATIC, int32(width), int32(height))
 	must(err)
-	if img.Opaque {
+	if padded {
+		// pixels 已经预乘过 Alpha，所以颜色源因子必须是 ONE；若再使用
+		// SDL_BLENDMODE_BLEND 的 SRC_ALPHA，会把 Alpha 乘两次。Alpha 通道
+		// 仍用标准 Source Over：src + dst*(1-srcAlpha)。
+		premultiplied := sdl.ComposeCustomBlendMode(
+			sdl.BLENDFACTOR_ONE, sdl.BLENDFACTOR_ONE_MINUS_SRC_ALPHA, sdl.BLENDOPERATION_ADD,
+			sdl.BLENDFACTOR_ONE, sdl.BLENDFACTOR_ONE_MINUS_SRC_ALPHA, sdl.BLENDOPERATION_ADD,
+		)
+		must(t.SetBlendMode(premultiplied))
+	} else if img.Opaque {
 		must(t.SetBlendMode(sdl.BLENDMODE_NONE))
 	} else {
 		must(t.SetBlendMode(sdl.BLENDMODE_BLEND))
 	}
-	must(t.Update(nil, unsafe.Pointer(&img.Pixels[0]), img.Width*4))
-	runtime.KeepAlive(img.Pixels)
-	r.images[key] = cachedTexture{t, img.Pixels}
+	must(t.Update(nil, unsafe.Pointer(&pixels[0]), width*4))
+	runtime.KeepAlive(pixels)
+	r.images[key] = cachedTexture{t, pixels}
 	return t
 }
 func setClip(r *sdl.Renderer, v image.Rectangle) {
