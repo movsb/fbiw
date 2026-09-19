@@ -81,13 +81,13 @@ func (r *Renderer) FillRect(rect, clip image.Rectangle, fill canvas.Color) {
 		}
 		return
 	}
-	ia := uint32(256) - a
+	ia := uint32(255) - a
 	for y := rect.Min.Y; y < rect.Max.Y; y++ {
 		for x := rect.Min.X; x < rect.Max.X; x++ {
 			p := r.Pixels[(y*r.Width+x)*4:]
-			p[0] = uint8((uint32(fill.B())*a + uint32(p[0])*ia) >> 8)
-			p[1] = uint8((uint32(fill.G())*a + uint32(p[1])*ia) >> 8)
-			p[2] = uint8((uint32(fill.R())*a + uint32(p[2])*ia) >> 8)
+			p[0] = div255(uint32(fill.B())*a + uint32(p[0])*ia)
+			p[1] = div255(uint32(fill.G())*a + uint32(p[1])*ia)
+			p[2] = div255(uint32(fill.R())*a + uint32(p[2])*ia)
 			p[3] = 255
 		}
 	}
