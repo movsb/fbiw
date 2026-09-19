@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"image"
+	"image/color"
 	"runtime"
 
 	"github.com/ebitengine/purego"
@@ -110,6 +111,7 @@ func loadAPI() (*platformAPI, *api, func(), error) {
 	purego.RegisterLibFunc(&a.texSubImage2D, gles, "glTexSubImage2D")
 	purego.RegisterLibFunc(&a.colorMask, gles, "glColorMask")
 	purego.RegisterLibFunc(&a.pixelStorei, gles, "glPixelStorei")
+	purego.RegisterLibFunc(&a.readPixels, gles, "glReadPixels")
 	return p, a, closeLibraries, nil
 }
 
@@ -294,6 +296,13 @@ func RunProbe() error {
 	}
 	if code := r.api.glGetError(); code != glNoError {
 		return fmt.Errorf("draw GLES color probe: 0x%x", code)
+	}
+	snapshot, ok := r.Snapshot().(*image.NRGBA)
+	if !ok || snapshot.Bounds() != bounds {
+		return fmt.Errorf("GLES snapshot bounds: %v", snapshot.Bounds())
+	}
+	if got := snapshot.NRGBAAt(100, 100); got != (color.NRGBA{R: 0xff, G: 0x8a, B: 0x20, A: 0xff}) {
+		return fmt.Errorf("GLES snapshot pixel at (100,100): %v", got)
 	}
 	r.EndFrame()
 	fmt.Printf("GLES renderer probe OK: %s, surface %dx%d\n", r.platformInfo, r.width, r.height)

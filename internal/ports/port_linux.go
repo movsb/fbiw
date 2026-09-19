@@ -23,6 +23,14 @@ import (
 )
 
 func OpenDisplay() canvas.Renderer {
+	if os.Getenv("FBIW_GPU_PROBE") == "1" {
+		if err := gles.RunProbe(); err != nil {
+			panic(err)
+		}
+		time.Sleep(2 * time.Second)
+		os.Exit(0)
+	}
+
 	renderer, err1 := gles.Open()
 	if err1 == nil {
 		return renderer
@@ -66,14 +74,6 @@ func (d *_FramebufferDisplay) Close() {
 }
 
 func openFramebuffer() *_FramebufferDisplay {
-	if os.Getenv("FBIW_GPU_PROBE") == "1" {
-		if err := gles.RunProbe(); err != nil {
-			panic(err)
-		}
-		time.Sleep(2 * time.Second)
-		os.Exit(0)
-	}
-
 	fd, err := unix.Open("/dev/fb0", unix.O_RDWR, 0)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "open:", err)

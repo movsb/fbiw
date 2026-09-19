@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"image"
-	"image/color"
 	"math"
 	"runtime"
 	"unsafe"
@@ -91,6 +90,7 @@ type api struct {
 	texSubImage2D       func(uint32, int32, int32, int32, int32, int32, uint32, uint32, uintptr)
 	colorMask           func(uint8, uint8, uint8, uint8)
 	pixelStorei         func(uint32, int32)
+	readPixels          func(int32, int32, int32, int32, uint32, uint32, uintptr)
 }
 
 type Renderer struct {
@@ -504,14 +504,33 @@ func (r *Renderer) releaseMaskAtlases() {
 	clear(r.maskGlyphs)
 	r.maskAtlases = r.maskAtlases[:0]
 }
-func (*Renderer) Pixel(image.Point) color.NRGBA {
-	panic("GLES renderer单像素读取尚未实现")
+
+func (r *Renderer) Snapshot() image.Image {
+	// 文字绘制会批量延迟到下一次非文字操作或帧结束；读取前必须先提交，
+	// 否则截图可能缺少帧尾的文字。
+	r.flushMasks()
+
+	// OpenGL framebuffer 的原点位于左下角，而 image.NRGBA 的原点位于
+	// 左上角。先读取连续 RGBA 数据，再逐行倒序复制到目标图片。
+	rowBytes := r.width * 4
+	pixels := make([]byte, rowBytes*r.height)
+	r.api.readPixels(0, 0, int32(r.width), int32(r.height), glRGBA, glUnsignedByte, uintptr(unsafe.Pointer(&pixels[0])))
+	runtime.KeepAlive(pixels)
+	if code := r.api.glGetError(); code != glNoError {
+		panic(fmt.Sprintf("read GLES framebuffer: 0x%x", code))
+	}
+
+	return snapshotImage(pixels, r.width, r.height)
 }
-func (*Renderer) SetPixel(image.Point, color.NRGBA) {
-	panic("GLES renderer单像素写入尚未实现")
-}
-func (*Renderer) Snapshot() image.Image {
-	panic("GLES renderer截图尚未实现")
+
+func snapshotImage(pixels []byte, width, height int) *image.NRGBA {
+	rowBytes := width * 4
+	out := image.NewNRGBA(image.Rect(0, 0, width, height))
+	for y := range height {
+		source := (height - 1 - y) * rowBytes
+		copy(out.Pix[y*out.Stride:y*out.Stride+rowBytes], pixels[source:source+rowBytes])
+	}
+	return out
 }
 
 func shaderLog(a *api, shader uint32) string {
