@@ -1,13 +1,15 @@
-//go:build darwin
-
-package fbiw
+package ports
 
 import (
 	"context"
 	"log"
 	"sync/atomic"
 
+	"github.com/movsb/fbiw/input"
+	"github.com/movsb/fbiw/input/sticks"
+	"github.com/movsb/fbiw/internal/canvas"
 	"github.com/movsb/fbiw/internal/canvas/cpu"
+	"github.com/movsb/fbiw/internal/event"
 	"github.com/veandco/go-sdl2/sdl"
 )
 
@@ -17,10 +19,6 @@ type _SdlDisplay struct {
 	window  *sdl.Window
 	surface *sdl.Surface
 	buffer  *sdl.Surface
-}
-
-func openAcceleratedRenderer() (Renderer, bool) {
-	return nil, false
 }
 
 func (d *_SdlDisplay) GetSize() (int, int, int) {
@@ -43,7 +41,7 @@ func (d *_SdlDisplay) Close() {
 }
 
 // 创建一个固定大小的基于SDL2的显示层/渲染器。
-func OpenDisplay() Renderer {
+func OpenDisplay() canvas.Renderer {
 	const (
 		scale        = 1
 		renderWidth  = 1024
@@ -87,15 +85,14 @@ func OpenDisplay() Renderer {
 		buffer:  buffer,
 	}
 	r := cpu.New(d.width, d.height)
-	r.Present = d.Sync
-	r.CloseFunc = d.Close
+	r.Display = d
 	return r
 }
 
-func pollEvents(
+func PollEvents(
 	ctx context.Context, cancel context.CancelFunc,
 	unblock chan struct{}, unblockHandler func(),
-	sync func(), eventHandler func(*Event),
+	sync func(), eventHandler func(*event.Message),
 ) {
 	wakeEvent := sdl.RegisterEvents(1)
 	if wakeEvent == ^uint32(0) {
@@ -120,7 +117,7 @@ func pollEvents(
 func pollSDLEvents(
 	ctx context.Context, cancel context.CancelFunc,
 	unblock <-chan struct{}, unblockHandler func(),
-	sync func(), eventHandler func(*Event),
+	sync func(), eventHandler func(*event.Message),
 	wait func(int) sdl.Event, push func(),
 ) {
 	var pending atomic.Bool
@@ -143,30 +140,34 @@ func pollSDLEvents(
 	}()
 	// 保证退出消息循环后，不再有桥接线程访问 SDL。
 	defer func() { close(stopped); <-joined }()
-	sendKey := func(name KeyName, pressed, repeat bool) {
-		eventHandler(&Event{
-			Type: Iif(pressed, StickDownEvent, StickUpEvent),
-			Stick: KeyEventArgs{
+	sendKey := func(name input.Name, pressed, repeat bool) {
+		ty := event.EventInputUp
+		if pressed {
+			ty = event.EventInputDown
+		}
+		eventHandler(&event.Message{
+			Type: ty,
+			Input: event.InputArgs{
 				Name:   name,
 				Repeat: repeat,
 			},
 		})
 	}
 
-	keyMaps := map[sdl.Keycode]KeyName{
-		sdl.K_w: Up,
-		sdl.K_s: Down,
-		sdl.K_a: Left,
-		sdl.K_d: Right,
-		sdl.K_k: A,
-		sdl.K_j: B,
-		sdl.K_i: X,
-		sdl.K_u: Y,
-		sdl.K_r: Menu,
-		sdl.K_t: Select,
-		sdl.K_y: Start,
-		sdl.K_q: L1,
-		sdl.K_o: R1,
+	keyMaps := map[sdl.Keycode]input.Name{
+		sdl.K_w: sticks.Up,
+		sdl.K_s: sticks.Down,
+		sdl.K_a: sticks.Left,
+		sdl.K_d: sticks.Right,
+		sdl.K_k: sticks.A,
+		sdl.K_j: sticks.B,
+		sdl.K_i: sticks.X,
+		sdl.K_u: sticks.Y,
+		sdl.K_r: sticks.Menu,
+		sdl.K_t: sticks.Select,
+		sdl.K_y: sticks.Start,
+		sdl.K_q: sticks.L1,
+		sdl.K_o: sticks.R1,
 	}
 
 	for {

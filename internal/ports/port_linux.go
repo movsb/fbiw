@@ -1,6 +1,4 @@
-//go:build linux
-
-package fbiw
+package ports
 
 import (
 	"context"
@@ -11,17 +9,20 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
 	"unsafe"
 
+	"github.com/movsb/fbiw/input"
+	"github.com/movsb/fbiw/input/sticks"
+	"github.com/movsb/fbiw/internal/canvas"
 	"github.com/movsb/fbiw/internal/canvas/cpu"
 	"github.com/movsb/fbiw/internal/canvas/gpu/gles"
+	"github.com/movsb/fbiw/internal/event"
 	"golang.org/x/sys/unix"
 )
 
-func OpenDisplay() Renderer {
+func OpenDisplay() canvas.Renderer {
 	renderer, err1 := gles.Open()
 	if err1 == nil {
 		return renderer
@@ -29,15 +30,14 @@ func OpenDisplay() Renderer {
 		log.Println(`failed to open gpu:`, err1)
 	}
 
-	display := openDisplay()
+	display := openFramebuffer()
 	width, height, stride := display.GetSize()
 	if stride != width*4 {
 		panic(`暂时不支持Stride!=Width*4的显示设备。`)
 	}
-	cpuRenderer := cpu.New(width, height)
-	cpuRenderer.Present = display.Sync
-	cpuRenderer.CloseFunc = display.Close
-	return cpuRenderer
+	r := cpu.New(width, height)
+	r.Display = display
+	return r
 }
 
 type _FramebufferDisplay struct {
@@ -65,7 +65,7 @@ func (d *_FramebufferDisplay) Close() {
 	unix.Close(d.fd)
 }
 
-func openDisplay() Display {
+func openFramebuffer() *_FramebufferDisplay {
 	if os.Getenv("FBIW_GPU_PROBE") == "1" {
 		if err := gles.RunProbe(); err != nil {
 			panic(err)
@@ -170,13 +170,13 @@ func waitForVSync(fd int) error {
 	return nil
 }
 
-func pollEvents(
+func PollEvents(
 	ctx context.Context, cancel context.CancelFunc,
 	unblock chan struct{}, unblockHandler func(),
-	sync func(), eventHandler func(*Event),
+	sync func(), eventHandler func(*event.Message),
 ) {
-	keyEvents := make(chan *Event)
-	go _pollKeyboardEvents(ctx, func(e *Event) {
+	keyEvents := make(chan *event.Message)
+	go _pollKeyboardEvents(ctx, func(e *event.Message) {
 		select {
 		case keyEvents <- e:
 			// default:
@@ -195,7 +195,7 @@ func pollEvents(
 	}
 }
 
-func _pollKeyboardEvents(ctx context.Context, handler func(*Event)) {
+func _pollKeyboardEvents(ctx context.Context, handler func(*event.Message)) {
 	// 系统服务启动较早时虚拟手柄还不存在，持续等待，不能因为一次 glob 结果
 	// 不足四项就退出甚至访问 matches[3] 越界。
 	device := ""
@@ -239,27 +239,10 @@ func _pollKeyboardEvents(ctx context.Context, handler func(*Event)) {
 	defer repeater.close()
 	send := repeater.send
 
-	keyMaps := map[uint16]KeyName{
-		305: A,
-		304: B,
-		307: Y,
-		308: X,
-		316: Menu,
-		314: Select,
-		315: Start,
-		310: L1,
-		311: R1,
-		59:  Fn1,
-		60:  Fn2,
-		115: VolumeUp,
-		114: VolumeDown,
-		173: Home,
-	}
-
 	// EV_ABS 的方向键在松开时只上报 0，所以分别记录两个轴当前
 	// 按下的方向。不能共用一个 bool，否则同时操作横纵轴会串键。
-	axes := map[uint16]KeyName{}
-	sendAxis := func(code uint16, value int32, negative, positive KeyName) {
+	axes := map[uint16]input.Name{}
+	sendAxis := func(code uint16, value int32, negative, positive input.Name) {
 		if value == 0 {
 			if old, ok := axes[code]; ok {
 				send(old, false)
@@ -308,101 +291,48 @@ func _pollKeyboardEvents(ctx context.Context, handler func(*Event)) {
 		case 3:
 			switch ev.Code {
 			case 17:
-				sendAxis(ev.Code, ev.Value, Up, Down)
+				sendAxis(ev.Code, ev.Value, sticks.Up, sticks.Down)
 			case 16:
-				sendAxis(ev.Code, ev.Value, Left, Right)
+				sendAxis(ev.Code, ev.Value, sticks.Left, sticks.Right)
 			}
 		}
-		// fmt.Printf("Keyboard: type=%d code=%d value=%d\n", ev.Type, ev.Code, ev.Value)
+		fmt.Printf("Keyboard: type=%d code=%d value=%d\n", ev.Type, ev.Code, ev.Value)
 	}
 }
 
-// keyRepeater 把一次按下模拟成桌面键盘式的自动重复：先立即发送一次
-// StickDownEvent，等待 delay 后持续发送 StickDownEvent，直到收到松开。
-type keyRepeater struct {
-	ctx      context.Context
-	delay    time.Duration
-	interval time.Duration
-	handler  func(*Event)
+/*
 
-	mu   sync.Mutex
-	held map[KeyName]context.CancelFunc
-}
+/usr/include/linux/input-event-codes.h
 
-func newKeyRepeater(ctx context.Context, delay, interval time.Duration, handler func(*Event)) *keyRepeater {
-	return &keyRepeater{
-		ctx:      ctx,
-		delay:    delay,
-		interval: interval,
-		handler:  handler,
-		held:     make(map[KeyName]context.CancelFunc),
-	}
-}
+#define BTN_SOUTH               0x130       (304)
+#define BTN_A                   BTN_SOUTH
+#define BTN_EAST                0x131       (305)
+#define BTN_B                   BTN_EAST
+#define BTN_NORTH               0x133       (307)
+#define BTN_X                   BTN_NORTH
+#define BTN_WEST                0x134       (308)
+#define BTN_Y                   BTN_WEST
 
-func (r *keyRepeater) emit(name KeyName, pressed, repeat bool) {
-	r.handler(&Event{
-		Type:  Iif(pressed, StickDownEvent, StickUpEvent),
-		Stick: KeyEventArgs{Name: name, Repeat: repeat},
-	})
-}
 
-func (r *keyRepeater) send(name KeyName, pressed bool) {
-	r.mu.Lock()
-	if !pressed {
-		if cancel, ok := r.held[name]; ok {
-			cancel()
-			delete(r.held, name)
-		}
-		r.emit(name, false, false)
-		r.mu.Unlock()
-		return
-	}
+         307 (307)
+304(308)            308(305)
+         305 (304)
 
-	if _, alreadyHeld := r.held[name]; alreadyHeld {
-		r.mu.Unlock()
-		return
-	}
-	repeatCtx, cancel := context.WithCancel(r.ctx)
-	r.held[name] = cancel
-	r.emit(name, true, false)
-	r.mu.Unlock()
+*/
 
-	go r.repeat(repeatCtx, name)
-}
-
-func (r *keyRepeater) repeat(ctx context.Context, name KeyName) {
-	timer := time.NewTimer(r.delay)
-	defer timer.Stop()
-	select {
-	case <-ctx.Done():
-		return
-	case <-timer.C:
-	}
-
-	ticker := time.NewTicker(r.interval)
-	defer ticker.Stop()
-	for {
-		r.mu.Lock()
-		if ctx.Err() != nil {
-			r.mu.Unlock()
-			return
-		}
-		r.emit(name, true, true)
-		r.mu.Unlock()
-
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-		}
-	}
-}
-
-func (r *keyRepeater) close() {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	for name, cancel := range r.held {
-		cancel()
-		delete(r.held, name)
-	}
+var keyMaps = map[uint16]input.Name{
+	305: sticks.A,
+	304: sticks.B,
+	307: sticks.Y,
+	308: sticks.X,
+	316: sticks.Menu,
+	314: sticks.Select,
+	315: sticks.Start,
+	310: sticks.L1,
+	311: sticks.R1,
+	59:  sticks.Fn1,
+	60:  sticks.Fn2,
+	115: sticks.VolumeUp,
+	114: sticks.VolumeDown,
+	173: sticks.Home,
 }

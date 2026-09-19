@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"github.com/goccy/go-yaml"
+	"github.com/movsb/fbiw/input"
+	"github.com/movsb/fbiw/input/sticks"
 	"github.com/movsb/fbiw/internal/canvas/cpu"
 	"golang.org/x/image/font"
 	"golang.org/x/image/font/basicfont"
@@ -1241,126 +1243,126 @@ func TestListStateNavigate(t *testing.T) {
 	tests := []struct {
 		name    string
 		state   _ListState
-		key     KeyName
+		key     input.Name
 		want    _ListState
 		changed bool
 	}{
 		{
 			name:    `down selects the first item`,
 			state:   _ListState{count: 8, rows: 2, cols: 3, rowIndex: -1, colIndex: 0},
-			key:     Down,
+			key:     sticks.Down,
 			want:    _ListState{rows: 2, cols: 3, rowIndex: 0, colIndex: 0},
 			changed: true,
 		},
 		{
 			name:    `down moves to the next visible row`,
 			state:   _ListState{count: 8, rows: 2, cols: 3, rowIndex: 0, colIndex: 1},
-			key:     Down,
+			key:     sticks.Down,
 			want:    _ListState{rows: 2, cols: 3, rowIndex: 1, colIndex: 1},
 			changed: true,
 		},
 		{
 			name:    `down scrolls past the last visible row`,
 			state:   _ListState{count: 8, rows: 2, cols: 3, rowIndex: 1, colIndex: 0},
-			key:     Down,
+			key:     sticks.Down,
 			want:    _ListState{rows: 2, cols: 3, rowIndex: 1, colIndex: 0, itemOffset: 3},
 			changed: true,
 		},
 		{
 			name:    `down adjusts the column for a partial last row`,
 			state:   _ListState{count: 8, rows: 2, cols: 3, rowIndex: 1, colIndex: 2},
-			key:     Down,
+			key:     sticks.Down,
 			want:    _ListState{rows: 2, cols: 3, rowIndex: 1, colIndex: 1, itemOffset: 3},
 			changed: true,
 		},
 		{
 			name:    `down stops at the last data row`,
 			state:   _ListState{count: 8, rows: 2, cols: 3, rowIndex: 1, colIndex: 1, itemOffset: 3},
-			key:     Down,
+			key:     sticks.Down,
 			want:    _ListState{rows: 2, cols: 3, rowIndex: 1, colIndex: 1, itemOffset: 3},
 			changed: false,
 		},
 		{
 			name:    `up moves to the previous visible row`,
 			state:   _ListState{count: 8, rows: 2, cols: 3, rowIndex: 1, colIndex: 1},
-			key:     Up,
+			key:     sticks.Up,
 			want:    _ListState{rows: 2, cols: 3, rowIndex: 0, colIndex: 1},
 			changed: true,
 		},
 		{
 			name:    `up scrolls before the first visible row`,
 			state:   _ListState{count: 8, rows: 2, cols: 3, rowIndex: 0, colIndex: 1, itemOffset: 3},
-			key:     Up,
+			key:     sticks.Up,
 			want:    _ListState{rows: 2, cols: 3, rowIndex: 0, colIndex: 1},
 			changed: true,
 		},
 		{
 			name:    `up stops at the first data row`,
 			state:   _ListState{count: 8, rows: 2, cols: 3, rowIndex: 0, colIndex: 1},
-			key:     Up,
+			key:     sticks.Up,
 			want:    _ListState{rows: 2, cols: 3, rowIndex: 0, colIndex: 1},
 			changed: false,
 		},
 		{
 			name:    `left moves to the previous column`,
 			state:   _ListState{count: 8, rows: 2, cols: 3, rowIndex: 0, colIndex: 2},
-			key:     Left,
+			key:     sticks.Left,
 			want:    _ListState{rows: 2, cols: 3, rowIndex: 0, colIndex: 1},
 			changed: true,
 		},
 		{
 			name:    `right moves to the next column`,
 			state:   _ListState{count: 8, rows: 2, cols: 3, rowIndex: 0, colIndex: 1},
-			key:     Right,
+			key:     sticks.Right,
 			want:    _ListState{rows: 2, cols: 3, rowIndex: 0, colIndex: 2},
 			changed: true,
 		},
 		{
 			name:    `right stops at the end of a partial last row`,
 			state:   _ListState{count: 8, rows: 2, cols: 3, rowIndex: 1, colIndex: 1, itemOffset: 3},
-			key:     Right,
+			key:     sticks.Right,
 			want:    _ListState{rows: 2, cols: 3, rowIndex: 1, colIndex: 1, itemOffset: 3},
 			changed: false,
 		},
 		{
 			name:    `left pages a single column and keeps the selected row`,
 			state:   _ListState{count: 10, rows: 3, cols: 1, rowIndex: 1, colIndex: 0, itemOffset: 3},
-			key:     Left,
+			key:     sticks.Left,
 			want:    _ListState{rows: 3, cols: 1, rowIndex: 1, colIndex: 0},
 			changed: true,
 		},
 		{
 			name:    `left selects the first item when a full page is unavailable`,
 			state:   _ListState{count: 10, rows: 3, cols: 1, rowIndex: 2, colIndex: 0, itemOffset: 1},
-			key:     Left,
+			key:     sticks.Left,
 			want:    _ListState{rows: 3, cols: 1, rowIndex: 0, colIndex: 0},
 			changed: true,
 		},
 		{
 			name:    `right pages a single column and keeps the selected row`,
 			state:   _ListState{count: 10, rows: 3, cols: 1, rowIndex: 1, colIndex: 0},
-			key:     Right,
+			key:     sticks.Right,
 			want:    _ListState{rows: 3, cols: 1, rowIndex: 1, colIndex: 0, itemOffset: 3},
 			changed: true,
 		},
 		{
 			name:    `right selects the last item when a full page is unavailable`,
 			state:   _ListState{count: 8, rows: 3, cols: 1, rowIndex: 2, colIndex: 0, itemOffset: 3},
-			key:     Right,
+			key:     sticks.Right,
 			want:    _ListState{rows: 3, cols: 1, rowIndex: 2, colIndex: 0, itemOffset: 5},
 			changed: true,
 		},
 		{
 			name:    `navigation does nothing when the list is empty`,
 			state:   _ListState{count: 0, rows: 2, cols: 3, rowIndex: -1, colIndex: 0},
-			key:     Down,
+			key:     sticks.Down,
 			want:    _ListState{rows: 2, cols: 3, rowIndex: -1, colIndex: 0},
 			changed: false,
 		},
 		{
 			name:    `non-navigation keys are ignored`,
 			state:   _ListState{count: 8, rows: 2, cols: 3, rowIndex: 0, colIndex: 1},
-			key:     A,
+			key:     sticks.A,
 			want:    _ListState{rows: 2, cols: 3, rowIndex: 0, colIndex: 1},
 			changed: false,
 		},
@@ -1412,8 +1414,8 @@ func TestListSelectionAwareAndVirtualRebind(t *testing.T) {
 	)
 
 	list.SetIndex(0, 0, 0)
-	list.navigate(&Event{Type: StickDownEvent, Stick: KeyEventArgs{Name: Down}})
-	list.navigate(&Event{Type: StickDownEvent, Stick: KeyEventArgs{Name: Down}})
+	list.navigate(&Event{Type: InputDownEvent, Input: InputEventArgs{Name: sticks.Down}})
+	list.navigate(&Event{Type: InputDownEvent, Input: InputEventArgs{Name: sticks.Down}})
 	// 同一数据索引的重复布局不得再次 bind，否则 SetText 等绑定逻辑会
 	// 意外重置列表项内部的动画状态。
 	list.children[1].(*_ListItem).bindData()

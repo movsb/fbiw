@@ -9,17 +9,15 @@ import (
 	canvas "github.com/movsb/fbiw/internal/canvas"
 )
 
+type Display interface {
+	Sync(pixels []byte)
+	Close()
+}
+
 type Renderer struct {
 	Width, Height int
 	Pixels        []byte
-
-	// 呈现最终的渲染结果。
-	// 可以为空。
-	Present func([]byte)
-
-	// 释放 Present 所依赖的平台显示资源。
-	// 可以为空。
-	CloseFunc func()
+	Display       Display
 }
 
 var _ interface {
@@ -36,9 +34,8 @@ func New(width, height int) *Renderer {
 }
 
 func (r *Renderer) Close() error {
-	if r.CloseFunc != nil {
-		r.CloseFunc()
-		r.CloseFunc = nil
+	if r.Display != nil {
+		r.Display.Close()
 	}
 	return nil
 }
@@ -50,8 +47,8 @@ func (r *Renderer) Size() (int, int) {
 func (*Renderer) BeginFrame() {}
 
 func (r *Renderer) EndFrame() {
-	if r.Present != nil {
-		r.Present(r.Pixels)
+	if r.Display != nil {
+		r.Display.Sync(r.Pixels)
 	}
 }
 

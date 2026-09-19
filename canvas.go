@@ -17,6 +17,7 @@ import (
 
 	"github.com/anthonynsimon/bild/transform"
 	"github.com/movsb/fbiw/internal/canvas"
+	"github.com/movsb/fbiw/internal/ports"
 	"github.com/phuslu/lru"
 	"golang.org/x/image/font"
 	"golang.org/x/image/font/opentype"
@@ -29,6 +30,11 @@ import (
 )
 
 type Renderer = canvas.Renderer
+
+// OpenDisplay opens the renderer provided by the current platform port.
+func OpenDisplay() Renderer {
+	return ports.OpenDisplay()
+}
 
 // 绘图层。
 //

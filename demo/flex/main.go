@@ -7,6 +7,7 @@ import (
 	"strconv"
 
 	"github.com/movsb/fbiw"
+	"github.com/movsb/fbiw/input/sticks"
 )
 
 //go:embed main.html
@@ -46,27 +47,27 @@ func main() {
 	}
 	updateLabels()
 
-	doc.Listen(fbiw.StickDownEvent, func(event *fbiw.Event) {
-		if event.Stick.Repeat {
+	doc.Listen(fbiw.InputDownEvent, func(event *fbiw.Event) {
+		if event.Input.Repeat {
 			return
 		}
-		switch event.Stick.Name {
-		case fbiw.Left:
+		switch event.Input.Name {
+		case sticks.Left:
 			grow = max(1, grow-1)
 			set(middle, `flex-grow`, strconv.Itoa(grow))
-		case fbiw.Right:
+		case sticks.Right:
 			grow = min(5, grow+1)
 			set(middle, `flex-grow`, strconv.Itoa(grow))
-		case fbiw.Up:
+		case sticks.Up:
 			justifyIndex = (justifyIndex - 1 + len(justifications)) % len(justifications)
 			set(alignment, `justify-content`, justifications[justifyIndex])
-		case fbiw.Down:
+		case sticks.Down:
 			justifyIndex = (justifyIndex + 1) % len(justifications)
 			set(alignment, `justify-content`, justifications[justifyIndex])
-		case fbiw.A:
+		case sticks.A:
 			alignIndex = (alignIndex + 1) % len(alignments)
 			set(alignment, `align-items`, alignments[alignIndex])
-		case fbiw.B:
+		case sticks.B:
 			visible = !visible
 			set(last, `display`, strconv.FormatBool(visible))
 		default:

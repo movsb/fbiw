@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/movsb/fbiw"
+	"github.com/movsb/fbiw/input/sticks"
 )
 
 // pprof 性能测试用。
@@ -63,12 +64,12 @@ func main() {
 	selected := 0
 	spinning.Activate()
 	transitions[selected].SetTarget(activeScales[selected])
-	doc.Listen(fbiw.StickDownEvent, func(event *fbiw.Event) {
+	doc.Listen(fbiw.InputDownEvent, func(event *fbiw.Event) {
 		next := selected
-		switch event.Stick.Name {
-		case fbiw.Up:
+		switch event.Input.Name {
+		case sticks.Up:
 			next = 0
-		case fbiw.Down:
+		case sticks.Down:
 			next = 1
 		default:
 			return

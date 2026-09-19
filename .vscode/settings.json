@@ -15,7 +15,8 @@
 		"purego",
 		"rasterizer",
 		"SWAR",
-		"trimui"
+		"trimui",
+		"numpad",
 	],
 	"go.toolsEnvVars": {
 		"GOEXPERIMENT": "simd"

@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/movsb/fbiw"
+	"github.com/movsb/fbiw/input/sticks"
 )
 
 //go:embed main.html
@@ -35,12 +36,12 @@ func main() {
 		doc.GetBoxByID[fbiw.Box](`row-7`),
 	}
 	selected := -1
-	scroll.Listen(fbiw.StickDownEvent, func(event *fbiw.Event) {
+	scroll.Listen(fbiw.InputDownEvent, func(event *fbiw.Event) {
 		delta := 0
-		switch event.Stick.Name {
-		case fbiw.L1:
+		switch event.Input.Name {
+		case sticks.L1:
 			delta = -1
-		case fbiw.R1:
+		case sticks.R1:
 			delta = 1
 		default:
 			return

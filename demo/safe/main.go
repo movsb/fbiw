@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"github.com/movsb/fbiw"
+	"github.com/movsb/fbiw/input/sticks"
 )
 
 //go:embed *.html
@@ -23,11 +24,11 @@ func main() {
 
 	text := doc.QuerySelector[*fbiw.Text](`#scroll`)
 	text.Activate()
-	text.Listen(fbiw.StickDownEvent, func(e *fbiw.Event) {
-		switch e.Stick.Name {
-		case fbiw.Up:
+	text.Listen(fbiw.InputDownEvent, func(e *fbiw.Event) {
+		switch e.Input.Name {
+		case sticks.Up:
 			text.ScrollLineUp()
-		case fbiw.Down:
+		case sticks.Down:
 			text.ScrollLineDown()
 		}
 	})

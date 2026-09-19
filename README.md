@@ -830,8 +830,8 @@ item.text.SetText("项目内容")
 Box 同时也是事件目标。事件按照捕获、目标和冒泡三个阶段传播：
 
 ```go
-remove := box.Listen(fbiw.StickDownEvent, func(event *fbiw.Event) {
-    if event.Stick.Name == fbiw.A {
+remove := box.Listen(fbiw.InputDownEvent, func(event *fbiw.Event) {
+    if event.Input.Name == sticks.A {
         // 处理 A 键按下
         event.StopPropagation()
     }
@@ -844,15 +844,15 @@ box.Activate()
 捕获阶段监听器：
 
 ```go
-doc.ListenOptions(fbiw.StickDownEvent, func(event *fbiw.Event) {
+doc.ListenOptions(fbiw.InputDownEvent, func(event *fbiw.Event) {
     // 从根元素开始捕获事件
 }, fbiw.EventOptions{Capture: true})
 ```
 
 目前公开的输入事件主要是：
 
-- `StickDownEvent`
-- `StickUpEvent`
+- `InputDownEvent`
+- `InputUpEvent`
 - `QuitEvent`
 
 按键包括方向键、A/B/X/Y、Menu、Select、Start、Fn1/Fn2、音量、Home 和 L1/R1。同时按住 Menu 与 Start 会退出应用。
@@ -1309,7 +1309,7 @@ macOS SDL2 开发窗口使用以下映射：
 | R / T / Y | Menu / Select / Start |
 | Q / O | L1 / R1 |
 
-Linux 后端直接读取 evdev 按键码。当前设备选择和按键映射针对特定目标硬件编写，移植到其他设备时通常需要调整 [`linux.go`](linux.go)。
+Linux 后端直接读取 evdev 按键码。当前设备选择和按键映射针对特定目标硬件编写，移植到其他设备时通常需要调整 [`internal/ports/port_linux.go`](internal/ports/port_linux.go)。
 
 ## 运行示例
 
@@ -1348,14 +1348,15 @@ GOEXPERIMENT=simd go test ./...
 
 ```text
 app.go        应用生命周期、文档堆叠和事件循环
-common.go     按键与事件传播
+event.go      输入别名与 UI 事件传播
 dom.go        文档解析、DOM、查询、绑定和样式应用
 style.go      CSS 子集、颜色和样式值
 box.go        Box 组件与布局实现
 canvas.go     BGRA 软件渲染和图片缓存
 font.go       字体、字形缓存和文本测量
-linux.go      Linux framebuffer/evdev 后端
-macos.go      macOS SDL2 后端
+input/                 公开输入类型及手柄、键盘子包
+internal/event/        平台后端与 UI 之间的输入消息
+internal/ports/        Linux framebuffer/evdev 与 macOS SDL2 后端
 demo/         示例程序
 testdata/     布局、样式和查询测试数据
 todo.md       已知问题与后续计划

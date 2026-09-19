@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/movsb/fbiw"
+	"github.com/movsb/fbiw/input/sticks"
 )
 
 //go:embed main.html
@@ -58,14 +59,14 @@ func main() {
 	buttons[selected].ClassAdd(`selected`)
 	buttons[selected].Activate()
 
-	doc.Listen(fbiw.StickDownEvent, func(event *fbiw.Event) {
-		if event.Stick.Repeat {
+	doc.Listen(fbiw.InputDownEvent, func(event *fbiw.Event) {
+		if event.Input.Repeat {
 			return
 		}
-		switch event.Stick.Name {
-		case fbiw.Up:
+		switch event.Input.Name {
+		case sticks.Up:
 			activate((selected - 1 + len(buttons)) % len(buttons))
-		case fbiw.Down:
+		case sticks.Down:
 			activate((selected + 1) % len(buttons))
 		}
 	})

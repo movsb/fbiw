@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/movsb/fbiw/input"
+	"github.com/movsb/fbiw/input/sticks"
 	"golang.org/x/image/vector"
 )
 
@@ -41,8 +43,8 @@ func NewButton(doc *Document) *Button {
 		BaseBox: NewBaseBox(doc, `button`),
 		variant: ButtonNormal,
 	}
-	b.Listen(StickDownEvent, func(event *Event) {
-		if event.Stick.Name != A || event.Stick.Repeat {
+	b.Listen(InputDownEvent, func(event *Event) {
+		if event.Input.Name != sticks.A || event.Input.Repeat {
 			return
 		}
 		event.StopPropagation()
@@ -194,8 +196,8 @@ func NewToggle(doc *Document) *Toggle {
 		themeCheckedTrackColor: checkedTrackColor,
 		themeKnobColor:         knobColor,
 	}
-	b.Listen(StickDownEvent, func(event *Event) {
-		if event.Stick.Name != A || event.Stick.Repeat {
+	b.Listen(InputDownEvent, func(event *Event) {
+		if event.Input.Name != sticks.A || event.Input.Repeat {
 			return
 		}
 		b.SetChecked(!b.Checked())
@@ -406,8 +408,8 @@ func NewCheckBox(doc *Document) *CheckBox {
 		themeCheckedBoxColor: checkedBoxColor,
 		themeMarkColor:       markColor,
 	}
-	b.Listen(StickDownEvent, func(event *Event) {
-		if event.Stick.Name != A || event.Stick.Repeat {
+	b.Listen(InputDownEvent, func(event *Event) {
+		if event.Input.Name != sticks.A || event.Input.Repeat {
 			return
 		}
 		b.SetChecked(!b.Checked())
@@ -847,8 +849,8 @@ func NewSelectBox(doc *Document) *SelectBox {
 		index:       -1,
 		placeholder: `请选择`,
 	}
-	b.Listen(StickDownEvent, func(event *Event) {
-		if event.Stick.Name != A || event.Stick.Repeat {
+	b.Listen(InputDownEvent, func(event *Event) {
+		if event.Input.Name != sticks.A || event.Input.Repeat {
 			return
 		}
 		event.StopPropagation()
@@ -1017,17 +1019,17 @@ func (b *SelectBox) Open() {
 		b.popupView.list.Deselect()
 	}
 
-	b.popupView.root.Listen(StickDownEvent, b.handlePopupStickDown)
+	b.popupView.root.Listen(InputDownEvent, b.handlePopupInputDown)
 	b.popupView.list.Activate()
 }
 
-func (b *SelectBox) handlePopupStickDown(event *Event) {
+func (b *SelectBox) handlePopupInputDown(event *Event) {
 	if b.popup == nil {
 		return
 	}
-	switch event.Stick.Name {
-	case A:
-		if event.Stick.Repeat {
+	switch event.Input.Name {
+	case sticks.A:
+		if event.Input.Repeat {
 			return
 		}
 		index := b.popupView.list.DataIndex()
@@ -1037,8 +1039,8 @@ func (b *SelectBox) handlePopupStickDown(event *Event) {
 		event.StopPropagation()
 		b.Close()
 		_ = b.SetIndex(index)
-	case B:
-		if event.Stick.Repeat {
+	case sticks.B:
+		if event.Input.Repeat {
 			return
 		}
 		event.StopPropagation()
@@ -1159,7 +1161,7 @@ func (app *App) ShowAlertDialog(opener *Document, options AlertDialogOptions) *A
 		dialog.view.cancelText.SetText(options.CancelText)
 	}
 
-	dialog.view.root.Listen(StickDownEvent, dialog.handleStickDown)
+	dialog.view.root.Listen(InputDownEvent, dialog.handleInputDown)
 	dialog.view.root.Activate()
 	return dialog
 }
@@ -1170,25 +1172,25 @@ func mustSetProp(box Box, key, value string) {
 	}
 }
 
-func (d *AlertDialog) handleStickDown(event *Event) {
+func (d *AlertDialog) handleInputDown(event *Event) {
 	if d.closed {
 		return
 	}
-	switch event.Stick.Name {
-	case Up:
+	switch event.Input.Name {
+	case sticks.Up:
 		d.view.description.ScrollLineUp()
 		event.StopPropagation()
-	case Down:
+	case sticks.Down:
 		d.view.description.ScrollLineDown()
 		event.StopPropagation()
-	case A:
-		if event.Stick.Repeat {
+	case sticks.A:
+		if event.Input.Repeat {
 			return
 		}
 		event.StopPropagation()
 		d.finish(d.onAction)
-	case B:
-		if event.Stick.Repeat || !d.hasCancel {
+	case sticks.B:
+		if event.Input.Repeat || !d.hasCancel {
 			return
 		}
 		event.StopPropagation()
@@ -1275,7 +1277,7 @@ func NewList(doc *Document) *List {
 		itemOffset: 0,
 	}
 
-	list.Listen(StickDownEvent, func(e *Event) {
+	list.Listen(InputDownEvent, func(e *Event) {
 		list.navigate(e)
 	})
 
@@ -1561,9 +1563,9 @@ func (b *List) _setItems(count int, create func() (root Box, user any), bind fun
 }
 
 func (b *List) navigate(event *Event) {
-	name := event.Stick.Name
+	name := event.Input.Name
 
-	if !(name == Up || name == Down || name == Left || name == Right) {
+	if !(name == sticks.Up || name == sticks.Down || name == sticks.Left || name == sticks.Right) {
 		return
 	}
 
@@ -1601,11 +1603,11 @@ func (b *List) selectionChanged(oldState _ListState) {
 
 // navigate 计算一次导航后的选中状态。
 // 返回值表示状态是否发生了变化。
-func (b *_ListState) navigate(name KeyName) bool {
+func (b *_ListState) navigate(name input.Name) bool {
 	old := *b
 
 	switch name {
-	case Up:
+	case sticks.Up:
 		switch {
 		case b.rowIndex > 0:
 			b.rowIndex--
@@ -1615,7 +1617,7 @@ func (b *_ListState) navigate(name KeyName) bool {
 				b.itemOffset -= b.cols
 			}
 		}
-	case Down:
+	case sticks.Down:
 		// 先加再判断错误
 		if b.curDataRow() >= b.maxDataRow() {
 			return false
@@ -1631,14 +1633,14 @@ func (b *_ListState) navigate(name KeyName) bool {
 			b.itemOffset += b.cols
 			b.rowIndex--
 		}
-	case Left:
+	case sticks.Left:
 		// 左右可以翻页（只针对于1列的盒子）
 		if b.cols == 1 {
 			b.pageLeft()
 		} else if b.colIndex > 0 {
 			b.colIndex--
 		}
-	case Right:
+	case sticks.Right:
 		// 左右可以翻页（只针对于1列的盒子）
 		if b.cols == 1 {
 			b.pageRight()
@@ -1841,7 +1843,7 @@ func NewScroll(doc *Document) *Scroll {
 		direction: `vertical`,
 		step:      32,
 	}
-	scroll.Listen(StickDownEvent, scroll.handleStickDown)
+	scroll.Listen(InputDownEvent, scroll.handleInputDown)
 	return scroll
 }
 
@@ -2140,16 +2142,16 @@ func (b *Scroll) finishScroll() {
 	b.Dispatch(ScrollEnd, ScrollEndArgs{X: b.offset.X, Y: b.offset.Y})
 }
 
-func (b *Scroll) handleStickDown(event *Event) {
+func (b *Scroll) handleInputDown(event *Event) {
 	dx, dy := 0, 0
-	switch event.Stick.Name {
-	case Left:
+	switch event.Input.Name {
+	case sticks.Left:
 		dx = -b.step
-	case Right:
+	case sticks.Right:
 		dx = b.step
-	case Up:
+	case sticks.Up:
 		dy = -b.step
-	case Down:
+	case sticks.Down:
 		dy = b.step
 	default:
 		return

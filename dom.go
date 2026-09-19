@@ -763,7 +763,7 @@ func (doc *Document) ListenOptions(ty EventType, handler func(*Event), options E
 //
 // 如果方向（direction）是左右，
 /*
-func (doc *Document) searchFocusableBox(start Box, direction KeyName) Box {
+func (doc *Document) searchFocusableBox(start Box, direction input.Name) Box {
 	var outBox Box
 	doc.walkNode(start, func(box Box) bool {
 		// 不含开始元素。

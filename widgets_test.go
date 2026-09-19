@@ -9,6 +9,8 @@ import (
 	"testing/fstest"
 	"time"
 
+	"github.com/movsb/fbiw/input"
+	"github.com/movsb/fbiw/input/sticks"
 	"github.com/movsb/fbiw/internal/canvas/cpu"
 	"golang.org/x/image/font/basicfont"
 )
@@ -64,12 +66,12 @@ func TestButtonOnClick(t *testing.T) {
 	button.OnClick(func() { clicks++ })
 	button.Activate()
 
-	doc.handleEvent(&Event{Type: StickDownEvent, Stick: KeyEventArgs{Name: B}})
-	doc.handleEvent(&Event{Type: StickDownEvent, Stick: KeyEventArgs{Name: A, Repeat: true}})
+	doc.handleEvent(&Event{Type: InputDownEvent, Input: InputEventArgs{Name: sticks.B}})
+	doc.handleEvent(&Event{Type: InputDownEvent, Input: InputEventArgs{Name: sticks.A, Repeat: true}})
 	if clicks != 0 {
 		t.Fatalf(`无效按键触发了点击：%d`, clicks)
 	}
-	doc.handleEvent(&Event{Type: StickDownEvent, Stick: KeyEventArgs{Name: A}})
+	doc.handleEvent(&Event{Type: InputDownEvent, Input: InputEventArgs{Name: sticks.A}})
 	if clicks != 1 {
 		t.Fatalf(`A 键没有触发一次点击：%d`, clicks)
 	}
@@ -80,13 +82,13 @@ func TestDisabledButtonIgnoresClick(t *testing.T) {
 	clicks := 0
 	button.OnClick(func() { clicks++ })
 	button.Activate()
-	doc.handleEvent(&Event{Type: StickDownEvent, Stick: KeyEventArgs{Name: A}})
+	doc.handleEvent(&Event{Type: InputDownEvent, Input: InputEventArgs{Name: sticks.A}})
 	if clicks != 0 || !button.Disabled() || !button.ClassContains(`disabled`) {
 		t.Fatalf(`禁用按钮状态不正确：disabled=%v clicks=%d`, button.Disabled(), clicks)
 	}
 
 	button.SetDisabled(false)
-	doc.handleEvent(&Event{Type: StickDownEvent, Stick: KeyEventArgs{Name: A}})
+	doc.handleEvent(&Event{Type: InputDownEvent, Input: InputEventArgs{Name: sticks.A}})
 	if clicks != 1 || button.ClassContains(`disabled`) {
 		t.Fatalf(`重新启用按钮失败：disabled=%v clicks=%d`, button.Disabled(), clicks)
 	}
@@ -151,12 +153,12 @@ func TestActiveToggleChangesOnA(t *testing.T) {
 	})
 
 	toggle.Activate()
-	doc.handleEvent(&Event{Type: StickDownEvent, Stick: KeyEventArgs{Name: B}})
+	doc.handleEvent(&Event{Type: InputDownEvent, Input: InputEventArgs{Name: sticks.B}})
 	if toggle.Checked() || changes != 0 {
 		t.Fatal(`非 A 键改变了 toggle 状态`)
 	}
 
-	doc.handleEvent(&Event{Type: StickDownEvent, Stick: KeyEventArgs{Name: A}})
+	doc.handleEvent(&Event{Type: InputDownEvent, Input: InputEventArgs{Name: sticks.A}})
 	if !toggle.Checked() || !toggle.ClassContains(`checked`) || changes != 1 {
 		t.Fatalf(`A 键没有切换状态：checked=%v changes=%d`, toggle.Checked(), changes)
 	}
@@ -168,9 +170,9 @@ func TestToggleIgnoresRepeatedADownEvents(t *testing.T) {
 	toggle.OnChange(func(bool) { changes++ })
 	toggle.Activate()
 
-	doc.handleEvent(&Event{Type: StickDownEvent, Stick: KeyEventArgs{Name: A}})
-	doc.handleEvent(&Event{Type: StickDownEvent, Stick: KeyEventArgs{Name: A, Repeat: true}})
-	doc.handleEvent(&Event{Type: StickDownEvent, Stick: KeyEventArgs{Name: A, Repeat: true}})
+	doc.handleEvent(&Event{Type: InputDownEvent, Input: InputEventArgs{Name: sticks.A}})
+	doc.handleEvent(&Event{Type: InputDownEvent, Input: InputEventArgs{Name: sticks.A, Repeat: true}})
+	doc.handleEvent(&Event{Type: InputDownEvent, Input: InputEventArgs{Name: sticks.A, Repeat: true}})
 	if !toggle.Checked() || changes != 1 {
 		t.Fatalf(`重复的 A 键事件改变了状态：checked=%v changes=%d`, toggle.Checked(), changes)
 	}
@@ -435,9 +437,9 @@ func TestActiveCheckChangesOnA(t *testing.T) {
 	var states []bool
 	check.OnChange(func(checked bool) { states = append(states, checked) })
 	check.Activate()
-	doc.handleEvent(&Event{Type: StickDownEvent, Stick: KeyEventArgs{Name: B}})
-	doc.handleEvent(&Event{Type: StickDownEvent, Stick: KeyEventArgs{Name: A}})
-	doc.handleEvent(&Event{Type: StickDownEvent, Stick: KeyEventArgs{Name: A, Repeat: true}})
+	doc.handleEvent(&Event{Type: InputDownEvent, Input: InputEventArgs{Name: sticks.B}})
+	doc.handleEvent(&Event{Type: InputDownEvent, Input: InputEventArgs{Name: sticks.A}})
+	doc.handleEvent(&Event{Type: InputDownEvent, Input: InputEventArgs{Name: sticks.A, Repeat: true}})
 	if !check.Checked() || !check.ClassContains(`checked`) || !slices.Equal(states, []bool{true}) {
 		t.Fatalf(`A 键切换结果不正确：checked=%v states=%v`, check.Checked(), states)
 	}
@@ -746,8 +748,8 @@ func TestProgressIntrinsicAndExplicitSize(t *testing.T) {
 func TestProgressDoesNotHandleInput(t *testing.T) {
 	doc, progress := newProgressDocument(t, `<document><block><progress value="0.5"></progress></block></document>`)
 	progress.Activate()
-	for _, name := range []KeyName{A, B, Left, Right, Up, Down} {
-		doc.handleEvent(&Event{Type: StickDownEvent, Stick: KeyEventArgs{Name: name, Repeat: true}})
+	for _, name := range []input.Name{sticks.A, sticks.B, sticks.Left, sticks.Right, sticks.Up, sticks.Down} {
+		doc.handleEvent(&Event{Type: InputDownEvent, Input: InputEventArgs{Name: name, Repeat: true}})
 	}
 	if progress.Value() != 0.5 {
 		t.Fatalf(`输入事件改变了 progress：%v`, progress.Value())
@@ -788,10 +790,10 @@ func newSelectPopupDocument(t *testing.T, markup string) (*App, *Document, *Sele
 	return app, doc, selectBox
 }
 
-func sendSelectPopupKey(b *SelectBox, name KeyName, repeat bool) {
+func sendSelectPopupKey(b *SelectBox, name input.Name, repeat bool) {
 	b.popup.handleEvent(&Event{
-		Type:  StickDownEvent,
-		Stick: KeyEventArgs{Name: name, Repeat: repeat},
+		Type:  InputDownEvent,
+		Input: InputEventArgs{Name: name, Repeat: repeat},
 	})
 }
 
@@ -853,23 +855,23 @@ func TestSelectPopupCommitCancelAndRepeat(t *testing.T) {
 	_, doc, b := newSelectPopupDocument(t, `<document><block><select></select></block></document>`)
 	b.SetItems([]string{`一`, `二`, `三`})
 	b.Activate()
-	doc.handleEvent(&Event{Type: StickDownEvent, Stick: KeyEventArgs{Name: A}})
+	doc.handleEvent(&Event{Type: InputDownEvent, Input: InputEventArgs{Name: sticks.A}})
 	if !b.Opened() || b.popupView.list.DataIndex() != -1 {
 		t.Fatal(`打开时不应自动高亮首项`)
 	}
 
-	sendSelectPopupKey(b, Down, false)
-	sendSelectPopupKey(b, Down, true)
+	sendSelectPopupKey(b, sticks.Down, false)
+	sendSelectPopupKey(b, sticks.Down, true)
 	if got := b.popupView.list.DataIndex(); got != 1 {
 		t.Fatalf(`方向键重复导航后的索引 = %d，期望 1`, got)
 	}
-	sendSelectPopupKey(b, A, true)
+	sendSelectPopupKey(b, sticks.A, true)
 	if !b.Opened() || b.Index() != -1 {
 		t.Fatal(`重复 A 提交了选项`)
 	}
 	closedDuringCallback := false
 	b.OnChange(func(int) { closedDuringCallback = !b.Opened() })
-	sendSelectPopupKey(b, A, false)
+	sendSelectPopupKey(b, sticks.A, false)
 	if b.Opened() || b.Index() != 1 || !closedDuringCallback {
 		t.Fatal(`A 没有先关闭 Popup 再提交`)
 	}
@@ -878,12 +880,12 @@ func TestSelectPopupCommitCancelAndRepeat(t *testing.T) {
 	if got := b.popupView.list.DataIndex(); got != 1 {
 		t.Fatalf(`重新打开没有恢复当前高亮：%d`, got)
 	}
-	sendSelectPopupKey(b, Up, false)
-	sendSelectPopupKey(b, B, true)
+	sendSelectPopupKey(b, sticks.Up, false)
+	sendSelectPopupKey(b, sticks.B, true)
 	if !b.Opened() {
 		t.Fatal(`重复 B 关闭了 Popup`)
 	}
-	sendSelectPopupKey(b, B, false)
+	sendSelectPopupKey(b, sticks.B, false)
 	if b.Opened() || b.Index() != 1 {
 		t.Fatal(`B 取消时改变了当前值`)
 	}
@@ -892,7 +894,7 @@ func TestSelectPopupCommitCancelAndRepeat(t *testing.T) {
 func TestSelectEmptyDisabledAndIdempotent(t *testing.T) {
 	_, doc, b := newSelectPopupDocument(t, `<document><block><select disabled></select></block></document>`)
 	b.Activate()
-	doc.handleEvent(&Event{Type: StickDownEvent, Stick: KeyEventArgs{Name: A}})
+	doc.handleEvent(&Event{Type: InputDownEvent, Input: InputEventArgs{Name: sticks.A}})
 	if b.Opened() || !b.Disabled() {
 		t.Fatal(`禁用的 select 被打开`)
 	}
@@ -903,7 +905,7 @@ func TestSelectEmptyDisabledAndIdempotent(t *testing.T) {
 	if !b.Opened() || displaying(b.popupView.list) || !displaying(b.popupView.empty) {
 		t.Fatal(`空列表 Popup 状态不正确`)
 	}
-	sendSelectPopupKey(b, A, false)
+	sendSelectPopupKey(b, sticks.A, false)
 	if !b.Opened() {
 		t.Fatal(`空列表响应了 A`)
 	}
@@ -965,10 +967,10 @@ func newAlertDialogTestApp() (*App, *Document) {
 	return app, opener
 }
 
-func sendAlertDialogKey(dialog *AlertDialog, name KeyName, repeat bool) {
+func sendAlertDialogKey(dialog *AlertDialog, name input.Name, repeat bool) {
 	dialog.document.handleEvent(&Event{
-		Type:  StickDownEvent,
-		Stick: KeyEventArgs{Name: name, Repeat: repeat},
+		Type:  InputDownEvent,
+		Input: InputEventArgs{Name: name, Repeat: repeat},
 	})
 }
 
@@ -990,15 +992,15 @@ func TestSingleButtonAlertDialog(t *testing.T) {
 		t.Fatal(`单按钮弹窗显示了取消按钮`)
 	}
 
-	sendAlertDialogKey(dialog, B, false)
+	sendAlertDialogKey(dialog, sticks.B, false)
 	if dialog.Closed() || actions != 0 {
 		t.Fatal(`单按钮弹窗响应了 B 键`)
 	}
-	sendAlertDialogKey(dialog, A, true)
+	sendAlertDialogKey(dialog, sticks.A, true)
 	if dialog.Closed() || actions != 0 {
 		t.Fatal(`重复 A 键触发了操作`)
 	}
-	sendAlertDialogKey(dialog, A, false)
+	sendAlertDialogKey(dialog, sticks.A, false)
 	if !dialog.Closed() || actions != 1 {
 		t.Fatalf(`A 键操作失败：closed=%v actions=%d`, dialog.Closed(), actions)
 	}
@@ -1007,12 +1009,12 @@ func TestSingleButtonAlertDialog(t *testing.T) {
 func TestTwoButtonAlertDialogActions(t *testing.T) {
 	tests := []struct {
 		name       string
-		key        KeyName
+		key        input.Name
 		wantAction int
 		wantCancel int
 	}{
-		{`确认`, A, 1, 0},
-		{`取消`, B, 0, 1},
+		{`确认`, sticks.A, 1, 0},
+		{`取消`, sticks.B, 0, 1},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -1042,7 +1044,7 @@ func TestTwoButtonAlertDialogActions(t *testing.T) {
 				t.Fatal(`双按钮配置没有应用`)
 			}
 			sendAlertDialogKey(dialog, test.key, true)
-			sendAlertDialogKey(dialog, X, false)
+			sendAlertDialogKey(dialog, sticks.X, false)
 			if actions != 0 || cancels != 0 || dialog.Closed() {
 				t.Fatal(`重复或无关按键触发了动作`)
 			}
@@ -1068,11 +1070,11 @@ func TestAlertDialogDescriptionScrolls(t *testing.T) {
 		t.Fatalf(`说明视口高度 = %d，期望 260`, got)
 	}
 
-	sendAlertDialogKey(dialog, Down, true)
+	sendAlertDialogKey(dialog, sticks.Down, true)
 	if dialog.view.description.textDrawLineOffset != 1 {
 		t.Fatalf(`重复 Down 没有滚动：offset=%d`, dialog.view.description.textDrawLineOffset)
 	}
-	sendAlertDialogKey(dialog, Up, true)
+	sendAlertDialogKey(dialog, sticks.Up, true)
 	if dialog.view.description.textDrawLineOffset != 0 {
 		t.Fatalf(`重复 Up 没有滚动：offset=%d`, dialog.view.description.textDrawLineOffset)
 	}
@@ -1236,19 +1238,19 @@ func TestScrollDirectionAndBoundaryKeyPropagation(t *testing.T) {
 		t.Fatalf(`horizontal range = (%d,%d), want (20,0)`, maxX, maxY)
 	}
 
-	down := &Event{Type: StickDownEvent, Stick: KeyEventArgs{Name: Down}}
-	scroll.handleStickDown(down)
+	down := &Event{Type: InputDownEvent, Input: InputEventArgs{Name: sticks.Down}}
+	scroll.handleInputDown(down)
 	if down.propagationStopped {
 		t.Fatal(`disabled direction was consumed`)
 	}
-	right := &Event{Type: StickDownEvent, Stick: KeyEventArgs{Name: Right}}
-	scroll.handleStickDown(right)
+	right := &Event{Type: InputDownEvent, Input: InputEventArgs{Name: sticks.Right}}
+	scroll.handleInputDown(right)
 	if !right.propagationStopped {
 		t.Fatal(`successful scroll was not consumed`)
 	}
 	scroll.ScrollTo(20, 0)
-	atBoundary := &Event{Type: StickDownEvent, Stick: KeyEventArgs{Name: Right}}
-	scroll.handleStickDown(atBoundary)
+	atBoundary := &Event{Type: InputDownEvent, Input: InputEventArgs{Name: sticks.Right}}
+	scroll.handleInputDown(atBoundary)
 	if atBoundary.propagationStopped {
 		t.Fatal(`boundary key was consumed`)
 	}

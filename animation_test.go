@@ -394,7 +394,7 @@ func TestAnimationSyncPaintBatch(t *testing.T) {
 	d := &_Display1{&syncs}
 	width, height, _ := d.GetSize()
 	r := cpu.New(width, height)
-	r.Present = d.Sync
+	r.Display = d
 	app.canvas = NewCanvas(r)
 	doc.RequestAnimationFrame(func(time.Time) { state++; doc.RequestLayout() })
 	doc.RequestAnimationFrame(func(time.Time) { state++; doc.RequestLayout() })

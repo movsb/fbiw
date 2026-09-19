@@ -1,116 +1,28 @@
 package fbiw
 
-import "slices"
+import (
+	"slices"
 
-type KeyName uint8
-
-const (
-	Up KeyName = iota
-	Down
-	Left
-	Right
-	A
-	B
-	X
-	Y
-	Menu
-	Select
-	Start
-	Fn1
-	Fn2
-	VolumeUp
-	VolumeDown
-	Home
-	L1
-	R1
+	events "github.com/movsb/fbiw/internal/event"
 )
 
-func (k KeyName) String() string {
-	switch k {
-	case Up:
-		return `上`
-	case Down:
-		return `下`
-	case Left:
-		return `左`
-	case Right:
-		return `右`
-	case A:
-		return `A`
-	case B:
-		return `B`
-	case X:
-		return `X`
-	case Y:
-		return `Y`
-	case Menu:
-		return `菜单`
-	case Select:
-		return `选择`
-	case Start:
-		return `开始`
-	case Fn1:
-		return `Fn1`
-	case Fn2:
-		return `Fn2`
-	case VolumeUp:
-		return `音量+`
-	case VolumeDown:
-		return `音量-`
-	case Home:
-		return `HOME`
-	case L1:
-		return `L1`
-	case R1:
-		return `R1`
-	}
-	return `未知按键`
-}
-
-type Display interface {
-	// 返回固定宽、高、Stride。
-	GetSize() (int, int, int)
-	Sync(pixels []byte)
-	Close()
-}
-
-type EventType uint
+type EventType = events.Type
 
 const (
-	UnknownEvent EventType = iota + 1
-
-	// asyncCallback
-	// appDirty
-
-	DocChange
-
-	// 游戏控制器按键按下或弹起。
-	// Stick 是 JoyStick 的标准非正式简写。
-	// 不用Key*，因为以后要扩展给键盘用。
-	StickDownEvent
-	StickUpEvent
-
-	_maxSystemEventType EventType = 0xFFFF
+	UnknownEvent   = events.EventUnknown
+	DocChange      = events.EventDocChange
+	InputDownEvent = events.EventInputDown
+	InputUpEvent   = events.EventInputUp
 )
-
-// 用户自定义事件编号池。
-var _nextEventType = uint(0xFFFF)
 
 // 注册自定义事件类型，每次注册都返回完全不会冲突的事件类型。
 func RegisterEventType() EventType {
-	_nextEventType++
-	return EventType(_nextEventType)
+	return events.RegisterType()
 }
 
-type KeyEventArgs struct {
-	Name KeyName
-	// 是否为按住按键后产生的重复事件。
-	Repeat bool
-}
-
+type InputEventArgs = events.InputArgs
 type DocChangeArgs struct {
-	// 当前活跃文档。
-	// 如果没有，可能为空。
+	// 当前活跃文档。如果没有，可能为空。
 	Doc *Document
 }
 
@@ -125,20 +37,17 @@ type Event struct {
 	Type EventType
 
 	phase _EventPhase
-	// 事件真实发生的对象 以及 当前处理阶段的对象。
-	// 对于 App 而言，此 Boxes 无效。
+
+	// 事件真实发生的对象以及当前处理阶段的对象。
+	// 对于 App 而言，此字段无效。
 	Target  Box
 	Current Box
 
 	propagationStopped bool
 
-	// 以下属于事件数据，随事件类型选择其一。
-	Stick     KeyEventArgs
+	Input     InputEventArgs
 	DocChange DocChangeArgs
-
-	// 自定义数据。
-	// 使用的时候用 GetData 泛型方法转换类型。
-	data any
+	data      any
 }
 
 func (e *Event) Data[T any]() T {
@@ -148,9 +57,11 @@ func (e *Event) Data[T any]() T {
 func (e *Event) Capturing() bool {
 	return e.phase == eventPhaseCapturing
 }
+
 func (e *Event) Bubbling() bool {
 	return e.phase == eventPhaseBubbling
 }
+
 func (e *Event) AtTarget() bool {
 	return e.phase == eventPhaseAtTarget
 }
@@ -234,8 +145,8 @@ func (e *_EventTarget) Dispatch(ty EventType, data any) {
 		Type: ty,
 	}
 	switch typed := data.(type) {
-	case KeyEventArgs:
-		event.Stick = typed
+	case InputEventArgs:
+		event.Input = typed
 	case DocChangeArgs:
 		event.DocChange = typed
 	default:

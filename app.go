@@ -9,6 +9,10 @@ import (
 	"slices"
 	"sync"
 	"time"
+
+	"github.com/movsb/fbiw/input/sticks"
+	"github.com/movsb/fbiw/internal/event"
+	"github.com/movsb/fbiw/internal/ports"
 )
 
 type Option func(app *App)
@@ -125,7 +129,7 @@ func NewApp(options ...Option) *App {
 	}
 
 	if app.canvas == nil {
-		app.canvas = NewCanvas(OpenDisplay())
+		app.canvas = NewCanvas(ports.OpenDisplay())
 	}
 
 	ctx, cancel := context.WithCancel(app.ctx)
@@ -374,7 +378,7 @@ func (app *App) Run() {
 	selectPressed := false
 	menuSelectedFirst := true
 	startPressed := false
-	pollEvents(
+	ports.PollEvents(
 		app.ctx, app.cancel,
 		app.unblock,
 		func() {
@@ -387,28 +391,29 @@ func (app *App) Run() {
 			}
 		},
 		app.sync,
-		func(event *Event) {
+		func(message *event.Message) {
+			event := &Event{Type: message.Type, Input: message.Input}
 			switch event.Type {
-			case StickDownEvent, StickUpEvent:
+			case InputDownEvent, InputUpEvent:
 				if app.detached > 0 {
 					return
 				}
 
 				// 按“菜单”和“开始”可以退出。
 				// 暂时固定给所有APP。
-				switch event.Stick.Name {
-				case Menu:
-					menuPressed = event.Type == StickDownEvent
-				case Select:
+				switch event.Input.Name {
+				case sticks.Menu:
+					menuPressed = event.Type == InputDownEvent
+				case sticks.Select:
 					switch event.Type {
-					case StickDownEvent:
+					case InputDownEvent:
 						selectPressed = true
-					case StickUpEvent:
+					case InputUpEvent:
 						selectPressed = false
 						menuSelectedFirst = true
 					}
-				case Start:
-					startPressed = event.Type == StickDownEvent
+				case sticks.Start:
+					startPressed = event.Type == InputDownEvent
 				}
 				if menuPressed && startPressed {
 					app.cancel()
@@ -430,7 +435,7 @@ func (app *App) Run() {
 				}
 
 				// 桌面切换。
-				// if event.Type == StickDownEvent && event.Stick.Name == Select && app.switcher != nil {
+				// if event.Type == InputDownEvent && event.Input.Name == Select && app.switcher != nil {
 				// 	if app.switcherDocument != nil {
 				// 		app.switcherDocument.Close()
 				// 		app.switcherDocument = nil
@@ -448,7 +453,7 @@ func (app *App) Run() {
 				// 	app.switcherDocument = nil
 				// 	// fallthrough
 				// }
-				if event.Type == StickDownEvent && event.Stick.Name == Select {
+				if event.Type == InputDownEvent && event.Input.Name == sticks.Select {
 					if app.desktops.Len() > 1 {
 						app.desktops.MoveToBack(app.desktops.Front())
 						top := app.desktops.Front().Value.(*Desktop)
