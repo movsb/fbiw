@@ -9,6 +9,7 @@ import (
 	"github.com/movsb/fbiw/input/sticks"
 	"github.com/movsb/fbiw/internal/canvas"
 	"github.com/movsb/fbiw/internal/canvas/cpu"
+	"github.com/movsb/fbiw/internal/canvas/gpu/metal"
 	"github.com/movsb/fbiw/internal/event"
 	"github.com/veandco/go-sdl2/sdl"
 )
@@ -63,6 +64,14 @@ func OpenDisplay() canvas.Renderer {
 	)
 	if err != nil {
 		panic(err)
+	}
+	if renderer, err := metal.Open(window, renderWidth, renderHeight, func() {
+		window.Destroy()
+		sdl.Quit()
+	}); err == nil {
+		return renderer
+	} else {
+		log.Printf("failed to open Metal renderer: %v", err)
 	}
 
 	// wid, _ := window.GetID()
