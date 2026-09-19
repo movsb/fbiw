@@ -30,7 +30,6 @@ const (
 	glConstantAlpha       = 0x8003
 	glOneMinusConstAlpha  = 0x8004
 	glOne                 = 1
-	glZero                = 0
 	glNoError             = 0
 	glTexture2D           = 0x0de1
 	glTextureMinFilter    = 0x2801
@@ -91,7 +90,6 @@ type api struct {
 	texParameteri          func(uint32, uint32, int32)
 	texImage2D             func(uint32, int32, int32, int32, int32, int32, uint32, uint32, uintptr)
 	texSubImage2D          func(uint32, int32, int32, int32, int32, int32, uint32, uint32, uintptr)
-	colorMask              func(uint8, uint8, uint8, uint8)
 	pixelStorei            func(uint32, int32)
 	readPixels             func(int32, int32, int32, int32, uint32, uint32, uintptr)
 	genFramebuffers        func(int32, *uint32)
@@ -120,14 +118,12 @@ type Renderer struct {
 	textureViewport    int32
 	textureUVRect      int32
 	textureSampler     int32
-	textureAlphaMode   int32
 	maskProgram        uint32
 	maskPosition       int32
 	maskUVPosition     int32
 	maskViewport       int32
 	maskSampler        int32
 	maskColor          int32
-	maskAlphaMode      int32
 	maskBuffer         uint32
 	maskGlyphs         map[maskCacheKey]maskGlyph
 	maskAtlases        []maskAtlas
@@ -141,7 +137,6 @@ type Renderer struct {
 	transformImageSize int32
 	transformInverse   int32
 	transformSampler   int32
-	transformAlphaMode int32
 	framebuffer        uint32
 	frameTexture       uint32
 	presentProgram     uint32
@@ -293,12 +288,10 @@ func (r *Renderer) DrawImage(img canvas.Image, src image.Rectangle, dst image.Po
 	r.api.vertexAttribPointer(uint32(r.texturePosition), 2, glFloat, 0, 0, 0)
 	if img.Opaque {
 		r.api.disable(glBlend)
-		r.api.uniform1i(r.textureAlphaMode, 0)
 		r.api.drawArrays(glTriangleStrip, 0, 4)
 	} else {
 		r.api.enable(glBlend)
 		r.api.blendFuncSeparate(glSrcAlpha, glOneMinusSrcAlpha, glOne, glOneMinusSrcAlpha)
-		r.api.uniform1i(r.textureAlphaMode, 0)
 		r.api.drawArrays(glTriangleStrip, 0, 4)
 	}
 }
@@ -371,7 +364,6 @@ func (r *Renderer) DrawImageTransformed(img canvas.Image, degrees, scale, cx, cy
 
 	r.api.enable(glBlend)
 	r.api.blendFuncSeparate(glSrcAlpha, glOneMinusSrcAlpha, glOne, glOneMinusSrcAlpha)
-	r.api.uniform1i(r.transformAlphaMode, 0)
 	r.api.drawArrays(glTriangleStrip, 0, 4)
 }
 func (r *Renderer) DrawMask(mask []byte, mw, mh int, dst image.Point, clip image.Rectangle, fill canvas.Color) {
@@ -487,7 +479,6 @@ func (r *Renderer) flushMasks() {
 	count := int32(len(vertices) / 4)
 	r.api.enable(glBlend)
 	r.api.blendFuncSeparate(glSrcAlpha, glOneMinusSrcAlpha, glOne, glOneMinusSrcAlpha)
-	r.api.uniform1i(r.maskAlphaMode, 0)
 	r.api.drawArrays(glTriangles, 0, count)
 	r.maskBatch.vertices = vertices[:0]
 }
@@ -525,7 +516,6 @@ func (r *Renderer) present() {
 	r.api.viewport(0, 0, int32(r.width), int32(r.height))
 	r.api.disable(glScissorTest)
 	r.api.disable(glBlend)
-	r.api.colorMask(1, 1, 1, 1)
 	r.api.useProgram(r.presentProgram)
 	r.api.bindTexture(glTexture2D, r.frameTexture)
 	r.api.uniform1i(r.presentSampler, 0)
@@ -685,14 +675,13 @@ func (r *Renderer) initTexturePipeline() error {
 
 	positionName, rectName := glName("a_position"), glName("u_rect")
 	viewportName, uvRectName := glName("u_viewport"), glName("u_uv_rect")
-	samplerName, alphaModeName := glName("u_texture"), glName("u_alpha_only")
+	samplerName := glName("u_texture")
 	r.texturePosition = r.api.getAttribLocation(program, &positionName[0])
 	r.textureRect = r.api.getUniformLocation(program, &rectName[0])
 	r.textureViewport = r.api.getUniformLocation(program, &viewportName[0])
 	r.textureUVRect = r.api.getUniformLocation(program, &uvRectName[0])
 	r.textureSampler = r.api.getUniformLocation(program, &samplerName[0])
-	r.textureAlphaMode = r.api.getUniformLocation(program, &alphaModeName[0])
-	if r.texturePosition < 0 || r.textureRect < 0 || r.textureViewport < 0 || r.textureUVRect < 0 || r.textureSampler < 0 || r.textureAlphaMode < 0 {
+	if r.texturePosition < 0 || r.textureRect < 0 || r.textureViewport < 0 || r.textureUVRect < 0 || r.textureSampler < 0 {
 		r.api.deleteProgram(program)
 		r.textureProgram = 0
 		return errors.New("GLES texture shader locations unavailable")
@@ -700,7 +689,6 @@ func (r *Renderer) initTexturePipeline() error {
 	r.api.useProgram(program)
 	r.api.uniform2f(r.textureViewport, float32(r.width), float32(r.height))
 	r.api.uniform1i(r.textureSampler, 0)
-	r.api.uniform1i(r.textureAlphaMode, 0)
 	if code := r.api.glGetError(); code != glNoError {
 		r.api.deleteProgram(program)
 		r.textureProgram = 0
@@ -740,14 +728,12 @@ func (r *Renderer) initMaskPipeline() error {
 	positionName, uvName := glName("a_position"), glName("a_uv")
 	viewportName := glName("u_viewport")
 	samplerName, colorName := glName("u_texture"), glName("u_color")
-	alphaModeName := glName("u_alpha_only")
 	r.maskPosition = r.api.getAttribLocation(program, &positionName[0])
 	r.maskUVPosition = r.api.getAttribLocation(program, &uvName[0])
 	r.maskViewport = r.api.getUniformLocation(program, &viewportName[0])
 	r.maskSampler = r.api.getUniformLocation(program, &samplerName[0])
 	r.maskColor = r.api.getUniformLocation(program, &colorName[0])
-	r.maskAlphaMode = r.api.getUniformLocation(program, &alphaModeName[0])
-	if r.maskPosition < 0 || r.maskUVPosition < 0 || r.maskViewport < 0 || r.maskSampler < 0 || r.maskColor < 0 || r.maskAlphaMode < 0 {
+	if r.maskPosition < 0 || r.maskUVPosition < 0 || r.maskViewport < 0 || r.maskSampler < 0 || r.maskColor < 0 {
 		r.api.deleteProgram(program)
 		r.maskProgram = 0
 		return errors.New("GLES mask shader locations unavailable")
@@ -755,7 +741,6 @@ func (r *Renderer) initMaskPipeline() error {
 	r.api.useProgram(program)
 	r.api.uniform2f(r.maskViewport, float32(r.width), float32(r.height))
 	r.api.uniform1i(r.maskSampler, 0)
-	r.api.uniform1i(r.maskAlphaMode, 0)
 	r.api.pixelStorei(glUnpackAlignment, 1)
 	r.api.genBuffers(1, &r.maskBuffer)
 	if r.maskBuffer == 0 {
@@ -802,7 +787,7 @@ func (r *Renderer) initTransformPipeline() error {
 	positionName, rectName := glName("a_position"), glName("u_rect")
 	viewportName, centerName := glName("u_viewport"), glName("u_center")
 	imageSizeName, inverseName := glName("u_image_size"), glName("u_inverse")
-	samplerName, alphaModeName := glName("u_texture"), glName("u_alpha_only")
+	samplerName := glName("u_texture")
 	r.transformPosition = r.api.getAttribLocation(program, &positionName[0])
 	r.transformRect = r.api.getUniformLocation(program, &rectName[0])
 	r.transformViewport = r.api.getUniformLocation(program, &viewportName[0])
@@ -810,8 +795,7 @@ func (r *Renderer) initTransformPipeline() error {
 	r.transformImageSize = r.api.getUniformLocation(program, &imageSizeName[0])
 	r.transformInverse = r.api.getUniformLocation(program, &inverseName[0])
 	r.transformSampler = r.api.getUniformLocation(program, &samplerName[0])
-	r.transformAlphaMode = r.api.getUniformLocation(program, &alphaModeName[0])
-	if r.transformPosition < 0 || r.transformRect < 0 || r.transformViewport < 0 || r.transformCenter < 0 || r.transformImageSize < 0 || r.transformInverse < 0 || r.transformSampler < 0 || r.transformAlphaMode < 0 {
+	if r.transformPosition < 0 || r.transformRect < 0 || r.transformViewport < 0 || r.transformCenter < 0 || r.transformImageSize < 0 || r.transformInverse < 0 || r.transformSampler < 0 {
 		r.api.deleteProgram(program)
 		r.transformProgram = 0
 		return errors.New("GLES transform shader locations unavailable")
@@ -819,7 +803,6 @@ func (r *Renderer) initTransformPipeline() error {
 	r.api.useProgram(program)
 	r.api.uniform2f(r.transformViewport, float32(r.width), float32(r.height))
 	r.api.uniform1i(r.transformSampler, 0)
-	r.api.uniform1i(r.transformAlphaMode, 0)
 	if code := r.api.glGetError(); code != glNoError {
 		r.api.deleteProgram(program)
 		r.transformProgram = 0

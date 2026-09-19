@@ -3,7 +3,6 @@ uniform sampler2D u_texture;
 uniform vec2 u_center;
 uniform vec2 u_image_size;
 uniform vec4 u_inverse;
-uniform int u_alpha_only;
 varying vec2 v_pixel;
 
 vec4 sourcePixel(vec2 pixel) {
@@ -31,10 +30,6 @@ void main() {
 	float w11 = fraction.x * fraction.y;
 	float alpha = c00.a*w00 + c10.a*w10 + c01.a*w01 + c11.a*w11;
 	if (alpha <= 0.0) discard;
-	if (u_alpha_only != 0) {
-		gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
-		return;
-	}
 	vec3 premultiplied = c00.rgb*c00.a*w00 + c10.rgb*c10.a*w10 + c01.rgb*c01.a*w01 + c11.rgb*c11.a*w11;
 	gl_FragColor = vec4(premultiplied / alpha, alpha);
 }

@@ -109,7 +109,6 @@ func loadAPI() (*platformAPI, *api, func(), error) {
 	purego.RegisterLibFunc(&a.texParameteri, gles, "glTexParameteri")
 	purego.RegisterLibFunc(&a.texImage2D, gles, "glTexImage2D")
 	purego.RegisterLibFunc(&a.texSubImage2D, gles, "glTexSubImage2D")
-	purego.RegisterLibFunc(&a.colorMask, gles, "glColorMask")
 	purego.RegisterLibFunc(&a.pixelStorei, gles, "glPixelStorei")
 	purego.RegisterLibFunc(&a.readPixels, gles, "glReadPixels")
 	purego.RegisterLibFunc(&a.genFramebuffers, gles, "glGenFramebuffers")
