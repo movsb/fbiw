@@ -197,7 +197,7 @@ func (app *App) _New(fsys fs.FS, name string, desktop _AppNewDocDesktop, docRef 
 
 	if err := doc.load(name); err != nil {
 		doc.unbindApp()
-		panic(err)
+		log.Panicf(`文档: %s: %v`, name, err)
 	}
 
 	// 默认把焦点设置给根元素。

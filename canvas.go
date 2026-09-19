@@ -15,10 +15,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/anthonynsimon/bild/transform"
 	"github.com/movsb/fbiw/internal/canvas"
 	"github.com/movsb/fbiw/internal/ports"
 	"github.com/phuslu/lru"
+	xdraw "golang.org/x/image/draw"
 	"golang.org/x/image/font"
 	"golang.org/x/image/font/opentype"
 
@@ -378,7 +378,9 @@ func (m *ImageManager) decodeImage(fsys fs.FS, path string, wantWidth, wantHeigh
 	width, height := img.Bounds().Dx(), img.Bounds().Dy()
 	if wantWidth != 0 && wantHeight != 0 && (wantWidth != width || wantHeight != height) {
 		now := time.Now()
-		img = transform.Resize(img, wantWidth, wantHeight, transform.Lanczos)
+		resized := image.NewNRGBA(image.Rect(0, 0, wantWidth, wantHeight))
+		xdraw.CatmullRom.Scale(resized, resized.Bounds(), img, img.Bounds(), draw.Src, nil)
+		img = resized
 		log.Printf(`缩放图片: %s (%dx%d)->(%dx%d) %v`,
 			path, width, height, wantWidth, wantHeight, time.Since(now).Round(time.Millisecond*100))
 		width = wantWidth

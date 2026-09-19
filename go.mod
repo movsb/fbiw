@@ -3,7 +3,6 @@ module github.com/movsb/fbiw
 go 1.27
 
 require (
-	github.com/anthonynsimon/bild v0.17.0
 	github.com/ebitengine/purego v0.11.0
 	github.com/goccy/go-yaml v1.19.2
 	github.com/mattn/go-isatty v0.0.24

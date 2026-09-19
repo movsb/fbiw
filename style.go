@@ -637,6 +637,9 @@ func (p Padding) PaddingLeft() int   { return int(uint64(p) & paddingMask) }
 
 type Color = canvas.Color
 
+const ColorNone = canvas.ColorNone
+const ColorClear = canvas.ColorClear
+
 func ColorFromRGBA(r, g, b, a uint8) Color {
 	if a == 0 {
 		return 0

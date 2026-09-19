@@ -114,6 +114,19 @@ func TestDecodeImageTrimTransparentBorder(t *testing.T) {
 	if trimmed.Opaque {
 		t.Fatal("裁剪不应改变内容像素的半透明状态")
 	}
+
+	scaled, err := manager.GetImageScaledCached(fsys, "border.png", 4, 4, false, ImageDecodeOptions{
+		TrimTransparentBorder: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if scaled.Width != 4 || scaled.Height != 4 || len(scaled.Pixels) != 4*4*4 {
+		t.Fatalf("缩放后尺寸错误：%dx%d, pixels=%d", scaled.Width, scaled.Height, len(scaled.Pixels))
+	}
+	if scaled.Opaque {
+		t.Fatal("缩放不应丢失半透明状态")
+	}
 }
 
 func TestTrimTransparentBorderFullyTransparent(t *testing.T) {
