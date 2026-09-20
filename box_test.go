@@ -42,7 +42,7 @@ func newFlexTestDocument(t *testing.T, body string, width, height int) *Document
 func TestFlexDemoLayout(t *testing.T) {
 	fm := NewFontManager()
 	defer fm.Close()
-	if err := fm.AddFont(fstest.MapFS{`regular.ttf`: &fstest.MapFile{Data: goregular.TTF}}, `regular.ttf`, `system`, false, false); err != nil {
+	if err := fm.AddFontFile(fstest.MapFS{`regular.ttf`: &fstest.MapFile{Data: goregular.TTF}}, `regular.ttf`, `system`, false, false); err != nil {
 		t.Fatal(err)
 	}
 	doc := _NewDocument(1024, 768, os.DirFS(`demo/flex`), fm, nil)

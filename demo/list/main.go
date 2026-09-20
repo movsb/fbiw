@@ -23,7 +23,7 @@ func (i *_Item) ListSelectionChanged(selected bool) {
 }
 
 func main() {
-	app := fbiw.NewApp(fbiw.WithSystemFont(os.DirFS(`..`), `regular.ttf`))
+	app := fbiw.NewApp(fbiw.WithSystemFontFile(os.DirFS(`..`), `regular.ttf`))
 	defer app.Close()
 
 	doc := app.NewDesktop(embedded, `main.html`)

@@ -12,7 +12,7 @@ var embedded embed.FS
 
 func main() {
 	app := fbiw.NewApp(
-		fbiw.WithSystemFont(os.DirFS(`..`), `regular.ttf`),
+		fbiw.WithSystemFontFile(os.DirFS(`..`), `regular.ttf`),
 		fbiw.WithThemeLight(embedded, `light.css`),
 		fbiw.WithThemeDark(embedded, `dark.css`),
 	)

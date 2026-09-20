@@ -24,7 +24,7 @@ func main() {
 	app := fbiw.NewApp()
 	defer app.Close()
 
-	app.AddFont(`system`, false, false, os.DirFS(`.`), `regular.ttf`)
+	app.AddFontFile(`system`, false, false, os.DirFS(`.`), `regular.ttf`)
 
 	app.NewDesktop(embedded, `main.html`)
 

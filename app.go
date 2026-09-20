@@ -24,18 +24,26 @@ func WithContext(ctx context.Context) Option {
 }
 
 // 添加系统字体。失败并不会退出。
-func WithSystemFont(fsys fs.FS, path string) Option {
+func WithSystemFontFile(fsys fs.FS, path string) Option {
+	return WithFontFile(`system`, false, false, fsys, path)
+}
+
+func WithSystemFontData(data []byte) Option {
+	return WithFontData(`system`, false, false, data)
+}
+
+func WithFontFile(family string, bold, italic bool, fsys fs.FS, path string) Option {
 	return func(app *App) {
-		if err := app.AddFont(`system`, false, false, fsys, path); err != nil {
-			log.Println(`添加系统字体时错误:`, err)
+		if err := app.AddFontFile(family, bold, italic, fsys, path); err != nil {
+			log.Println(`添加字体时错误:`, err)
 		}
 	}
 }
 
-func WithFont(family string, bold, italic bool, fsys fs.FS, path string) Option {
+func WithFontData(family string, bold, italic bool, data []byte) Option {
 	return func(app *App) {
-		if err := app.AddFont(family, bold, italic, fsys, path); err != nil {
-			log.Println(`添加系统字体时错误:`, err)
+		if err := app.AddFontData(data, family, bold, italic); err != nil {
+			log.Println(`添加字体时错误:`, err)
 		}
 	}
 }
@@ -477,8 +485,18 @@ func (app *App) Run() {
 	)
 }
 
-func (app *App) AddFont(family string, bold, italic bool, fsys fs.FS, path string) error {
-	if err := app.fonts.AddFont(fsys, path, family, bold, italic); err != nil {
+// 从指定的文件加载字体数据。
+func (app *App) AddFontFile(family string, bold, italic bool, fsys fs.FS, path string) error {
+	if err := app.fonts.AddFontFile(fsys, path, family, bold, italic); err != nil {
+		log.Println(`字体添加失败:`, err)
+		return err
+	}
+	return nil
+}
+
+// 从二进制数据直接加载字体。
+func (app *App) AddFontData(data []byte, family string, bold, italic bool) error {
+	if err := app.fonts.AddFontData(data, family, bold, italic); err != nil {
 		log.Println(`字体添加失败:`, err)
 		return err
 	}

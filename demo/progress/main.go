@@ -13,7 +13,7 @@ import (
 var embedded embed.FS
 
 func main() {
-	app := fbiw.NewApp(fbiw.WithSystemFont(os.DirFS(`..`), `regular.ttf`))
+	app := fbiw.NewApp(fbiw.WithSystemFontFile(os.DirFS(`..`), `regular.ttf`))
 	defer app.Close()
 
 	app.SetThemeAccent(`deeppink`)

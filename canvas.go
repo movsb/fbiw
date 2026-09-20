@@ -532,7 +532,9 @@ func NewFontManager() *FontManager {
 
 func (fm *FontManager) Close() {
 	for _, f := range fm.fonts {
-		f.File.Close()
+		if ff := f.File; ff != nil {
+			ff.Close()
+		}
 	}
 	clear(fm.fonts)
 }
@@ -544,6 +546,8 @@ type _FontKey struct {
 }
 type _FontValue struct {
 	Font *opentype.Font
+
+	// 从二进制加载的字体没有此字段。
 	File io.ReadCloser
 }
 
@@ -564,7 +568,7 @@ type _FontFaceKey struct {
 // family 可以重复，只要其它样式不一样就行。
 //
 // fsys.Open的文件必须支持 io.ReaderAt。os.DirFS和embed.FS 均支持。
-func (fm *FontManager) AddFont(fsys fs.FS, path string, family string, bold, italic bool) error {
+func (fm *FontManager) AddFontFile(fsys fs.FS, path string, family string, bold, italic bool) error {
 	key := _FontKey{
 		Family: family,
 		Bold:   bold,
@@ -588,6 +592,30 @@ func (fm *FontManager) AddFont(fsys fs.FS, path string, family string, bold, ita
 
 	fm.fonts[key] = &_FontValue{
 		File: fp,
+		Font: parsedFont,
+	}
+
+	return nil
+}
+
+// 从二进制数据添加字体。
+// data 会被一直持有。
+func (fm *FontManager) AddFontData(data []byte, family string, bold, italic bool) error {
+	key := _FontKey{
+		Family: family,
+		Bold:   bold,
+		Italic: italic,
+	}
+	if _, ok := fm.fonts[key]; ok {
+		return nil
+	}
+
+	parsedFont, err := opentype.Parse(data)
+	if err != nil {
+		return err
+	}
+
+	fm.fonts[key] = &_FontValue{
 		Font: parsedFont,
 	}
 
