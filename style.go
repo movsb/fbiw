@@ -13,8 +13,7 @@ import (
 	"strconv"
 	"strings"
 
-	_ "embed"
-
+	"github.com/movsb/fbiw/internal/assets"
 	"github.com/movsb/fbiw/internal/canvas"
 )
 
@@ -270,19 +269,14 @@ const (
 )
 
 var (
-	//go:embed assets/defaults.css
-	_defaultsStyle string
+	_defaultsStyle = assets.MustString("defaults.css")
+	_focusStyle    = assets.MustString("focus.css")
+	DefaultStyles  = Must1((StyleParser{}).ParseStyle(_defaultsStyle + "\n" + _focusStyle))
 
-	//go:embed assets/focus.css
-	_focusStyle   string
-	DefaultStyles = Must1((StyleParser{}).ParseStyle(_defaultsStyle + "\n" + _focusStyle))
-
-	//go:embed assets/light.css
-	_defaultLightThemeStyle string
+	_defaultLightThemeStyle = assets.MustString("light.css")
 	_defaultLightTheme      = Must1((StyleParser{}).ParseTheme(_defaultLightThemeStyle))
 
-	//go:embed assets/dark.css
-	_defaultDarkThemeStyle string
+	_defaultDarkThemeStyle = assets.MustString("dark.css")
 	_defaultDarkTheme      = Must1((StyleParser{}).ParseTheme(_defaultDarkThemeStyle))
 )
 

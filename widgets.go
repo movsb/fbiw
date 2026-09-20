@@ -1,7 +1,6 @@
 package fbiw
 
 import (
-	"embed"
 	"fmt"
 	"image"
 	"math"
@@ -11,6 +10,7 @@ import (
 
 	"github.com/movsb/fbiw/input"
 	"github.com/movsb/fbiw/input/sticks"
+	"github.com/movsb/fbiw/internal/assets"
 	"golang.org/x/image/vector"
 )
 
@@ -806,9 +806,6 @@ func (b *ProgressBar) SetProp(key, value string) error {
 	}
 }
 
-//go:embed assets/select.html
-var selectAssets embed.FS
-
 // SelectChangeEvent 在 SelectBox 的已选索引发生变化后派发。
 var SelectChangeEvent = RegisterEventType()
 
@@ -993,7 +990,7 @@ func (b *SelectBox) Open() {
 		panic(`SelectBox.Open 未绑定 App`)
 	}
 
-	doc := b.document.App().NewPopup(selectAssets, `assets/select.html`, b.document)
+	doc := b.document.App().NewPopup(assets.Files, `select.html`, b.document)
 	b.popup = doc
 	b.popupView = _SelectPopupView{}
 	doc.Bind(&b.popupView)
@@ -1069,9 +1066,6 @@ func (b *SelectBox) OnChange(handler func(index int)) func() {
 	})
 }
 
-//go:embed assets/alert_dialog.html
-var alertDialogAssets embed.FS
-
 type AlertDialogOptions struct {
 	// 标题与正文。
 	Title       string
@@ -1134,7 +1128,7 @@ func (app *App) ShowAlertDialog(opener *Document, options AlertDialogOptions) *A
 		panic(`AlertDialog ActionVariant 无效：` + options.ActionVariant)
 	}
 
-	doc := app.NewPopup(alertDialogAssets, `assets/alert_dialog.html`, opener)
+	doc := app.NewPopup(assets.Files, `alert_dialog.html`, opener)
 	dialog := &AlertDialog{
 		document:  doc,
 		onAction:  options.OnAction,

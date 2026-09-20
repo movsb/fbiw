@@ -671,7 +671,7 @@ App 内置浅色和深色主题；即使不传任何主题选项，也会随本�
 
 自定义主题会覆盖对应时段的内置主题，因此只需提供想修改的颜色；未提供的变量继续使用
 系统浅色或深色主题中的值。
-预置色值分别维护在 `assets/light.css` 和 `assets/dark.css` 中，使用
+预置色值分别维护在 `internal/assets/light.css` 和 `internal/assets/dark.css` 中，使用
 `:root { --color-name: value; }` 格式；这里的 `:root` 是主题文件专用语法，不会扩展
 普通样式表的选择器子集。
 
@@ -957,7 +957,7 @@ list .selected {
 }
 ```
 
-框架默认已从 `assets/focus.css` 为 `list .selected`、`button.selected` 和
+框架默认已从 `internal/assets/focus.css` 为 `list .selected`、`button.selected` 和
 `select.active` 提供上述焦点轮廓；应用只在需要不同宽度或交互样式时覆盖它。
 
 `List` 支持读取和恢复选择状态，但当前所有槽位尺寸相同，不支持可变高度列表。
