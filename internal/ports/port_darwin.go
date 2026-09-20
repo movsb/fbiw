@@ -22,6 +22,23 @@ type _SdlDisplay struct {
 	buffer  *sdl.Surface
 }
 
+func (d *_SdlDisplay) Resize(width, height int) error {
+	surface, err := d.window.GetSurface()
+	if err != nil {
+		return err
+	}
+	buffer, err := sdl.CreateRGBSurface(0, int32(width), int32(height), 32, 0, 0, 0, 0)
+	if err != nil {
+		return err
+	}
+	if d.buffer != nil {
+		d.buffer.Free()
+	}
+	d.width, d.height = width, height
+	d.surface, d.buffer = surface, buffer
+	return nil
+}
+
 func (d *_SdlDisplay) GetSize() (int, int, int) {
 	return d.width, d.height, d.width * 4
 }
@@ -37,6 +54,9 @@ func (d *_SdlDisplay) Sync(pixels []byte) {
 }
 
 func (d *_SdlDisplay) Close() {
+	if d.buffer != nil {
+		d.buffer.Free()
+	}
 	d.window.Destroy()
 	sdl.Quit()
 }
@@ -60,7 +80,7 @@ func OpenDisplay() canvas.Renderer {
 
 	window, err := sdl.CreateWindow("fbiw",
 		sdl.WINDOWPOS_CENTERED, sdl.WINDOWPOS_CENTERED,
-		windowWidth, windowHeight, sdl.WINDOW_SHOWN,
+		windowWidth, windowHeight, sdl.WINDOW_SHOWN|sdl.WINDOW_RESIZABLE,
 	)
 	if err != nil {
 		panic(err)
@@ -101,7 +121,7 @@ func OpenDisplay() canvas.Renderer {
 func PollEvents(
 	ctx context.Context, cancel context.CancelFunc,
 	unblock chan struct{}, unblockHandler func(),
-	sync func(), eventHandler func(*event.Message),
+	sync func(), resize func(int, int), eventHandler func(*event.Message),
 ) {
 	wakeEvent := sdl.RegisterEvents(1)
 	if wakeEvent == ^uint32(0) {
@@ -110,7 +130,7 @@ func PollEvents(
 	pollSDLEvents(
 		ctx, cancel,
 		unblock, unblockHandler,
-		sync, eventHandler,
+		sync, resize, eventHandler,
 		sdl.WaitEventTimeout,
 		func() {
 			filtered, err := sdl.PushEvent(&sdl.UserEvent{Type: wakeEvent})
@@ -126,9 +146,22 @@ func PollEvents(
 func pollSDLEvents(
 	ctx context.Context, cancel context.CancelFunc,
 	unblock <-chan struct{}, unblockHandler func(),
-	sync func(), eventHandler func(*event.Message),
+	sync func(), resize func(int, int), eventHandler func(*event.Message),
 	wait func(int) sdl.Event, push func(),
 ) {
+	// Cocoa runs a modal event loop while the user drags a window edge. During
+	// that loop WaitEventTimeout does not return, but SDL event watches are still
+	// called as events are queued. Render the resized frame there so layout tracks
+	// the pointer instead of jumping to the final size on mouse-up.
+	liveResizeWatch := sdl.AddEventWatchFunc(func(raw sdl.Event, _ interface{}) bool {
+		if windowEvent, ok := raw.(*sdl.WindowEvent); ok && windowEvent.Event == sdl.WINDOWEVENT_SIZE_CHANGED {
+			resize(int(windowEvent.Data1), int(windowEvent.Data2))
+			sync()
+		}
+		return true
+	}, nil)
+	defer sdl.DelEventWatch(liveResizeWatch)
+
 	var pending atomic.Bool
 	stopped, joined := make(chan struct{}), make(chan struct{})
 	go func() {
@@ -203,6 +236,13 @@ func pollSDLEvents(
 			key := event.Keysym.Sym
 			if mapped, ok := keyMaps[key]; ok {
 				sendKey(mapped, pressed, event.Repeat != 0)
+			}
+		case *sdl.WindowEvent:
+			if event.Event == sdl.WINDOWEVENT_SIZE_CHANGED {
+				// GetOutputSize may still report the previous Metal drawable size
+				// while this event is being handled. This window does not request
+				// ALLOW_HIGHDPI, so the event's logical and drawable sizes match.
+				resize(int(event.Data1), int(event.Data2))
 			}
 		}
 		sync()

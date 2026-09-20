@@ -74,6 +74,26 @@ func (c *Canvas) Close() error {
 	return c.renderer.Close()
 }
 
+// resize updates both the renderer backing store and the canvas viewport.
+// Not every platform renderer is resizable (for example, a Linux framebuffer).
+func (c *Canvas) resize(width, height int) error {
+	if width <= 0 || height <= 0 || width == c.width && height == c.height {
+		return nil
+	}
+	r, ok := c.renderer.(interface {
+		Resize(width, height int) error
+	})
+	if !ok {
+		return fmt.Errorf("renderer does not support resizing")
+	}
+	if err := r.Resize(width, height); err != nil {
+		return err
+	}
+	c.width, c.height = width, height
+	c.clip = image.Rect(0, 0, width, height)
+	return nil
+}
+
 func (c *Canvas) beginFrame() { c.renderer.BeginFrame() }
 func (c *Canvas) endFrame()   { c.renderer.EndFrame() }
 

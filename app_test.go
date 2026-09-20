@@ -3,6 +3,8 @@ package fbiw
 import (
 	"context"
 	"testing"
+
+	"github.com/movsb/fbiw/internal/canvas/cpu"
 )
 
 func newDesktopTestApp() *App {
@@ -90,5 +92,37 @@ func TestDesktopAllIsSnapshot(t *testing.T) {
 		if got[i] != docs[i] {
 			t.Fatalf("document %d = %p, want %p", i, got[i], docs[i])
 		}
+	}
+}
+
+func TestAppResizeInvalidatesAllDocuments(t *testing.T) {
+	app := NewApp(WithRenderer(cpu.New(100, 80)))
+	defer app.Close()
+
+	desktop := &Desktop{app: app}
+	doc := _NewDocument(100, 80, nil, app.fonts, app.images)
+	doc.bindApp(app)
+	desktop.add(doc)
+	app.desktops.PushFront(desktop)
+
+	overlay := _NewDocument(100, 80, nil, app.fonts, app.images)
+	overlay.bindApp(app)
+	app.overlay = overlay
+
+	app.resize(160, 90)
+
+	if app.canvas.width != 160 || app.canvas.height != 90 {
+		t.Fatalf("canvas size = %dx%d, want 160x90", app.canvas.width, app.canvas.height)
+	}
+	for name, current := range map[string]*Document{"document": doc, "overlay": overlay} {
+		if current.width != 160 || current.height != 90 {
+			t.Fatalf("%s size = %dx%d, want 160x90", name, current.width, current.height)
+		}
+		if !current.layoutDirty || !current.paintDirty {
+			t.Fatalf("%s was not invalidated", name)
+		}
+	}
+	if !app.overlayChanged || !app.dirty {
+		t.Fatal("resize did not invalidate application overlay/layout")
 	}
 }

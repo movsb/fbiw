@@ -315,6 +315,26 @@ func (app *App) Dirty() {
 	app.wakeUp()
 }
 
+// resize changes the application viewport and invalidates every document.
+// It is called by resizable desktop ports on the UI thread.
+func (app *App) resize(width, height int) {
+	if width <= 0 || height <= 0 || width == app.canvas.width && height == app.canvas.height {
+		return
+	}
+	if err := app.canvas.resize(width, height); err != nil {
+		log.Printf("调整渲染区域失败: %v", err)
+		return
+	}
+	for doc := range app.allDocuments() {
+		doc.width, doc.height = width, height
+		doc.layoutDirty = true
+		doc.paintDirty = true
+	}
+	// The overlay layout determines the safe-area of all regular documents.
+	app.overlayChanged = true
+	app.Dirty()
+}
+
 func (app *App) docDirty(doc *Document) {
 	if doc.app != app {
 		panic(`非此App的文档。`)
@@ -399,6 +419,7 @@ func (app *App) Run() {
 			}
 		},
 		app.sync,
+		app.resize,
 		func(message *event.Message) {
 			event := &Event{Type: message.Type, Input: message.Input}
 			switch event.Type {

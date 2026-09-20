@@ -173,7 +173,7 @@ func waitForVSync(fd int) error {
 func PollEvents(
 	ctx context.Context, cancel context.CancelFunc,
 	unblock chan struct{}, unblockHandler func(),
-	sync func(), eventHandler func(*event.Message),
+	sync func(), resize func(int, int), eventHandler func(*event.Message),
 ) {
 	keyEvents := make(chan *event.Message)
 	go _pollKeyboardEvents(ctx, func(e *event.Message) {

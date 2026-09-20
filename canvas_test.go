@@ -31,9 +31,13 @@ func testSoftwareCanvas(width, height int, x, y int) *Canvas {
 }
 
 func (r *recordingCanvasRenderer) Size() (int, int) { return r.width, r.height }
-func (*recordingCanvasRenderer) BeginFrame()        {}
-func (*recordingCanvasRenderer) EndFrame()          {}
-func (*recordingCanvasRenderer) Clear()             {}
+func (r *recordingCanvasRenderer) Resize(width, height int) error {
+	r.width, r.height = width, height
+	return nil
+}
+func (*recordingCanvasRenderer) BeginFrame() {}
+func (*recordingCanvasRenderer) EndFrame()   {}
+func (*recordingCanvasRenderer) Clear()      {}
 func (r *recordingCanvasRenderer) FillRect(rect, clip image.Rectangle, _ canvas.Color) {
 	r.fillRectRect, r.fillRectClip = rect, clip
 }
@@ -50,6 +54,24 @@ func (r *recordingCanvasRenderer) Snapshot() image.Image {
 	return image.NewNRGBA(image.Rect(0, 0, r.width, r.height))
 }
 func (r *recordingCanvasRenderer) Close() error { return nil }
+
+func TestCanvasResizeUpdatesRendererAndViewport(t *testing.T) {
+	renderer := &recordingCanvasRenderer{width: 20, height: 12}
+	canvas := NewCanvas(renderer)
+
+	if err := canvas.resize(31, 19); err != nil {
+		t.Fatal(err)
+	}
+	if renderer.width != 31 || renderer.height != 19 {
+		t.Fatalf("renderer size = %dx%d, want 31x19", renderer.width, renderer.height)
+	}
+	if canvas.width != 31 || canvas.height != 19 {
+		t.Fatalf("canvas size = %dx%d, want 31x19", canvas.width, canvas.height)
+	}
+	if canvas.clip != image.Rect(0, 0, 31, 19) {
+		t.Fatalf("canvas clip = %v", canvas.clip)
+	}
+}
 
 func TestCanvasDelegatesAbsoluteCoordinatesAndClip(t *testing.T) {
 	renderer := &recordingCanvasRenderer{width: 20, height: 12}

@@ -78,7 +78,29 @@ func Open(window *sdl.Window, width, height int, closePlatform func()) (*Rendere
 }
 
 func (r *Renderer) Size() (int, int) { return r.width, r.height }
-func (r *Renderer) BeginFrame()      { must(r.renderer.SetRenderTarget(r.target)) }
+func (r *Renderer) Resize(width, height int) error {
+	if width <= 0 || height <= 0 || width == r.width && height == r.height {
+		return nil
+	}
+	target, err := r.renderer.CreateTexture(sdl.PIXELFORMAT_ARGB8888, sdl.TEXTUREACCESS_TARGET, int32(width), int32(height))
+	if err != nil {
+		return err
+	}
+	if err := target.SetBlendMode(sdl.BLENDMODE_NONE); err != nil {
+		target.Destroy()
+		return err
+	}
+	if err := r.renderer.SetRenderTarget(target); err != nil {
+		target.Destroy()
+		return err
+	}
+	old := r.target
+	r.target = target
+	r.width, r.height = width, height
+	old.Destroy()
+	return nil
+}
+func (r *Renderer) BeginFrame() { must(r.renderer.SetRenderTarget(r.target)) }
 func (r *Renderer) EndFrame() {
 	// target 是稳定的离屏帧内容。每帧只在这里复制到 SDL 管理的 Metal
 	// drawable；Present 后再切回 target，使 Snapshot 不依赖 drawable 是否保留。

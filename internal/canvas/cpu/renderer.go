@@ -1,6 +1,7 @@
 package cpu
 
 import (
+	"fmt"
 	"image"
 	"image/color"
 	"math"
@@ -25,6 +26,9 @@ var _ interface {
 	canvas.TestRenderer
 } = (*Renderer)(nil)
 
+// 创建一个纯CPU的渲染器。
+//
+// 渲染器只负责在内存中渲染，如果需要显示，需要设置 [Renderer.Display] 接口。
 func New(width, height int) *Renderer {
 	return &Renderer{
 		Width:  width,
@@ -42,6 +46,26 @@ func (r *Renderer) Close() error {
 
 func (r *Renderer) Size() (int, int) {
 	return r.Width, r.Height
+}
+
+func (r *Renderer) Resize(width, height int) error {
+	if width <= 0 || height <= 0 || width == r.Width && height == r.Height {
+		return nil
+	}
+	if r.Display != nil {
+		display, ok := r.Display.(interface {
+			Resize(width, height int) error
+		})
+		if !ok {
+			return fmt.Errorf("display does not support resizing")
+		}
+		if err := display.Resize(width, height); err != nil {
+			return err
+		}
+	}
+	r.Width, r.Height = width, height
+	r.Pixels = make([]byte, width*height*4)
+	return nil
 }
 
 func (*Renderer) BeginFrame() {}
