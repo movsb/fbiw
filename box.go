@@ -1439,6 +1439,11 @@ func (t *Text) resetMarqueePosition() {
 	t.marquee.completed = 0
 }
 
+// 有时候会发现文本莫名其妙被重置了，改为函数可方便观察。
+func (t *Text) setDrawLineOffset(offset int) {
+	t.textDrawLineOffset = offset
+}
+
 func (t *Text) MarqueeRunning() bool {
 	return t.marquee.running
 }
@@ -1452,7 +1457,6 @@ func (t *Text) SetProp(key, value string) error {
 		t.marquee.axis = value
 		if t.marquee.axis == `` {
 			t.stopMarquee()
-			t.textDrawLineOffset = 0
 			t.resetMarqueePosition()
 		}
 		t.document.RequestLayout()
@@ -1496,7 +1500,7 @@ func (t *Text) SetText(text string) {
 	t.children = nil
 	// 替换整段内容时从头开始显示。普通的重新排版不应该重置这个
 	// 偏移，否则无关的布局刷新也会把长文本滚回顶部。
-	t.textDrawLineOffset = 0
+	t.setDrawLineOffset(0)
 	t.resetMarqueePosition()
 	t.stopMarquee()
 	t.AppendChild(text)
@@ -1536,7 +1540,7 @@ func (t *Text) SetRich(tmpl string, args ...any) error {
 		child.Base().parent = t.Base()
 	}
 
-	t.textDrawLineOffset = 0
+	t.setDrawLineOffset(0)
 	t.resetMarqueePosition()
 	t.stopMarquee()
 	t.expandTextNodes()
@@ -1754,7 +1758,6 @@ func (t *Text) updateMarquee() {
 	if !t.marquee.running || exhausted || t.marquee.axis == `` || !overflows || t.document == nil || t.document.app == nil {
 		t.stopMarquee()
 		if !overflows {
-			t.textDrawLineOffset = 0
 			t.resetMarqueePosition()
 		}
 		return
@@ -1933,7 +1936,8 @@ func (t *Text) clearStates() {
 
 func (t *Text) clampDrawLineOffset() {
 	maxOffset := max(0, len(t.textLines)-1)
-	t.textDrawLineOffset = min(max(0, t.textDrawLineOffset), maxOffset)
+	offset := min(max(0, t.textDrawLineOffset), maxOffset)
+	t.setDrawLineOffset(offset)
 }
 
 func (t *Text) blockHeight() int {

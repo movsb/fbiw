@@ -830,6 +830,18 @@ func TestSegmentBlockKeepsLineHeightWhenAvailableHeightIsSmaller(t *testing.T) {
 	}
 }
 
+func TestLayoutPreservesManualTextScrollOffsetWithoutMarquee(t *testing.T) {
+	doc := newFlexTestDocument(t, `<block><text id="text" height="26">A&#10;B&#10;C</text></block>`, 100, 100)
+	text := doc.GetBoxByID[*Text](`text`)
+	text.textDrawLineOffset = 1
+
+	doc.layout()
+
+	if text.textDrawLineOffset != 1 {
+		t.Fatalf(`manual text offset after layout = %d, want 1`, text.textDrawLineOffset)
+	}
+}
+
 type richTextStringer int
 
 func (value richTextStringer) String() string {
