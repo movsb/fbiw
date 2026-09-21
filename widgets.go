@@ -233,7 +233,7 @@ func (b *Toggle) Calc(availWidth, availHeight int, constraints Constraints) {
 
 // Draw 在内容区域中绘制轨道和滑块。
 func (b *Toggle) Draw(canvas *Canvas) {
-	b.BaseBox.draw(canvas, false)
+	b.DrawOptions(canvas, BaseBoxDrawOptions{NoChildren: true})
 
 	trackX := b.InsetLeft()
 	trackY := b.InsetTop()
@@ -432,7 +432,7 @@ func (b *CheckBox) Calc(availWidth, availHeight int, constraints Constraints) {
 }
 
 func (b *CheckBox) Draw(canvas *Canvas) {
-	b.BaseBox.draw(canvas, false)
+	b.DrawOptions(canvas, BaseBoxDrawOptions{NoChildren: true})
 
 	x, y := b.InsetLeft(), b.InsetTop()
 	width := b.layoutBox.Width - b.HorizontalInsets()
@@ -624,7 +624,7 @@ func (b *ProgressBar) Calc(availWidth, availHeight int, constraints Constraints)
 
 // Draw 先绘制完整轨道，再绘制完成部分。
 func (b *ProgressBar) Draw(canvas *Canvas) {
-	b.BaseBox.draw(canvas, false)
+	b.DrawOptions(canvas, BaseBoxDrawOptions{NoChildren: true})
 	firstPaint := !b.painted
 	b.painted = true
 	if firstPaint && b.indeterminate {
@@ -883,7 +883,7 @@ func (b *SelectBox) Calc(availWidth, availHeight int, constraints Constraints) {
 
 // Draw 绘制当前值或占位文字，以及右侧的下拉提示。
 func (b *SelectBox) Draw(canvas *Canvas) {
-	b.BaseBox.draw(canvas, false)
+	b.DrawOptions(canvas, BaseBoxDrawOptions{NoChildren: true})
 
 	width := b.layoutBox.Width - b.HorizontalInsets()
 	height := b.layoutBox.Height - b.VerticalInsets()
@@ -1403,10 +1403,10 @@ func _NewListItem(doc *Document) *_ListItem {
 func (b *_ListItem) Draw(canvas *Canvas) {
 	// 槽位自身的 outline 可以画到边界外，但列表项内容必须限制在
 	// 槽位内，避免超宽文本或其它子内容覆盖相邻列表项。
-	b.Base().draw(canvas, false)
+	b.DrawOptions(canvas, BaseBoxDrawOptions{NoChildren: true})
 	clipped := canvas.Clip(0, 0, b.layoutBox.Width, b.layoutBox.Height)
 	for _, child := range b.children {
-		if !displaying(child) {
+		if !child.IsDisplaying() {
 			continue
 		}
 		layout := child.Base().layoutBox
@@ -1692,7 +1692,7 @@ func (b *List) adjust() {
 		for c := range b.cols {
 			child := b.children[r*b.cols+c].(*_ListItem)
 			display := child.dataIndex() <= b.count-1
-			if displaying(child) != display {
+			if child.IsDisplaying() != display {
 				// TODO 可以不用重新排版
 				child.SetProp(`display`, fmt.Sprint(display))
 			}
@@ -1904,7 +1904,7 @@ func (b *Scroll) Calc(availWidth, availHeight int, constraints Constraints) {
 	contentHeight := max(0, provisionalHeight-b.VerticalInsets())
 
 	var child Box
-	if len(b.children) > 0 && displaying(b.children[0]) {
+	if len(b.children) > 0 && b.children[0].IsDisplaying() {
 		child = b.children[0]
 		b.measureChild(child, contentWidth, contentHeight)
 	}
@@ -1971,8 +1971,8 @@ func (b *Scroll) measureChild(child Box, width, height int) {
 }
 
 func (b *Scroll) Draw(canvas *Canvas) {
-	b.BaseBox.draw(canvas, false)
-	if len(b.children) == 0 || !displaying(b.children[0]) {
+	b.DrawOptions(canvas, BaseBoxDrawOptions{NoChildren: true})
+	if len(b.children) == 0 || !b.children[0].IsDisplaying() {
 		return
 	}
 	width := max(0, b.layoutBox.Width-b.HorizontalInsets())
@@ -2014,7 +2014,7 @@ func (b *Scroll) ScrollIntoView(target Box) bool {
 }
 
 func (b *Scroll) descendantRect(target Box) (Rect, bool) {
-	if target == nil || len(b.children) == 0 || !displaying(b.children[0]) {
+	if target == nil || len(b.children) == 0 || !b.children[0].IsDisplaying() {
 		return Rect{}, false
 	}
 	content := b.children[0]
@@ -2025,7 +2025,7 @@ func (b *Scroll) descendantRect(target Box) (Rect, bool) {
 	}
 	x, y := 0, 0
 	for current := target; current == nil || current.Base() != contentBase; current = current.Parent() {
-		if current == nil || !displaying(current) {
+		if current == nil || !current.IsDisplaying() {
 			return Rect{}, false
 		}
 		layout := current.GetLayoutBox()

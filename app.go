@@ -884,7 +884,7 @@ func (b *SafeArea) SetProp(key, value string) error {
 }
 
 func (b *SafeArea) Calc(availWidth, availHeight int, constraints Constraints) {
-	if !displaying(b) {
+	if !b.IsDisplaying() {
 		return
 	}
 	insets := b.app.safeInsets

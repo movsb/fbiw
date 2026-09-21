@@ -1,0 +1,85 @@
+<document>
+<title>Auto Table</title>
+<style>
+document {
+	color: #edf1f7;
+	font-size: 22;
+}
+#page {
+	padding: 24;
+	background-color: #15181e;
+}
+.muted {
+	color: #aab3c2;
+	font-size: 18;
+}
+#viewport {
+	background-color: #20252e;
+	border-width: 1;
+	border-color: #3d4655;
+}
+#devices {
+	border-width: 2;
+	border-color: #718096;
+	background-color: #20252e;
+}
+#devices th, #devices td {
+	padding: 10 14;
+}
+#devices th {
+	color: #ffffff;
+	background-color: #34415a;
+}
+#devices tr.alt {
+	background-color: #292f3a;
+}
+.row-group {
+	background-color: #292f3a;
+}
+.ok { color: #72d69b; }
+.warn { color: #f1c36d; }
+.offline { color: #ef8585; }
+</style>
+
+<block id="page">
+	<text font-size="36">Auto Table</text>
+	<text id="status" class="muted">字号 22　L1/R1 调整字号　A：隐藏扩展行</text>
+	<text class="muted">列宽来自实际字体与所有行内容；表格边框统一折叠，合并单元格不会出现内部穿线。</text>
+	<scroll id="viewport" direction="both" height="350" step="48" smooth>
+		<table id="devices">
+			<tr>
+				<th colspan="4"><text>设备状态概览</text></th>
+			</tr>
+			<tr>
+				<th><text>分组</text></th>
+				<th><text>设备</text></th>
+				<th><text>状态</text></th>
+				<th width="360"><text>说明</text></th>
+			</tr>
+			<tr class="alt">
+				<td class="row-group" rowspan="2"><text>网络</text></td>
+				<td><text>无线网卡</text></td>
+				<td><text class="ok">已连接</text></td>
+				<td><text>信号良好，自动获取地址 192.168.10.42。</text></td>
+			</tr>
+			<tr>
+				<td><text>蓝牙</text></td>
+				<td><text class="warn">待连接</text></td>
+				<td><text>最近使用的耳机当前不在范围内。</text></td>
+			</tr>
+			<tr id="detail-row" class="alt">
+				<td><text>存储</text></td>
+				<td><text>MicroSD 卡</text></td>
+				<td><text class="ok">正常</text></td>
+				<td><text>可用空间 47.8 GB；这一行可动态隐藏，隐藏后表格会重新测量所有列。</text></td>
+			</tr>
+			<tr>
+				<td><text>服务</text></td>
+				<td colspan="2"><text>同步与更新服务</text></td>
+				<td><text class="offline">离线模式：下次联网后继续。</text></td>
+			</tr>
+		</table>
+	</scroll>
+	<text class="muted">方向键始终滚动表格；增大字号后，Scroll 会保留表格的自然宽度。</text>
+</block>
+</document>

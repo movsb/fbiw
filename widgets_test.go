@@ -902,7 +902,7 @@ func TestSelectEmptyDisabledAndIdempotent(t *testing.T) {
 	b.SetDisabled(false)
 	b.Open()
 	b.Open()
-	if !b.Opened() || displaying(b.popupView.list) || !displaying(b.popupView.empty) {
+	if !b.Opened() || b.popupView.list.IsDisplaying() || !b.popupView.empty.IsDisplaying() {
 		t.Fatal(`空列表 Popup 状态不正确`)
 	}
 	sendSelectPopupKey(b, sticks.A, false)
@@ -988,7 +988,7 @@ func TestSingleButtonAlertDialog(t *testing.T) {
 	if dialog.view.action.Variant() != ButtonPrimary {
 		t.Fatalf(`默认操作样式 = %q`, dialog.view.action.Variant())
 	}
-	if displaying(dialog.view.cancel) {
+	if dialog.view.cancel.IsDisplaying() {
 		t.Fatal(`单按钮弹窗显示了取消按钮`)
 	}
 
@@ -1083,7 +1083,7 @@ func TestAlertDialogDescriptionScrolls(t *testing.T) {
 func TestAlertDialogEmptyDescriptionHidesViewport(t *testing.T) {
 	app, opener := newAlertDialogTestApp()
 	dialog := app.ShowAlertDialog(opener, AlertDialogOptions{Title: `提示`})
-	if displaying(dialog.view.descriptionViewport) || displaying(dialog.view.descriptionGap) {
+	if dialog.view.descriptionViewport.IsDisplaying() || dialog.view.descriptionGap.IsDisplaying() {
 		t.Fatal(`空 Description 没有隐藏说明区域`)
 	}
 	if got := dialog.view.popup.GetComputedStyles().Height.Number(); got != 220 {

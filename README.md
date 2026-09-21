@@ -108,7 +108,7 @@ func main() {
 规则如下：
 
 - `<document>` 下最多有一个 `<style>`；
-- 内容根节点只能有一个，且必须是 `<block>`、`<inline>`、`<stack>` 或 `<flex>`；
+- 内容根节点只能有一个，且必须是内置容器或通过 `fbiw.Define` 注册的组件；
 - 普通容器中不能直接放置非空文本，文字必须放在 `<text>` 中；
 - `<b>` 和 `<i>` 只能出现在 `<text>`、`<b>` 或 `<i>` 内；
 - `<img>` 和 `<spacer>` 是无子节点元素；
@@ -137,6 +137,40 @@ func main() {
 | `img` | 图片 |
 
 也可以使用 `fbiw.Define` 注册实现了 `Box` 接口的自定义标签。
+
+表格是可选组件；导入聚合包即可注册相关标签：
+
+```go
+import _ "github.com/movsb/fbiw/widgets"
+```
+
+需要在 Go 代码中引用类型时，可使用 `widgets.Table`、`widgets.TableRow` 和
+`widgets.TableCell`；也可以单独导入 `github.com/movsb/fbiw/widgets/table`。
+
+表格默认按实际字体和内容自动测量列宽，使用单线折叠网格；`table` 的
+`border-width` 和 `border-color` 同时控制外框及内部网格，cell 自身的边框会被忽略。
+`td`、`th` 支持正整数 `rowspan` 和 `colspan`，也可用 `width` 提示首选宽度：
+
+```html
+<table border-width="1" border-color="#666">
+    <tr>
+        <th><text>名称</text></th>
+        <th><text>说明</text></th>
+    </tr>
+    <tr>
+        <td rowspan="2"><text>网络</text></td>
+        <td><text>无线网络状态</text></td>
+    </tr>
+    <tr>
+        <td><text>当前 IP 地址</text></td>
+    </tr>
+</table>
+```
+
+结构必须是 `table > tr > td|th`，cell 内的文字仍须放在 `<text>` 中。未声明
+`width` 时表格按内容收缩；父空间不足时列宽压缩到最小可排版宽度并换行，仍放不下
+时横向溢出，可放入横向 `<scroll>`。HTML parser 生成的 `tbody/thead/tfoot` 会被透明
+展开，不进入 Box 树。当前不支持 `col`、caption、分离边框或编辑交互。
 
 `button` 支持普通、主按钮和危险操作三种样式，以及禁用状态：
 
@@ -1319,6 +1353,7 @@ Linux 后端直接读取 evdev 按键码。当前设备选择和按键映射针�
 GOEXPERIMENT=simd go run ./demo
 GOEXPERIMENT=simd go run ./demo/scroll
 GOEXPERIMENT=simd go run ./demo/list
+GOEXPERIMENT=simd go run ./demo/table
 GOEXPERIMENT=simd go run ./demo/safe
 GOEXPERIMENT=simd go run ./demo/theme
 ```

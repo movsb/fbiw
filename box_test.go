@@ -53,7 +53,7 @@ func TestFlexDemoLayout(t *testing.T) {
 		t.Helper()
 		doc.layout()
 		walkBox(doc.root, func(box Box) bool {
-			if !displaying(box) {
+			if !box.IsDisplaying() {
 				return false
 			}
 			r := box.GetLayoutBox()
@@ -165,7 +165,7 @@ func TestFlexBox(t *testing.T) {
 	if err := root.SetProp("display", "false"); err != nil {
 		t.Fatal(err)
 	}
-	if displaying(root) {
+	if root.IsDisplaying() {
 		t.Fatal("flex was not hidden")
 	}
 	if err := root.SetProp("display", "true"); err != nil {
@@ -385,7 +385,7 @@ func TestDisplayHidesRootAndDescendants(t *testing.T) {
 			if err := root.SetProp(`display`, `false`); err != nil {
 				t.Fatal(err)
 			}
-			if !doc.layoutDirty || displaying(root) {
+			if !doc.layoutDirty || root.IsDisplaying() {
 				t.Fatal("hide must invalidate layout and hide root")
 			}
 			if !child.GetComputedStyles().Display {
@@ -442,7 +442,7 @@ func TestResolveLayoutLength(t *testing.T) {
 		{"negative reference", PercentageLength(50), -10, NumberLength(0)},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := resolveLayoutLength(tc.value, tc.reference); got != tc.want {
+			if got := ResolveLayoutLength(tc.value, tc.reference); got != tc.want {
 				t.Fatalf("got %+v, want %+v", got, tc.want)
 			}
 		})

@@ -11,12 +11,14 @@
 		"goregular",
 		"hotpink",
 		"mediump",
+		"numpad",
 		"opentype",
+		"prefs",
 		"purego",
 		"rasterizer",
+		"stylesheet",
 		"SWAR",
-		"trimui",
-		"numpad",
+		"trimui"
 	],
 	"go.toolsEnvVars": {
 		"GOEXPERIMENT": "simd"

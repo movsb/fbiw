@@ -533,15 +533,15 @@ func TestDisplayBoolean(t *testing.T) {
 
 func TestDisplayDefaultAndPriority(t *testing.T) {
 	box := &BaseBox{tag: `block`}
-	if !displaying(box) {
+	if !box.IsDisplaying() {
 		t.Fatal("zero-value styles must remain visible")
 	}
 	box.computedStyles.SetDisplay(false)
-	if displaying(box) {
+	if box.IsDisplaying() {
 		t.Fatal("explicit false must hide the box")
 	}
 	box.computedStyles.SetDisplay(true)
-	if !displaying(box) {
+	if !box.IsDisplaying() {
 		t.Fatal("explicit true must show the box")
 	}
 	if err := (_Styler{}).Style(box, false, nil); err != nil {
@@ -555,7 +555,7 @@ func TestDisplayDefaultAndPriority(t *testing.T) {
 	if err := (_Styler{}).Style(box, false, sheet); err != nil {
 		t.Fatal(err)
 	}
-	if box.computedStyles.Display || displaying(box) {
+	if box.computedStyles.Display || box.IsDisplaying() {
 		t.Fatal("inline false must override stylesheet true")
 	}
 	box.inlineStyles.SetDisplay(true)

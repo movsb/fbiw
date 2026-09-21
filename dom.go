@@ -233,7 +233,7 @@ func parseDocument(owner *Document, content io.Reader) (*_ParsedDocumentData, er
 					return nil, fmt.Errorf(`重复的样式节点`)
 				}
 				styleNode = child
-			} else if child.Data == `block` || child.Data == `inline` || child.Data == `stack` || child.Data == `flex` {
+			} else if slices.Contains([]string{`block`, `inline`, `stack`, `flex`}, child.Data) || isDefinedBox(child.Data) {
 				if bodyNode != nil {
 					return nil, fmt.Errorf(`根元素下重复节点`)
 				}
@@ -995,6 +995,11 @@ func (n _NodeTransformer) transformNode(box Box, node *html.Node, voidElement bo
 			return nil, err
 		}
 	}
+	if validator, ok := box.(interface{ ValidateChildren() error }); ok {
+		if err := validator.ValidateChildren(); err != nil {
+			return nil, err
+		}
+	}
 	return box, nil
 }
 
@@ -1099,7 +1104,7 @@ func (doc *Document) layout() {
 
 // 绘制文档。
 func (doc *Document) paint(canvas *Canvas) {
-	if !displaying(doc.root) {
+	if !doc.root.IsDisplaying() {
 		return
 	}
 
@@ -1202,6 +1207,11 @@ type _BoxRegistryItem struct {
 }
 
 var _definedBoxes = map[string]_BoxRegistryItem{}
+
+func isDefinedBox(name string) bool {
+	_, ok := _definedBoxes[name]
+	return ok
+}
 
 // 创建用户自定义组件。
 func Define[T Box](name string, void bool, new func(doc *Document) T) {

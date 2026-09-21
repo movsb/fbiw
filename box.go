@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	_ "image/jpeg"
 	"image/png"
@@ -70,6 +71,14 @@ type Box interface {
 	//
 	// 只应参考 Width 和 Height。X、Y 目前是相对于父元素的，不太有参考意义。
 	GetLayoutBox() Rect
+	// 由外部强制设置布局盒子尺寸。
+	SetLayoutBox(layout Rect)
+
+	// 自身是否处理显示状态。
+	//
+	// 不会判断祖先显示关系。
+	// 即便任一祖先不显示，而自身显示，结果仍然是显示。
+	IsDisplaying() bool
 
 	// 返回所属文档。
 	Document() *Document
@@ -188,6 +197,13 @@ func (b *BaseBox) GetName() string {
 func (b *BaseBox) GetLayoutBox() Rect {
 	return b.layoutBox
 }
+
+// SetLayoutBox lets container widgets assign their own and their children's
+// final geometry without exposing BaseBox's layout storage.
+func (b *BaseBox) SetLayoutBox(layout Rect) {
+	b.layoutBox = layout
+}
+
 func (b *BaseBox) GetComputedStyles() *Styles {
 	return &b.computedStyles
 }
@@ -390,7 +406,8 @@ type resolvedDimensions struct {
 	Width, Height Length
 }
 
-func resolveLayoutLength(value Length, reference int) Length {
+// 如果 Length 值是百分比，从参考值中解析出最终结果。
+func ResolveLayoutLength(value Length, reference int) Length {
 	if value.IsPercentage() {
 		return NumberLength(int64(max(0, reference)) * value.Number() / 100)
 	}
@@ -403,8 +420,8 @@ func resolveLayoutLength(value Length, reference int) Length {
 //   - 然后使用自身指定的尺寸
 func (b *BaseBox) resolveDimensions(constraints Constraints) resolvedDimensions {
 	size := resolvedDimensions{
-		Width:  resolveLayoutLength(b.computedStyles.Width, constraints.ParentContentWidth),
-		Height: resolveLayoutLength(b.computedStyles.Height, constraints.ParentContentHeight),
+		Width:  ResolveLayoutLength(b.computedStyles.Width, constraints.ParentContentWidth),
+		Height: ResolveLayoutLength(b.computedStyles.Height, constraints.ParentContentHeight),
 	}
 	if constraints.FixedWidth.IsNumber() {
 		size.Width = NumberLength(max(0, constraints.FixedWidth.Number()))
@@ -462,7 +479,7 @@ func (b *BaseBox) VerticalInsets() int {
 // 只针对没有自己实现 Calc 方法的元素而言。如果自己实现了 Calc 方法（比如 List），
 // 行为不受此约束。
 func (b *BaseBox) Calc(availWidth, availHeight int, constraints Constraints) {
-	if !displaying(b) {
+	if !b.IsDisplaying() {
 		return
 	}
 
@@ -478,14 +495,22 @@ func (b *BaseBox) Calc(availWidth, availHeight int, constraints Constraints) {
 	}
 }
 
-func (b *BaseBox) Draw(canvas *Canvas) {
-	b.draw(canvas, true)
-}
-
 // 所有盒子通用的画法。
 // 包括：Outline、Border、Background、Children。
-func (b *BaseBox) draw(canvas *Canvas, drawChildren bool) {
+func (b *BaseBox) Draw(canvas *Canvas) {
+	b.DrawOptions(canvas, BaseBoxDrawOptions{})
+}
+
+type BaseBoxDrawOptions struct {
+	NoBorder   bool
+	NoChildren bool
+}
+
+func (b *BaseBox) DrawOptions(canvas *Canvas, options BaseBoxDrawOptions) {
 	borderWidth := b.computedStyles.BorderWidth
+	if options.NoBorder {
+		borderWidth = 0
+	}
 	layoutWidth := b.layoutBox.Width
 	layoutHeight := b.layoutBox.Height
 
@@ -532,9 +557,9 @@ func (b *BaseBox) draw(canvas *Canvas, drawChildren bool) {
 		)
 	}
 
-	if drawChildren {
+	if !options.NoChildren {
 		for _, child := range b.children {
-			if !displaying(child) {
+			if !child.IsDisplaying() {
 				continue
 			}
 			layout := child.Base().layoutBox
@@ -544,10 +569,54 @@ func (b *BaseBox) draw(canvas *Canvas, drawChildren bool) {
 	}
 }
 
-func displaying(b Box) bool {
+func (b *BaseBox) IsDisplaying() bool {
 	styles := &b.Base().computedStyles
 	// 保留零值 Styles 的默认显示语义，只有显式设置 false 才隐藏。
 	return !styles.has(propertyDisplay) || styles.Display
+}
+
+type IntrinsicWidths struct {
+	Min       int
+	Preferred int
+}
+
+// MeasureIntrinsicWidths measures a box without imposing table-specific
+// policy. It is available to external container widgets implementing their
+// own content-driven layout.
+func MeasureIntrinsicWidths(child Box, referenceWidth, referenceHeight int) IntrinsicWidths {
+	minimum := 0
+	if text, ok := child.(*Text); ok {
+		for i := range text.textRuns {
+			run := &text.textRuns[i]
+			faces := text.document.LoadFaces(run.Owner)
+			for data := run.Data; len(data) > 0; {
+				_, size := utf8.DecodeRuneInString(data)
+				_, width, err := SegmentText(data[:size], 1<<24, faces)
+				if err == nil {
+					minimum = max(minimum, width)
+				}
+				data = data[size:]
+			}
+		}
+		minimum += text.HorizontalInsets()
+		if width := ResolveLayoutLength(text.computedStyles.Width, referenceWidth); width.IsNumber() {
+			minimum = max(minimum, int(width.Number()))
+		}
+	} else {
+		child.Calc(1, referenceHeight, Constraints{
+			ParentContentWidth:  max(0, referenceWidth),
+			ParentContentHeight: max(0, referenceHeight),
+			UnboundedHeight:     true,
+		})
+		minimum = child.GetLayoutBox().Width
+	}
+	child.Calc(max(1, referenceWidth), referenceHeight, Constraints{
+		ParentContentWidth:  max(0, referenceWidth),
+		ParentContentHeight: max(0, referenceHeight),
+		UnboundedWidth:      true,
+		UnboundedHeight:     true,
+	})
+	return IntrinsicWidths{Min: minimum, Preferred: max(minimum, child.GetLayoutBox().Width)}
 }
 
 // 纵向排版容器。
@@ -582,7 +651,7 @@ func blockCalc(b *BaseBox, availWidth, availHeight int, constraints Constraints)
 	zeroSpacers := []Box{}
 
 	for _, child := range b.children {
-		if !displaying(child) {
+		if !child.IsDisplaying() {
 			continue
 		}
 
@@ -640,7 +709,7 @@ func blockCalc(b *BaseBox, availWidth, availHeight int, constraints Constraints)
 	}
 
 	for _, child := range b.children {
-		if displaying(child) {
+		if child.IsDisplaying() {
 			contentMaxWidth = max(contentMaxWidth, child.Base().layoutBox.Width)
 		}
 	}
@@ -671,7 +740,7 @@ func blockCalc(b *BaseBox, availWidth, availHeight int, constraints Constraints)
 	alignCenter := computed.Align == `both` || computed.Align == `center`
 
 	for _, child := range b.children {
-		if !displaying(child) {
+		if !child.IsDisplaying() {
 			continue
 		}
 
@@ -720,7 +789,7 @@ func inlineCalc(b *BaseBox, availWidth, availHeight int, constraints Constraints
 	zeroSpacers := []Box{}
 
 	for _, child := range b.children {
-		if !displaying(child) {
+		if !child.IsDisplaying() {
 			continue
 		}
 
@@ -822,7 +891,7 @@ func inlineCalc(b *BaseBox, availWidth, availHeight int, constraints Constraints
 	alignMiddle := computed.Align == `both` || computed.Align == `middle`
 
 	for _, child := range b.children {
-		if !displaying(child) {
+		if !child.IsDisplaying() {
 			continue
 		}
 
@@ -931,7 +1000,7 @@ func flexCalc(b *BaseBox, availWidth, availHeight int, constraints Constraints) 
 	gap := max(0, styles.Gap)
 	baseMain, maxGrow := 0, 0.0
 	for _, child := range b.children {
-		if !displaying(child) {
+		if !child.IsDisplaying() {
 			continue
 		}
 		child.Calc(contentWidth, contentHeight, childConstraints)
@@ -1171,7 +1240,7 @@ func (b *Stack) SetProp(key string, value string) error {
 }
 
 func (b *Stack) Calc(availWidth, availHeight int, constrains Constraints) {
-	if !displaying(b) {
+	if !b.IsDisplaying() {
 		return
 	}
 	size := b.resolveDimensions(constrains)
@@ -1191,7 +1260,7 @@ func (b *Stack) Calc(availWidth, availHeight int, constrains Constraints) {
 	contentMaxHeight := 0
 
 	for _, child := range b.children {
-		if !displaying(child) {
+		if !child.IsDisplaying() {
 			continue
 		}
 
@@ -1255,7 +1324,7 @@ func (b *Stack) Calc(availWidth, availHeight int, constrains Constraints) {
 	offsetX := b.InsetLeft()
 	offsetY := b.InsetTop()
 	for _, child := range b.children {
-		if !displaying(child) {
+		if !child.IsDisplaying() {
 			continue
 		}
 		child.Base().layoutBox.X = offsetX
@@ -1949,7 +2018,9 @@ func (t *Text) blockHeight() int {
 }
 
 func (t *Text) Draw(canvas *Canvas) {
-	t.Base().draw(canvas, false)
+	t.Base().DrawOptions(canvas, BaseBoxDrawOptions{
+		NoChildren: true,
+	})
 
 	if len(t.textLines) <= 0 {
 		return
@@ -2501,7 +2572,7 @@ func (b *Image) Calc(availWidth, availHeight int, constraints Constraints) {
 }
 
 func (b *Image) Draw(canvas *Canvas) {
-	b.Base().draw(canvas, false)
+	b.Base().DrawOptions(canvas, BaseBoxDrawOptions{NoChildren: true})
 
 	switch b.status {
 	case imageLoadStatusScaled:

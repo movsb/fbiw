@@ -280,6 +280,16 @@ var (
 	_defaultDarkTheme      = Must1((StyleParser{}).ParseTheme(_defaultDarkThemeStyle))
 )
 
+// DefineStyles appends default rules supplied by an optional widget package.
+// It is intended for package initialization, alongside Define.
+func DefineStyles(css string) {
+	sheet, err := ParseStyle(css)
+	if err != nil {
+		panic(fmt.Errorf(`组件默认样式解析失败：%w`, err))
+	}
+	DefaultStyles.Rules = append(DefaultStyles.Rules, sheet.Rules...)
+}
+
 // 直接传入的是结构体字段，原始名字，没有小写、没有中划线。
 func shouldInherit(name string) bool {
 	switch name {
