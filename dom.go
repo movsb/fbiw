@@ -2,13 +2,12 @@ package fbiw
 
 import (
 	"bytes"
+	"cmp"
 	_ "embed"
 	"fmt"
 	"io"
 	"io/fs"
 	"log"
-	"net/url"
-	"os"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -1134,34 +1133,26 @@ func walkBox(box Box, callback func(box Box) bool) bool {
 // width, height 表示想要scale到的尺寸。
 // 如果均为0，则表示不scale。
 // checking: 只检测是否存在缓存。
-func (doc *Document) _loadImage(src string, width, height int, checking bool, options ImageDecodeOptions) (DecodedImage, error) {
-	if !strings.Contains(src, `:`) {
-		return doc.imageManager.GetImageScaledCached(doc.fsys, src, width, height, checking, options)
-	}
-	if u, err := url.Parse(src); err == nil {
-		switch u.Scheme {
-		case `os`:
-			if u, err := url.PathUnescape(u.Opaque); err == nil {
-				isAbs := filepath.IsAbs(u)
-				fs := os.DirFS(Iif(isAbs, `/`, `.`))
-				path := Iif(isAbs, u[1:], u)
-				return doc.imageManager.GetImageScaledCached(fs, path, width, height, checking, options)
-			}
+// 暂时只通过扩展名检测图片类型。扩展名错误行为未知。
+func (doc *Document) _loadImage(fsys fs.FS, path string, width, height int, checking bool, options ImageDecodeOptions) (any, error) {
+	load := func(fsys fs.FS, path string) (any, error) {
+		if isGIF := strings.EqualFold(filepath.Ext(path), `.gif`); !isGIF {
+			return doc.imageManager.GetImageScaledCached(fsys, path, width, height, checking, options)
 		}
+		return doc.imageManager.getGIF(fsys, path, width, height, checking)
 	}
-
-	return DecodedImage{}, fmt.Errorf(`不支持的来源：%s`, src)
+	return load(cmp.Or(fsys, doc.fsys), path)
 }
 
 // 同步加载图片，如果没有缓存，返回不存在。
-func (doc *Document) loadImageSync(src string, width, height int, options ImageDecodeOptions) (DecodedImage, error) {
-	return doc._loadImage(src, width, height, true, options)
+func (doc *Document) loadImageSync(fsys fs.FS, path string, width, height int, options ImageDecodeOptions) (any, error) {
+	return doc._loadImage(fsys, path, width, height, true, options)
 }
 
 // 异步加载图片，回调发生在主线程中，可安全地修改盒子内容。
-func (doc *Document) loadImageAsync(src string, width, height int, options ImageDecodeOptions, callback func(DecodedImage, error)) {
+func (doc *Document) loadImageAsync(fsys fs.FS, path string, width, height int, options ImageDecodeOptions, callback func(any, error)) {
 	go func() {
-		img, err := doc._loadImage(src, width, height, false, options)
+		img, err := doc._loadImage(fsys, path, width, height, false, options)
 		doc.Async(func() {
 			callback(img, err)
 		})

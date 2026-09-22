@@ -363,7 +363,7 @@ func TestFixedDimensionsOverrideStyles(t *testing.T) {
 		t.Fatal("styles modified")
 	}
 	img := NewImage(nil)
-	img.src = `cached`
+	img.src.path = `cached`
 	img.status = imageLoadStatusScaled
 	img.decodedImage = DecodedImage{Width: 20, Height: 10}
 	img.Calc(0, 0, Constraints{FixedWidth: NumberLength(0), FixedHeight: NumberLength(0)})
@@ -1851,5 +1851,46 @@ func TestImageScaleWithPublicAnimation(t *testing.T) {
 	doc.Close()
 	if !doc.timeline.closed {
 		t.Fatal("close retained animation")
+	}
+}
+
+func TestGIFPlaybackAndSourceChange(t *testing.T) {
+	_, doc, _ := newAnimationTestApp(t)
+	defer doc.Close()
+	img := NewImage(doc)
+	first := DecodedImage{Width: 1, Height: 1, Pixels: []byte{0, 0, 255, 255}}
+	second := DecodedImage{Width: 1, Height: 1, Pixels: []byte{0, 255, 0, 255}}
+	img.gif = &_AnimatedGIF{frames: []DecodedImage{first, second}, delays: []time.Duration{time.Hour, time.Hour}}
+	img.decodedImage = first
+	img.startGIF()
+	if len(doc.timers) != 1 {
+		t.Fatalf("timers = %d", len(doc.timers))
+	}
+	var timer *_DocumentTimer
+	for timer = range doc.timers {
+		break
+	}
+	timer.callback()
+	timer.cancel()
+	if img.gifFrame != 1 || img.decodedImage.Pixels[1] != 255 {
+		t.Fatal("frame did not advance")
+	}
+	for timer = range doc.timers {
+		break
+	}
+	timer.callback()
+	timer.cancel()
+	if img.gifFrame != 0 {
+		t.Fatal("GIF did not loop")
+	}
+	if err := img.SetProp("src", "other.png"); err != nil {
+		t.Fatal(err)
+	}
+	if len(doc.timers) != 0 || img.gif != nil {
+		t.Fatal("source change did not stop GIF")
+	}
+	timer.callback() // A callback already queued before cancellation must be harmless.
+	if img.gifFrame != 0 {
+		t.Fatal("stale callback advanced GIF")
 	}
 }

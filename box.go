@@ -1,15 +1,17 @@
 package fbiw
 
 import (
+	"cmp"
 	_ "embed"
 	"errors"
 	"fmt"
 	"image"
+	"io/fs"
 	"iter"
 	"log"
 	"math"
-	"net/url"
 	"os"
+	"path/filepath"
 	"reflect"
 	"runtime"
 	"slices"
@@ -535,13 +537,23 @@ func (b *BaseBox) DrawOptions(canvas *Canvas, options BaseBoxDrawOptions) {
 		width := layoutWidth - borderWidth*2
 		height := layoutHeight - borderWidth*2
 		canvas := canvas.Offset(borderWidth, borderWidth)
-		img, err := b.document.loadImageSync(src, width, height, ImageDecodeOptions{TrimTransparentBorder: true})
+
+		// 背景图片暂时只显示首帧（如果是GIF的话），像素本来就低，太丑了。
+		result, err := b.document.loadImageSync(nil, src, width, height, ImageDecodeOptions{TrimTransparentBorder: true})
+		var img DecodedImage
+		switch value := result.(type) {
+		case DecodedImage:
+			img = value
+		case *_AnimatedGIF:
+			img = value.frames[0]
+		}
+
 		if err == nil && len(img.Pixels) > 0 {
 			canvas.DrawImage(img)
 		} else {
-			b.document.loadImageAsync(src, width, height,
+			b.document.loadImageAsync(nil, src, width, height,
 				ImageDecodeOptions{TrimTransparentBorder: true},
-				func(di DecodedImage, err error) {
+				func(_ any, err error) {
 					if err == nil {
 						b.document.RequestPaint()
 					}
@@ -2251,10 +2263,19 @@ const (
 	imageLoadStatusFailed                              // 完成，并且加载失败
 )
 
+type _FsysAndPath struct {
+	fsys fs.FS
+	path string
+}
+
 type Image struct {
 	BaseBox
 
-	src string
+	// 默认情况下，src总是来源于文档关联的文件系统（doc.fsys），和资源文件是一起的。
+	// SetPath 那边可能设置为带scheme的URL。
+	//
+	// TODO [关于 HTML 元素的 Attribute 的转义问题 - 陪她去流浪](https://blog.twofei.com/1056/)
+	src _FsysAndPath
 
 	// 如果在异步加载的过程中修改了src（比如虚拟滚动重新绑定的时候），
 	// 则异步结果其实是不再有效的，应该作废。但是后面还可能会使用到，
@@ -2267,6 +2288,11 @@ type Image struct {
 	// 异步加载成功后写在这里。
 	// 如果是仅解析成功，只包含尺寸信息。
 	decodedImage DecodedImage
+
+	// GIF相关
+	gif       *_AnimatedGIF
+	gifFrame  int
+	gifCancel func()
 
 	// 如果失败？
 	err     error
@@ -2365,35 +2391,53 @@ func (b *Image) Rotate(options RotationOptions) func() {
 func (b *Image) SetProp(key string, val string) error {
 	switch key {
 	case `src`:
-		// 防止触发重复刷新。
-		if b.src == val {
-			return nil
-		}
-		b.src = val
-		// 令所有为旧 src 启动的异步加载失效。不能只在回调里比较
-		// src，因为 src 可能经历 A -> B -> A，此时第一次 A 的回调
-		// 仍然已经过期。
-		b.loadVersion++
-		b.status = imageLoadStatusNone
-		b.decodedImage = DecodedImage{}
-		b.err = nil
-		if old := b.tmpFile; old != nil {
-			old.cleanup.Stop()
-			os.Remove(old.path)
-			b.tmpFile = nil
-		}
-		b.document.RequestLayout()
+		b.setSrc(nil, val)
 		return nil
 	default:
 		return b.BaseBox.SetProp(key, val)
 	}
 }
 
-// 设置操作系统文件路径。
-// 相对或者绝对均可。
-func (b *Image) SetPath(path string) {
-	u := (&url.URL{Scheme: `os`, Opaque: url.PathEscape(path)}).String()
-	b.SetProp(`src`, u)
+// 重新设置图片文件路径。
+//
+// fsys可以为空，此时表示使用文档关联的资源包文件系统。
+//
+// 也可以使用 os.DirFS 来表示操作系统的文件系统路径。
+// TODO <img src="..."> 这里理论上不允许使用操作系统路径，但是目前没有阻止此类构造。
+func (b *Image) SetPath(fsys fs.FS, path string) {
+	b.setSrc(fsys, path)
+}
+
+// 直接设置文件系统路径。
+func (b *Image) SetOSPath(path string) {
+	dir, base := filepath.Split(path)
+	b.SetPath(os.DirFS(cmp.Or(dir, `.`)), base)
+}
+
+func (b *Image) setSrc(fsys fs.FS, path string) {
+	new := _FsysAndPath{fsys, path}
+	if b.src == new {
+		return
+	}
+	b.src = new
+
+	b.stopGIF()
+	b.gif = nil
+	b.gifFrame = 0
+
+	// 令所有为旧 src 启动的异步加载失效。不能只在回调里比较
+	// src，因为 src 可能经历 A -> B -> A，此时第一次 A 的回调
+	// 仍然已经过期。
+	b.loadVersion++
+	b.status = imageLoadStatusNone
+	b.decodedImage = DecodedImage{}
+	b.err = nil
+	if old := b.tmpFile; old != nil {
+		old.cleanup.Stop()
+		os.Remove(old.path)
+		b.tmpFile = nil
+	}
+	b.document.RequestLayout()
 }
 
 // 显示指定的内存已解码图片。
@@ -2412,13 +2456,33 @@ func (b *Image) SetImage(img image.Image) {
 		}
 		path := fp.Name()
 		b.document.Async(func() {
-			b.SetPath(path)
+			dir, base := filepath.Split(path)
+			if dir == `` {
+				dir = `.`
+			}
+			b.SetPath(os.DirFS(dir), base)
 			cleanup := runtime.AddCleanup(b, func(path string) {
 				os.Remove(path)
 			}, path)
 			b.tmpFile = &_ImageTempFile{path: path, cleanup: cleanup}
 		})
 	}()
+}
+
+func (b *Image) setLoadedImage(result any, scaled bool) {
+	switch value := result.(type) {
+	case DecodedImage:
+		b.gif = nil
+		b.decodedImage = value
+	case *_AnimatedGIF:
+		b.gif = value
+		b.decodedImage = value.frames[0]
+	default:
+		panic(fmt.Sprintf("unexpected image result: %T", result))
+	}
+	if scaled {
+		b.startGIF()
+	}
 }
 
 func (b *Image) Calc(availWidth, availHeight int, constraints Constraints) {
@@ -2446,7 +2510,7 @@ func (b *Image) Calc(availWidth, availHeight int, constraints Constraints) {
 		b.layoutBox.Height = int(size.Height.Number())
 	}
 
-	if b.src == `` {
+	if b.src.path == `` {
 		return
 	}
 
@@ -2454,8 +2518,8 @@ func (b *Image) Calc(availWidth, availHeight int, constraints Constraints) {
 	case imageLoadStatusNone:
 		// 如果有缓存的大小信息，直接用。
 		// 这里总是以零大小加载，不缩放，才能获取到原始大小信息。
-		if img, err := b.document.loadImageSync(b.src, 0, 0, ImageDecodeOptions{TrimTransparentBorder: true}); err == nil {
-			b.decodedImage = img
+		if result, err := b.document.loadImageSync(b.src.fsys, b.src.path, 0, 0, ImageDecodeOptions{TrimTransparentBorder: true}); err == nil {
+			b.setLoadedImage(result, false)
 			b.status = imageLoadStatusDecoded
 			b.Calc(availWidth, availHeight, constraints)
 			return
@@ -2463,9 +2527,8 @@ func (b *Image) Calc(availWidth, availHeight int, constraints Constraints) {
 
 		src, version := b.src, b.loadVersion
 		b.status = imageLoadStatusDecoding
-		b.document.loadImageAsync(src, 0, 0,
-			ImageDecodeOptions{TrimTransparentBorder: true},
-			func(img DecodedImage, err error) {
+		b.document.loadImageAsync(b.src.fsys, b.src.path, 0, 0, ImageDecodeOptions{TrimTransparentBorder: true},
+			func(result any, err error) {
 				// src属于防御性校验，用来防止在包内直接修改却忘记同步递增版本号。
 				// 理论上不应该判断（版本号变化src一定变化）。
 				if b.loadVersion != version || b.src != src {
@@ -2477,7 +2540,7 @@ func (b *Image) Calc(availWidth, availHeight int, constraints Constraints) {
 					b.document.RequestLayout()
 					return
 				}
-				b.decodedImage = img
+				b.setLoadedImage(result, false)
 				b.status = imageLoadStatusDecoded
 				b.document.RequestLayout()
 			},
@@ -2531,9 +2594,8 @@ func (b *Image) Calc(availWidth, availHeight int, constraints Constraints) {
 			b.status = imageLoadStatusFailed
 			return
 		}
-
-		if di, err := b.document.loadImageSync(b.src, fittingWidth, fittingHeight, ImageDecodeOptions{TrimTransparentBorder: true}); err == nil {
-			b.decodedImage = di
+		if result, err := b.document.loadImageSync(b.src.fsys, b.src.path, fittingWidth, fittingHeight, ImageDecodeOptions{TrimTransparentBorder: true}); err == nil {
+			b.setLoadedImage(result, true)
 			b.status = imageLoadStatusScaled
 			b.Calc(availWidth, availHeight, constraints)
 			return
@@ -2541,9 +2603,8 @@ func (b *Image) Calc(availWidth, availHeight int, constraints Constraints) {
 
 		src, version := b.src, b.loadVersion
 		b.status = imageLoadStatusScaling
-		b.document.loadImageAsync(src, fittingWidth, fittingHeight,
-			ImageDecodeOptions{TrimTransparentBorder: true},
-			func(di DecodedImage, err error) {
+		b.document.loadImageAsync(src.fsys, src.path, fittingWidth, fittingHeight, ImageDecodeOptions{TrimTransparentBorder: true},
+			func(result any, err error) {
 				if b.loadVersion != version || b.src != src {
 					return
 				}
@@ -2553,7 +2614,7 @@ func (b *Image) Calc(availWidth, availHeight int, constraints Constraints) {
 					b.document.RequestPaint()
 					return
 				}
-				b.decodedImage = di
+				b.setLoadedImage(result, true)
 				b.status = imageLoadStatusScaled
 				b.document.RequestPaint()
 			},
@@ -2629,4 +2690,30 @@ func (b *Image) drawImageRotated(canvas *Canvas) {
 		float64(canvas.x)+float64(b.layoutBox.Width)/2,
 		float64(canvas.y)+float64(b.layoutBox.Height)/2,
 	)
+}
+
+func (b *Image) startGIF() {
+	b.stopGIF()
+	if b.gif == nil || len(b.gif.frames) < 2 || b.document.app == nil {
+		return
+	}
+	version := b.loadVersion
+	var advance func()
+	advance = func() {
+		if b.loadVersion != version || b.gif == nil {
+			return
+		}
+		b.gifFrame = (b.gifFrame + 1) % len(b.gif.frames)
+		b.decodedImage = b.gif.frames[b.gifFrame]
+		b.document.RequestPaint()
+		b.gifCancel = b.document.SetTimeout(b.gif.delays[b.gifFrame], advance)
+	}
+	b.gifCancel = b.document.SetTimeout(b.gif.delays[b.gifFrame], advance)
+}
+
+func (b *Image) stopGIF() {
+	if b.gifCancel != nil {
+		b.gifCancel()
+		b.gifCancel = nil
+	}
 }

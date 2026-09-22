@@ -1,10 +1,67 @@
 package fbiw
 
 import (
+	"bytes"
+	"cmp"
+	"image"
+	"image/color"
+	"image/gif"
+	"image/png"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"testing/fstest"
 	"time"
 )
+
+func TestLoadImageSharesStaticAndGIFPath(t *testing.T) {
+	var gifData, pngData bytes.Buffer
+	palette := color.Palette{color.NRGBA{A: 255}}
+	frame := image.NewPaletted(image.Rect(0, 0, 2, 2), palette)
+	if err := gif.EncodeAll(&gifData, &gif.GIF{Image: []*image.Paletted{frame}, Delay: []int{1}, Config: image.Config{Width: 2, Height: 2, ColorModel: palette}}); err != nil {
+		t.Fatal(err)
+	}
+	pngImage := image.NewNRGBA(image.Rect(0, 0, 2, 2))
+	for y := 0; y < 2; y++ {
+		for x := 0; x < 2; x++ {
+			pngImage.SetNRGBA(x, y, color.NRGBA{A: 255})
+		}
+	}
+	if err := png.Encode(&pngData, pngImage); err != nil {
+		t.Fatal(err)
+	}
+	assets := &fstest.MapFS{"a.gif": &fstest.MapFile{Data: gifData.Bytes()}, "b.png": &fstest.MapFile{Data: pngData.Bytes()}}
+	doc := _NewDocument(10, 10, assets, NewFontManager(), NewImageManager())
+	for _, tc := range []struct {
+		path     string
+		animated bool
+	}{{"a.gif", true}, {"b.png", false}} {
+		result, err := doc._loadImage(nil, tc.path, 0, 0, false, ImageDecodeOptions{TrimTransparentBorder: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, gifResult := result.(*_AnimatedGIF)
+		if gifResult != tc.animated {
+			t.Fatalf("%s returned %T", tc.path, result)
+		}
+		if _, err := doc.loadImageSync(nil, tc.path, 2, 2, ImageDecodeOptions{TrimTransparentBorder: true}); err != nil {
+			t.Fatalf("%s not cached at native size: %v", tc.path, err)
+		}
+	}
+	path := filepath.Join(t.TempDir(), "a.gif")
+	if err := os.WriteFile(path, gifData.Bytes(), 0600); err != nil {
+		t.Fatal(err)
+	}
+	dir, base := filepath.Split(path)
+	result, err := doc._loadImage(os.DirFS(cmp.Or(dir, `.`)), base, 0, 0, false, ImageDecodeOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := result.(*_AnimatedGIF); !ok {
+		t.Fatalf("os GIF returned %T", result)
+	}
+}
 
 func TestParseBoxSupportsAnyBoxRoot(t *testing.T) {
 	doc := &Document{}

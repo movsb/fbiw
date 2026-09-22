@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"image"
 	"image/color"
+	"image/gif"
 	"image/png"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"github.com/movsb/fbiw/internal/canvas"
 	"github.com/movsb/fbiw/internal/canvas/cpu"
@@ -195,5 +197,97 @@ func TestCanvasClipLimitsDrawing(t *testing.T) {
 				t.Fatalf(`pixel (%d,%d) painted=%t, want %t`, x, y, painted, want)
 			}
 		}
+	}
+}
+
+func TestDecodedPixelsFastPathWithSubimage(t *testing.T) {
+	for _, source := range []image.Image{
+		image.NewNRGBA(image.Rect(0, 0, 3, 2)),
+		image.NewRGBA(image.Rect(0, 0, 3, 2)),
+	} {
+		switch img := source.(type) {
+		case *image.NRGBA:
+			img.SetNRGBA(1, 1, color.NRGBA{R: 12, G: 34, B: 56, A: 255})
+			source = img.SubImage(image.Rect(1, 1, 2, 2))
+		case *image.RGBA:
+			img.SetRGBA(1, 1, color.RGBA{R: 12, G: 34, B: 56, A: 255})
+			source = img.SubImage(image.Rect(1, 1, 2, 2))
+		}
+		got := decodedPixels(source)
+		if got.Width != 1 || got.Height != 1 || !got.Opaque || !bytes.Equal(got.Pixels, []byte{56, 34, 12, 255}) {
+			t.Fatalf("%T: %+v", source, got)
+		}
+	}
+}
+
+func TestDecodedPixelsPalettedOffset(t *testing.T) {
+	img := image.NewPaletted(image.Rect(4, 5, 5, 6), color.Palette{color.NRGBA{R: 12, G: 34, B: 56, A: 128}})
+	got := decodedPixels(img)
+	if got.Width != 1 || got.Height != 1 || got.Opaque || !bytes.Equal(got.Pixels, []byte{56, 34, 12, 128}) {
+		t.Fatalf("paletted offset: %+v", got)
+	}
+}
+
+func TestDecodeGIFFrames(t *testing.T) {
+	palette := color.Palette{color.NRGBA{}, color.NRGBA{R: 255, A: 255}, color.NRGBA{G: 255, A: 255}}
+	frame := func(rect image.Rectangle, pixels []uint8) *image.Paletted {
+		p := image.NewPaletted(rect, palette)
+		copy(p.Pix, pixels)
+		return p
+	}
+	g := &gif.GIF{Image: []*image.Paletted{
+		frame(image.Rect(0, 0, 3, 1), []uint8{1, 1, 1}),
+		frame(image.Rect(1, 0, 2, 1), []uint8{2}),
+		frame(image.Rect(2, 0, 3, 1), []uint8{2}),
+		frame(image.Rect(0, 0, 1, 1), []uint8{2}),
+	}, Delay: []int{2, 3, 4, 0}, Disposal: []byte{gif.DisposalNone, gif.DisposalPrevious, gif.DisposalBackground, gif.DisposalNone}, Config: image.Config{Width: 3, Height: 1, ColorModel: palette}}
+	var encoded bytes.Buffer
+	if err := gif.EncodeAll(&encoded, g); err != nil {
+		t.Fatal(err)
+	}
+	got, err := decodeGIF(fstest.MapFS{"a.gif": &fstest.MapFile{Data: encoded.Bytes()}}, "a.gif", 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.frames) != 4 || got.delays[0] != 20*time.Millisecond || got.delays[3] != 10*time.Millisecond {
+		t.Fatalf("frames/delays: %d %v", len(got.frames), got.delays)
+	}
+	for i, want := range [][]byte{{1, 1, 1}, {1, 2, 1}, {1, 1, 2}, {2, 1, 0}} {
+		for x, index := range want {
+			p := got.frames[i].Pixels[x*4 : x*4+4]
+			if index == 0 && p[3] != 0 || index == 1 && (p[2] != 255 || p[3] != 255) || index == 2 && (p[1] != 255 || p[3] != 255) {
+				t.Fatalf("frame %d pixel %d = %v", i, x, p)
+			}
+		}
+	}
+}
+
+func TestSingleFrameGIFAndStaticPNG(t *testing.T) {
+	palette := color.Palette{color.NRGBA{}, color.NRGBA{R: 255, A: 255}}
+	frame := image.NewPaletted(image.Rect(0, 0, 1, 1), palette)
+	frame.Pix[0] = 1
+	var encoded bytes.Buffer
+	if err := gif.EncodeAll(&encoded, &gif.GIF{Image: []*image.Paletted{frame}, Delay: []int{1}, Config: image.Config{Width: 1, Height: 1, ColorModel: palette}}); err != nil {
+		t.Fatal(err)
+	}
+	fsy := fstest.MapFS{"one.gif": &fstest.MapFile{Data: encoded.Bytes()}}
+	g, err := decodeGIF(fsy, "one.gif", 0, 0)
+	if err != nil || len(g.frames) != 1 {
+		t.Fatalf("single frame: %v %v", g, err)
+	}
+	_, doc, _ := newAnimationTestApp(t)
+	defer doc.Close()
+	img := NewImage(doc)
+	img.gif, img.decodedImage = g, g.frames[0]
+	img.startGIF()
+	if len(doc.timers) != 0 {
+		t.Fatal("single frame scheduled playback")
+	}
+	encoded.Reset()
+	if err := png.Encode(&encoded, image.NewNRGBA(image.Rect(0, 0, 1, 1))); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewImageManager().GetImageCached(&fstest.MapFS{"still.png": &fstest.MapFile{Data: encoded.Bytes()}}, "still.png", ImageDecodeOptions{}); err != nil {
+		t.Fatal(err)
 	}
 }

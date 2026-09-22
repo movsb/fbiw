@@ -14,7 +14,7 @@
 - 支持始终位于文档栈上方的系统覆盖层，以及供文档避让覆盖层的安全区域；
 - 支持颜色、背景图片、边框、内边距、尺寸、字体和对齐等样式；
 - 支持 OpenType 字体、字形缓存和文本分段；
-- 支持 PNG 等 Go `image` 包可解码的图片，并提供缩放缓存；
+- 支持 PNG 等 Go `image` 包可解码的图片，并提供缩放缓存；`<img>` 中的 GIF 自动循环播放；
 - 事件支持捕获、目标和冒泡阶段；
 - 提供异步资源加载和主线程 UI 回调；
 - Linux 使用 `/dev/fb0` 和 `/dev/input/event*`；
@@ -1093,8 +1093,12 @@ listHeight = border + padding + contentHeight
 
 ```html
 <img src="icon.png" width="64" height="64">
+<img src="loading.gif" width="64" height="64">
 <block background-image="panel.png"></block>
 ```
+
+GIF 在 `<img>` 中按文件的帧间隔自动循环播放；单帧 GIF 显示为静态图片。
+播放使用 GIF 的完整画布尺寸，避免局部帧导致布局抖动。
 
 也可以通过 `os:` 来源读取操作系统文件。应用应只加载可信路径。
 
@@ -1369,6 +1373,12 @@ GOEXPERIMENT=simd go run ./demo/list
 GOEXPERIMENT=simd go run ./demo/table
 GOEXPERIMENT=simd go run ./demo/safe
 GOEXPERIMENT=simd go run ./demo/theme
+```
+
+使用自己的 GIF 运行播放器示例，展示原始尺寸和缩放后的自动循环播放：
+
+```bash
+GOEXPERIMENT=simd go run ./demo/gif /path/to/your.gif
 ```
 
 示例期望存在 `demo/regular.ttf`。该字体文件当前未包含在仓库中，运行前需要自行放置一个可用的 OpenType/TrueType 字体，并命名为 `regular.ttf`。

@@ -6,6 +6,7 @@ import (
 	"image"
 	"image/color"
 	"image/draw"
+	"image/gif"
 	"image/png"
 	"io"
 	"io/fs"
@@ -14,6 +15,7 @@ import (
 	"os"
 	"sync/atomic"
 	"time"
+	"unsafe"
 
 	"github.com/movsb/fbiw/internal/canvas"
 	"github.com/movsb/fbiw/internal/ports"
@@ -22,7 +24,6 @@ import (
 	"golang.org/x/image/font"
 	"golang.org/x/image/font/opentype"
 
-	_ "image/gif"
 	_ "image/jpeg"
 
 	_ "golang.org/x/image/bmp"
@@ -352,6 +353,7 @@ type ImageDecodeOptions struct {
 
 type ImageManager struct {
 	contentCache *lru.TTLCache[_ImageCacheKey, DecodedImage]
+	gifCache     *lru.TTLCache[_ImageCacheKey, *_AnimatedGIF]
 
 	// 图片加载可能被异步调用。
 	closed atomic.Bool
@@ -361,6 +363,7 @@ func NewImageManager() *ImageManager {
 	return &ImageManager{
 		// https://github.com/phuslu/lru/issues/32
 		contentCache: lru.NewTTLCache(1024, lru.WithShards[_ImageCacheKey, DecodedImage](1)),
+		gifCache:     lru.NewTTLCache(16, lru.WithShards[_ImageCacheKey, *_AnimatedGIF](1)),
 	}
 }
 
@@ -407,61 +410,7 @@ func (m *ImageManager) decodeImage(fsys fs.FS, path string, wantWidth, wantHeigh
 		height = wantHeight
 	}
 
-	decoded := DecodedImage{
-		Width:  width,
-		Height: height,
-		Pixels: make([]byte, width*height*4),
-		Opaque: true,
-	}
-
-	var pixels []byte
-	var stride int
-
-	switch m := img.(type) {
-	case *image.RGBA:
-		pixels = m.Pix
-		stride = m.Stride
-	case *image.NRGBA:
-		pixels = m.Pix
-		stride = m.Stride
-	}
-
-	// fast-path
-	if len(pixels) > 0 {
-		for y := range decoded.Height {
-			s := pixels[y*stride:]
-			for x := range decoded.Width {
-				offset := (y*decoded.Width + x) * 4
-				d := decoded.Pixels[offset : offset+4]
-				d[0] = s[2+x*4]
-				d[1] = s[1+x*4]
-				d[2] = s[0+x*4]
-				d[3] = s[3+x*4]
-				if d[3] != 255 {
-					decoded.Opaque = false
-				}
-			}
-		}
-		return decoded, nil
-	}
-
-	// better-slow than never 🥵
-	for y0, y1 := img.Bounds().Min.Y, img.Bounds().Max.Y; y0 < y1; y0++ {
-		for x0, x1 := img.Bounds().Min.X, img.Bounds().Max.X; x0 < x1; x0++ {
-			converted := color.NRGBAModel.Convert(img.At(x0, y0)).(color.NRGBA)
-			offset := (y0*decoded.Width + x0) * 4
-			d := decoded.Pixels[offset : offset+4]
-			d[0] = converted.B
-			d[1] = converted.G
-			d[2] = converted.R
-			d[3] = converted.A
-			if converted.A != 255 {
-				decoded.Opaque = false
-			}
-		}
-	}
-
-	return decoded, nil
+	return decodedPixels(img), nil
 }
 
 func trimTransparentBorder(img image.Image) image.Image {
@@ -536,6 +485,148 @@ func (m *ImageManager) _getImageCached(fsys fs.FS, path string, width, height in
 	}
 
 	return img, err
+}
+
+type _AnimatedGIF struct {
+	frames []DecodedImage
+	delays []time.Duration
+}
+
+func decodeGIF(fsys fs.FS, path string, width, height int) (*_AnimatedGIF, error) {
+	f, err := fsys.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	g, err := gif.DecodeAll(f)
+	if err != nil {
+		return nil, err
+	}
+	if len(g.Image) == 0 {
+		return nil, fmt.Errorf("GIF has no frames: %s", path)
+	}
+	if width == 0 || height == 0 {
+		width, height = g.Config.Width, g.Config.Height
+	}
+	result := &_AnimatedGIF{
+		frames: make([]DecodedImage, 0, len(g.Image)),
+		delays: make([]time.Duration, 0, len(g.Image)),
+	}
+	canvas := image.NewNRGBA(image.Rect(0, 0, g.Config.Width, g.Config.Height))
+	for i, frame := range g.Image {
+		var previous *image.NRGBA
+		if i < len(g.Disposal) && g.Disposal[i] == gif.DisposalPrevious {
+			previous = image.NewNRGBA(canvas.Bounds())
+			copy(previous.Pix, canvas.Pix)
+		}
+		draw.Draw(canvas, frame.Bounds(), frame, frame.Bounds().Min, draw.Over)
+		resized := image.Image(canvas)
+		if width != g.Config.Width || height != g.Config.Height {
+			dst := image.NewNRGBA(image.Rect(0, 0, width, height))
+			xdraw.CatmullRom.Scale(dst, dst.Bounds(), canvas, canvas.Bounds(), draw.Src, nil)
+			resized = dst
+		}
+		result.frames = append(result.frames, decodedPixels(resized))
+		delay := time.Duration(g.Delay[i]) * 10 * time.Millisecond
+		if delay <= 0 {
+			delay = 10 * time.Millisecond
+		}
+		result.delays = append(result.delays, delay)
+		if i < len(g.Disposal) {
+			switch g.Disposal[i] {
+			case gif.DisposalBackground:
+				draw.Draw(canvas, frame.Bounds(), image.Transparent, image.Point{}, draw.Src)
+			case gif.DisposalPrevious:
+				if previous != nil {
+					canvas = previous
+				}
+			}
+		}
+	}
+	return result, nil
+}
+
+func decodedPixels(img image.Image) DecodedImage {
+	b := img.Bounds()
+
+	decoded := DecodedImage{
+		Width:  b.Dx(),
+		Height: b.Dy(),
+		Pixels: make([]byte, b.Dx()*b.Dy()*4),
+		Opaque: true,
+	}
+
+	var pixels []byte
+	var stride int
+
+	switch m := img.(type) {
+	case *image.RGBA:
+		pixels = m.Pix
+		stride = m.Stride
+	case *image.NRGBA:
+		pixels = m.Pix
+		stride = m.Stride
+	}
+
+	// fast-path
+	if len(pixels) > 0 {
+		for y := range decoded.Height {
+			s := pixels[y*stride:]
+			for x := range decoded.Width {
+				offset := (y*decoded.Width + x) * 4
+				d := decoded.Pixels[offset : offset+4]
+				d[0] = s[2+x*4]
+				d[1] = s[1+x*4]
+				d[2] = s[0+x*4]
+				d[3] = s[3+x*4]
+				if d[3] != 255 {
+					decoded.Opaque = false
+				}
+			}
+		}
+		return decoded
+	}
+
+	// better-slow than never 🥵
+	minY, maxY := img.Bounds().Min.Y, img.Bounds().Max.Y
+	minX, maxX := img.Bounds().Min.X, img.Bounds().Max.X
+	for y0, y1 := minY, maxY; y0 < y1; y0++ {
+		for x0, x1 := minX, maxX; x0 < x1; x0++ {
+			c := color.NRGBAModel.Convert(img.At(x0, y0)).(color.NRGBA)
+			offset := ((y0-minY)*decoded.Width + x0 - minX) * 4
+			d := decoded.Pixels[offset : offset+4]
+			cr := ColorFromRGBA(c.R, c.G, c.B, c.A)
+			*(*uint32)(unsafe.Pointer(&d[0])) = cr.Value()
+			if cr.A() != 255 {
+				decoded.Opaque = false
+			}
+		}
+	}
+
+	return decoded
+}
+
+func (m *ImageManager) getGIF(fsys fs.FS, path string, width, height int, checking bool) (*_AnimatedGIF, error) {
+	if m.closed.Load() {
+		return nil, fs.ErrClosed
+	}
+	key := _ImageCacheKey{fsys: fsys, path: path, width: width, height: height}
+	if checking {
+		if value, found := m.gifCache.Get(key); found {
+			return value, nil
+		}
+		return nil, os.ErrNotExist
+	}
+	value, err, _ := m.gifCache.GetOrLoad(context.Background(), key, func(context.Context, _ImageCacheKey) (*_AnimatedGIF, time.Duration, error) {
+		v, e := decodeGIF(fsys, path, width, height)
+		return v, 10 * time.Minute, e
+	})
+	if width == 0 && height == 0 && err == nil {
+		actual := key
+		actual.width, actual.height = value.frames[0].Width, value.frames[0].Height
+		m.gifCache.SetIfAbsent(actual, value, 10*time.Minute)
+	}
+	return value, err
 }
 
 type FontManager struct {
