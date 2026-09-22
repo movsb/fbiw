@@ -177,6 +177,23 @@ func TestCanvasClipLimitsDrawing(t *testing.T) {
 	}
 }
 
+func TestDrawRoundedRect(t *testing.T) {
+	canvas := NewCanvas(cpu.New(9, 9)).Offset(1, 1)
+	fill := ColorFromRGBA(0, 255, 0, 255)
+	border := ColorFromRGBA(255, 0, 0, 255)
+	canvas.DrawRect(0, 0, 7, 7, 3, 1, fill, border)
+
+	if got := canvas.testGetPixel(0, 0); got.A != 0 {
+		t.Fatalf("corner alpha = %d, want 0", got.A)
+	}
+	if got := canvas.testGetPixel(3, 0); got.R == 0 || got.G != 0 {
+		t.Fatalf("border pixel = %v", got)
+	}
+	if got := canvas.testGetPixel(3, 3); got.G == 0 || got.R != 0 {
+		t.Fatalf("fill pixel = %v", got)
+	}
+}
+
 func TestDecodedPixelsFastPathWithSubimage(t *testing.T) {
 	for _, source := range []image.Image{
 		image.NewNRGBA(image.Rect(0, 0, 3, 2)),

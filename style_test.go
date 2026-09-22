@@ -497,10 +497,21 @@ func TestStylesPropertyBits(t *testing.T) {
 	}
 
 	styles.SetBorderWidth(0)
+	styles.SetBorderRadius(0)
 	styles.SetFontBold(false)
 	styles.SetAlign("")
-	if !styles.has(propertyBorderWidth) || !styles.has(propertyFontBold) || !styles.has(propertyAlign) {
+	if !styles.has(propertyBorderWidth) || !styles.has(propertyBorderRadius) || !styles.has(propertyFontBold) || !styles.has(propertyAlign) {
 		t.Fatal("类型化 setter 必须标记显式零值")
+	}
+}
+
+func TestBorderRadiusStyle(t *testing.T) {
+	var styles Styles
+	if _, _, _, err := styles.Set("border-radius", "12"); err != nil {
+		t.Fatal(err)
+	}
+	if styles.BorderRadius != 12 || !styles.has(propertyBorderRadius) {
+		t.Fatalf("border-radius = %d, bits = %#x", styles.BorderRadius, styles.bits)
 	}
 }
 

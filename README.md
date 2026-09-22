@@ -590,6 +590,7 @@ overlay.Close()
 - `background-image`
 - `border-color`
 - `border-width`
+- `border-radius`
 - `outline-color`
 - `outline-width`
 - `color`

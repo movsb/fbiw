@@ -11,6 +11,7 @@ import (
 	"io"
 	"io/fs"
 	"log"
+	"math"
 	"os"
 	"sync/atomic"
 	"time"
@@ -39,7 +40,8 @@ func OpenDisplay() Renderer {
 //
 // 提供基础绘制工具。
 type Canvas struct {
-	renderer Renderer
+	renderer         Renderer
+	roundedRectMasks map[_RoundedRectMaskKey]*image.Alpha
 
 	// 渲染的偏移坐标。
 	x, y int
@@ -51,6 +53,10 @@ type Canvas struct {
 	clip image.Rectangle
 }
 
+type _RoundedRectMaskKey struct {
+	width, height, radius, inset int
+}
+
 func NewCanvas(renderer Renderer) *Canvas {
 	if renderer == nil {
 		panic(`Canvas renderer不能为空`)
@@ -60,12 +66,13 @@ func NewCanvas(renderer Renderer) *Canvas {
 		panic(`无效Canvas大小`)
 	}
 	return &Canvas{
-		renderer: renderer,
-		width:    width,
-		height:   height,
-		x:        0,
-		y:        0,
-		clip:     image.Rect(0, 0, width, height),
+		renderer:         renderer,
+		roundedRectMasks: make(map[_RoundedRectMaskKey]*image.Alpha),
+		width:            width,
+		height:           height,
+		x:                0,
+		y:                0,
+		clip:             image.Rect(0, 0, width, height),
 	}
 }
 
@@ -129,12 +136,13 @@ func (c *Canvas) Offset(x, y int) *Canvas {
 		return c
 	}
 	return &Canvas{
-		renderer: c.renderer,
-		x:        c.x + x,
-		y:        c.y + y,
-		width:    c.width,
-		height:   c.height,
-		clip:     c.clip,
+		renderer:         c.renderer,
+		roundedRectMasks: c.roundedRectMasks,
+		x:                c.x + x,
+		y:                c.y + y,
+		width:            c.width,
+		height:           c.height,
+		clip:             c.clip,
 	}
 }
 
@@ -243,6 +251,96 @@ func (c *Canvas) FillRect(x, y, width, height int, color Color) {
 	}
 
 	c.renderer.FillRect(image.Rect(x0, y0, x1, y1), clip, Color(color))
+}
+
+// DrawRect 绘制带可选填充、边框和圆角的矩形。
+func (c *Canvas) DrawRect(x, y, width, height, radius, borderWidth int, fill, border Color) {
+	if width <= 0 || height <= 0 {
+		return
+	}
+	radius = min(max(radius, 0), min(width, height)/2)
+	borderWidth = min(max(borderWidth, 0), min(width, height)/2)
+	if radius == 0 {
+		if !fill.IsNone() {
+			c.FillRect(x, y, width, height, fill)
+		}
+		if borderWidth > 0 && !border.IsNone() {
+			c.FillRect(x, y, width, borderWidth, border)
+			c.FillRect(x, y+height-borderWidth, width, borderWidth, border)
+			c.FillRect(x, y+borderWidth, borderWidth, height-borderWidth*2, border)
+			c.FillRect(x+width-borderWidth, y+borderWidth, borderWidth, height-borderWidth*2, border)
+		}
+		return
+	}
+	outer := c.roundedRectMask(width, height, radius, 0)
+	if !fill.IsNone() {
+		c.DrawMask(outer, x, y, fill)
+	}
+	if borderWidth > 0 && !border.IsNone() {
+		key := _RoundedRectMaskKey{width, height, radius, -borderWidth}
+		ring := c.roundedRectMasks[key]
+		if ring == nil {
+			inner := c.roundedRectMask(width, height, max(0, radius-borderWidth), borderWidth)
+			ring = image.NewAlpha(outer.Rect)
+			for i := range ring.Pix {
+				ring.Pix[i] = outer.Pix[i] - min(outer.Pix[i], inner.Pix[i])
+			}
+			c.roundedRectMasks[key] = ring
+		}
+		c.DrawMask(ring, x, y, border)
+	}
+}
+
+func (c *Canvas) roundedRectMask(width, height, radius, inset int) *image.Alpha {
+	if c.roundedRectMasks == nil {
+		c.roundedRectMasks = make(map[_RoundedRectMaskKey]*image.Alpha)
+	}
+	key := _RoundedRectMaskKey{width, height, radius, inset}
+	if mask := c.roundedRectMasks[key]; mask != nil {
+		return mask
+	}
+	if len(c.roundedRectMasks) >= 256 {
+		clear(c.roundedRectMasks)
+	}
+	mask := image.NewAlpha(image.Rect(0, 0, width, height))
+	if radius == 0 {
+		for y := inset; y < height-inset; y++ {
+			for x := inset; x < width-inset; x++ {
+				mask.Pix[y*mask.Stride+x] = 255
+			}
+		}
+		c.roundedRectMasks[key] = mask
+		return mask
+	}
+	left, top := float64(inset), float64(inset)
+	right, bottom := float64(width-inset), float64(height-inset)
+	r := min(float64(radius), min(right-left, bottom-top)/2)
+	for y := range height {
+		for x := range width {
+			pixelLeft, pixelTop := float64(x), float64(y)
+			pixelRight, pixelBottom := pixelLeft+1, pixelTop+1
+			if pixelLeft >= left && pixelRight <= right && pixelTop >= top && pixelBottom <= bottom &&
+				((pixelLeft >= left+r && pixelRight <= right-r) ||
+					(pixelTop >= top+r && pixelBottom <= bottom-r)) {
+				mask.Pix[y*mask.Stride+x] = 255
+				continue
+			}
+			covered := 0
+			for sy := range 4 {
+				for sx := range 4 {
+					px, py := float64(x)+(float64(sx)+.5)/4, float64(y)+(float64(sy)+.5)/4
+					qx := max(math.Abs(px-(left+right)/2)-(right-left)/2+r, 0)
+					qy := max(math.Abs(py-(top+bottom)/2)-(bottom-top)/2+r, 0)
+					if px >= left && px < right && py >= top && py < bottom && qx*qx+qy*qy <= r*r {
+						covered++
+					}
+				}
+			}
+			mask.Pix[y*mask.Stride+x] = uint8(covered * 255 / 16)
+		}
+	}
+	c.roundedRectMasks[key] = mask
+	return mask
 }
 
 // 清屏。

@@ -25,6 +25,7 @@ const (
 	propertyBackgroundImage
 	propertyBorderColor
 	propertyBorderWidth
+	propertyBorderRadius
 	propertyOutlineWidth
 	propertyOutlineColor
 	propertyColor
@@ -62,6 +63,7 @@ type Styles struct {
 	BackgroundImage string
 	BorderColor     Color
 	BorderWidth     int
+	BorderRadius    int
 	OutlineWidth    int
 	OutlineColor    Color
 	Color           Color
@@ -160,6 +162,7 @@ func (s *Styles) SetBackgroundImage(value string) {
 }
 func (s *Styles) SetBorderColor(value Color)  { s.BorderColor = value; s.mark(propertyBorderColor) }
 func (s *Styles) SetBorderWidth(value int)    { s.BorderWidth = value; s.mark(propertyBorderWidth) }
+func (s *Styles) SetBorderRadius(value int)   { s.BorderRadius = value; s.mark(propertyBorderRadius) }
 func (s *Styles) SetOutlineWidth(value int)   { s.OutlineWidth = value; s.mark(propertyOutlineWidth) }
 func (s *Styles) SetOutlineColor(value Color) { s.OutlineColor = value; s.mark(propertyOutlineColor) }
 func (s *Styles) SetColor(value Color)        { s.Color = value; s.mark(propertyColor) }
@@ -198,6 +201,8 @@ func stylePropertyByName(name string) styleProperty {
 		return propertyBorderColor
 	case `border-width`, `BorderWidth`:
 		return propertyBorderWidth
+	case `border-radius`, `BorderRadius`:
+		return propertyBorderRadius
 	case `outline-width`, `OutlineWidth`:
 		return propertyOutlineWidth
 	case `outline-color`, `OutlineColor`:
@@ -448,6 +453,11 @@ func (s *Styles) parseProperty(name string, raw string) (
 	case `border-width`:
 		affectLayout = true
 		current = &s.BorderWidth
+		update, outErr = parseNumber(raw)
+		return
+	case `border-radius`:
+		affectPaint = true
+		current = &s.BorderRadius
 		update, outErr = parseNumber(raw)
 		return
 	case `outline-color`:
