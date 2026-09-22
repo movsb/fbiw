@@ -1,15 +1,11 @@
 package fbiw
 
 import (
-	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strconv"
-
-	"github.com/mattn/go-isatty"
-	"golang.org/x/sys/unix"
 )
 
 func Must(err error) {
@@ -38,42 +34,6 @@ func Iif[T any](cond bool, a, b T) T {
 		return a
 	}
 	return b
-}
-
-func captureStdoutStderr(w io.Writer) error {
-	r, pipeWriter, err := os.Pipe()
-	if err != nil {
-		return err
-	}
-
-	if err := unix.Dup2(int(pipeWriter.Fd()), int(os.Stdout.Fd())); err != nil {
-		r.Close()
-		pipeWriter.Close()
-		return err
-	}
-	if err := unix.Dup2(int(pipeWriter.Fd()), int(os.Stderr.Fd())); err != nil {
-		r.Close()
-		pipeWriter.Close()
-		return err
-	}
-	pipeWriter.Close()
-
-	go func() {
-		defer r.Close()
-		io.Copy(w, r)
-	}()
-
-	return nil
-}
-
-func init() {
-	if runtime.GOOS == `linux` && !isatty.IsTerminal(os.Stdout.Fd()) {
-		// 文件不用关。
-		logFile, err := os.OpenFile(`/tmp/fbiw.log`, os.O_WRONLY|os.O_CREATE|os.O_APPEND|os.O_SYNC, 0600)
-		if err == nil {
-			captureStdoutStderr(logFile)
-		}
-	}
 }
 
 // 返回此函数的调用者的目录文件系统。

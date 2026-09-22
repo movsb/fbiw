@@ -1,0 +1,61 @@
+precision highp float;
+
+varying vec2 v_uv;
+varying vec2 v_pixel;
+uniform sampler2D u_texture;
+uniform vec4 u_color;
+uniform vec4 u_uv;
+uniform vec4 u_inverse;
+uniform vec2 u_center;
+uniform vec2 u_image_size;
+uniform int u_mode;
+
+vec4 samplePixel(vec2 pixel) {
+	if (pixel.x < 0.0 || pixel.y < 0.0 ||
+		pixel.x >= u_image_size.x || pixel.y >= u_image_size.y) {
+		return vec4(0.0);
+	}
+	return texture2D(u_texture, (pixel + 0.5) / u_image_size).bgra;
+}
+
+void main() {
+	if (u_mode == 0) {
+		gl_FragColor = u_color;
+		return;
+	}
+	if (u_mode == 1) {
+		gl_FragColor = texture2D(u_texture, u_uv.xy + v_uv * u_uv.zw).bgra;
+		return;
+	}
+	if (u_mode == 4) {
+		gl_FragColor = texture2D(u_texture, vec2(v_uv.x, 1.0 - v_uv.y));
+		return;
+	}
+	if (u_mode == 2) {
+		float coverage = texture2D(u_texture, u_uv.xy + v_uv * u_uv.zw).a;
+		if (coverage == 0.0) discard;
+		gl_FragColor = vec4(u_color.rgb, coverage * u_color.a);
+		return;
+	}
+
+	vec2 delta = v_pixel - u_center;
+	vec2 source = vec2(
+		u_inverse.x * delta.x + u_inverse.y * delta.y,
+		u_inverse.z * delta.x + u_inverse.w * delta.y
+	) + u_image_size * 0.5 - 0.5;
+	vec2 base = floor(source);
+	vec2 fraction = source - base;
+	vec4 c00 = samplePixel(base);
+	vec4 c10 = samplePixel(base + vec2(1.0, 0.0));
+	vec4 c01 = samplePixel(base + vec2(0.0, 1.0));
+	vec4 c11 = samplePixel(base + vec2(1.0, 1.0));
+	float w00 = (1.0 - fraction.x) * (1.0 - fraction.y);
+	float w10 = fraction.x * (1.0 - fraction.y);
+	float w01 = (1.0 - fraction.x) * fraction.y;
+	float w11 = fraction.x * fraction.y;
+	float alpha = c00.a*w00 + c10.a*w10 + c01.a*w01 + c11.a*w11;
+	if (alpha <= 0.0) discard;
+	vec3 premultiplied = c00.rgb*c00.a*w00 + c10.rgb*c10.a*w10 +
+						 c01.rgb*c01.a*w01 + c11.rgb*c11.a*w11;
+	gl_FragColor = vec4(premultiplied / alpha, alpha);
+}

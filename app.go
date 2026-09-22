@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"iter"
 	"log"
+	"runtime"
 	"slices"
 	"sync"
 	"time"
@@ -14,6 +15,14 @@ import (
 	"github.com/movsb/fbiw/internal/event"
 	"github.com/movsb/fbiw/internal/ports"
 )
+
+var logFrameTime = log.Println
+
+func init() {
+	if runtime.GOOS == "js" && runtime.GOARCH == "wasm" {
+		logFrameTime = func(...any) {}
+	}
+}
 
 type Option func(app *App)
 
@@ -640,7 +649,7 @@ func (app *App) sync() {
 		for doc := range desktop.All() {
 			now := time.Now()
 			doc.sync(app.canvas, forceLayout, true)
-			log.Println(`帧绘制时长：`, doc.name, time.Since(now).Round(time.Microsecond*100))
+			logFrameTime(`帧绘制时长：`, doc.name, time.Since(now).Round(time.Microsecond*100))
 		}
 	}
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
@@ -13,6 +14,7 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/mattn/go-isatty"
 	"github.com/movsb/fbiw/input"
 	"github.com/movsb/fbiw/input/sticks"
 	"github.com/movsb/fbiw/internal/canvas"
@@ -21,6 +23,41 @@ import (
 	"github.com/movsb/fbiw/internal/event"
 	"golang.org/x/sys/unix"
 )
+
+// Linux programs without an attached terminal write their logs to a file.
+// This port is imported by fbiw, so its init runs with the application.
+func init() {
+	if isatty.IsTerminal(os.Stdout.Fd()) {
+		return
+	}
+	logFile, err := os.OpenFile(`/tmp/fbiw.log`, os.O_WRONLY|os.O_CREATE|os.O_APPEND|os.O_SYNC, 0600)
+	if err != nil {
+		return
+	}
+	if err := captureStdoutStderr(logFile); err != nil {
+		logFile.Close()
+	}
+}
+
+func captureStdoutStderr(w io.Writer) error {
+	r, pipeWriter, err := os.Pipe()
+	if err != nil {
+		return err
+	}
+	if err := unix.Dup2(int(pipeWriter.Fd()), int(os.Stdout.Fd())); err != nil {
+		r.Close()
+		pipeWriter.Close()
+		return err
+	}
+	if err := unix.Dup2(int(pipeWriter.Fd()), int(os.Stderr.Fd())); err != nil {
+		r.Close()
+		pipeWriter.Close()
+		return err
+	}
+	pipeWriter.Close()
+	go func() { defer r.Close(); io.Copy(w, r) }()
+	return nil
+}
 
 func OpenDisplay() canvas.Renderer {
 	if os.Getenv("FBIW_GPU_PROBE") == "1" {

@@ -1,10 +1,10 @@
 # fbiw
 
-`fbiw` 是一个使用 Go 编写的轻量级 GUI 框架，主要面向使用 Linux framebuffer 和游戏手柄按键交互的固定屏幕设备。
+`fbiw` 是一个使用 Go 编写的轻量级 GUI 框架，最初面向使用 Linux framebuffer 和游戏手柄按键的固定屏幕设备，现在也可在 macOS 窗口和支持 WebGL 的浏览器中运行。
 
-它不依赖浏览器或 WebView，而是自行实现了一套精简的 HTML/CSS 风格界面描述、DOM、布局、事件传播和软件渲染系统。在 macOS 上，项目通过 SDL2 提供一个 `1024×768` 的开发窗口，便于在桌面环境中调试界面。
+它自行实现了精简的 HTML/CSS 风格界面描述、DOM、布局和事件传播，并通过平台后端绘制：Linux 使用 framebuffer 或 GLES，macOS 通过 SDL2 创建窗口并优先使用 Metal，浏览器使用 Go js/wasm 和 WebGL。浏览器端复用框架自己的界面系统，不使用浏览器的 DOM/CSS 引擎进行布局和绘制。
 
-> 项目目前仍处于开发阶段，适合固定分辨率、方向键操作的掌机菜单和系统界面，不应视为完整的浏览器布局引擎或通用桌面 GUI 框架。
+> 项目目前仍处于开发阶段，适合方向键操作的掌机菜单和系统界面，不应视为完整的浏览器布局引擎或通用桌面 GUI 框架。
 
 ## 特性
 
@@ -18,7 +18,8 @@
 - 事件支持捕获、目标和冒泡阶段；
 - 提供异步资源加载和主线程 UI 回调；
 - Linux 使用 `/dev/fb0` 和 `/dev/input/event*`；
-- macOS 使用 SDL2 模拟屏幕和按键。
+- macOS 使用 SDL2 模拟屏幕和按键；
+- 浏览器通过 Go js/wasm 和 WebGL 绘制界面，并支持键盘输入。
 
 ## 环境要求
 
@@ -33,6 +34,18 @@
 ```bash
 go get github.com/movsb/fbiw
 ```
+
+## 浏览器示例
+
+`demo/browser` 提供 WebGL 浏览器端口的示例。构建 wasm 并启动本地 HTTP 服务：
+
+```sh
+GOOS=js GOARCH=wasm go build -o demo/browser/app.wasm ./demo/browser
+cp "$(go env GOROOT)/lib/wasm/wasm_exec.js" demo/browser/wasm_exec.js
+python3 -m http.server 8765 --directory demo/browser
+```
+
+打开 <http://localhost:8765/>。页面需提供 ID 为 `fbiw-canvas` 的 `<canvas>`，并加载与 Go 版本匹配的 `wasm_exec.js`。画布随浏览器窗口调整；键位与 macOS 端口一致（W/A/S/D、K/J 等）。
 
 ## 快速开始
 

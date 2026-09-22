@@ -3,11 +3,18 @@ package fbiw
 import (
 	"context"
 	"math"
+	"runtime"
 	"sync/atomic"
 	"time"
 )
 
-const animationFrameInterval = time.Second / 60
+var animationFrameInterval = time.Second / 60
+
+func init() {
+	if runtime.GOOS == "js" && runtime.GOARCH == "wasm" {
+		animationFrameInterval = 0 // requestAnimationFrame controls browser cadence.
+	}
+}
 
 type _AnimationRequest struct {
 	doc      *Document

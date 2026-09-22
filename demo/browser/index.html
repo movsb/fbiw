@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>fbiw WebGL</title>
+  <style>
+    html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: #111; }
+    canvas { display: block; width: 100vw; height: 100vh; }
+  </style>
+</head>
+<body>
+  <canvas id="fbiw-canvas"></canvas>
+  <script src="wasm_exec.js"></script>
+  <script>
+    const go = new Go();
+    WebAssembly.instantiateStreaming(fetch("app.wasm"), go.importObject)
+      .then(({ instance }) => go.run(instance))
+      .catch(error => {
+        document.body.textContent = String(error);
+        console.error(error);
+      });
+  </script>
+</body>
+</html>

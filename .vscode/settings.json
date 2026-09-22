@@ -18,7 +18,8 @@
 		"rasterizer",
 		"stylesheet",
 		"SWAR",
-		"trimui"
+		"trimui",
+		"webgl",
 	],
 	"go.toolsEnvVars": {
 		"GOEXPERIMENT": "simd"
