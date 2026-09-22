@@ -232,10 +232,10 @@ func TestToggleDrawsIndicatorAccordingToState(t *testing.T) {
 	trackX := 0
 	trackY := 0
 	inset := min(trackWidth, trackHeight) / 10
-	if got := canvas.getPixel(trackX, trackY); got != toggle.trackColor.NRGBA() {
+	if got := canvas.testGetPixel(trackX, trackY); got != toggle.trackColor.NRGBA() {
 		t.Fatalf(`未选中轨道颜色不正确：%v`, got)
 	}
-	if got := canvas.getPixel(trackX+inset, trackY+inset); got != toggle.knobColor.NRGBA() {
+	if got := canvas.testGetPixel(trackX+inset, trackY+inset); got != toggle.knobColor.NRGBA() {
 		t.Fatalf(`未选中滑块位置不正确：%v`, got)
 	}
 
@@ -243,12 +243,12 @@ func TestToggleDrawsIndicatorAccordingToState(t *testing.T) {
 	toggle.checked = true
 	toggle.knobProgress = 1
 	toggle.Draw(canvas)
-	if got := canvas.getPixel(trackX, trackY); got != toggle.checkedTrackColor.NRGBA() {
+	if got := canvas.testGetPixel(trackX, trackY); got != toggle.checkedTrackColor.NRGBA() {
 		t.Fatalf(`选中轨道颜色不正确：%v`, got)
 	}
 	knobSize := trackHeight - inset*2
 	knobX := trackX + trackWidth - inset - knobSize
-	if got := canvas.getPixel(knobX, trackY+inset); got != toggle.knobColor.NRGBA() {
+	if got := canvas.testGetPixel(knobX, trackY+inset); got != toggle.knobColor.NRGBA() {
 		t.Fatalf(`选中滑块位置不正确：%v`, got)
 	}
 }
@@ -318,7 +318,7 @@ func TestToggleAnimationPaintOnly(t *testing.T) {
 	knobSize := layout.Height - inset*2
 	knobX := inset + int(math.Round(float64(layout.Width-inset*2-knobSize)*0.75))
 	wantTrack := ColorAnimator(toggle.trackColor, toggle.checkedTrackColor)(0.75).NRGBA()
-	if canvas.getPixel(knobX, inset) != toggle.knobColor.NRGBA() || canvas.getPixel(inset, inset) != wantTrack {
+	if canvas.testGetPixel(knobX, inset) != toggle.knobColor.NRGBA() || canvas.testGetPixel(inset, inset) != wantTrack {
 		t.Fatal("实际绘制的滑块或轨道颜色不在补间位置")
 	}
 	clock.now = clock.now.Add(toggleAnimationDuration / 2)
@@ -461,20 +461,20 @@ func TestCheckSizeColorsAndDrawing(t *testing.T) {
 	}
 	canvas := NewCanvas(cpu.New(check.layoutBox.Width, check.layoutBox.Height))
 	check.Draw(canvas)
-	if got := canvas.getPixel(check.InsetLeft(), check.InsetTop()); got != check.boxColor.NRGBA() {
+	if got := canvas.testGetPixel(check.InsetLeft(), check.InsetTop()); got != check.boxColor.NRGBA() {
 		t.Fatalf(`未选中边框颜色不正确：%v`, got)
 	}
-	if got := canvas.getPixel(check.InsetLeft()+5, check.InsetTop()+5); got.A != 0 {
+	if got := canvas.testGetPixel(check.InsetLeft()+5, check.InsetTop()+5); got.A != 0 {
 		t.Fatalf(`未选中方框内部不透明：%v`, got)
 	}
 	check.checked = true
 	check.Draw(canvas)
-	if got := canvas.getPixel(check.InsetLeft()+5, check.InsetTop()+5); got != check.checkedBoxColor.NRGBA() {
+	if got := canvas.testGetPixel(check.InsetLeft()+5, check.InsetTop()+5); got != check.checkedBoxColor.NRGBA() {
 		t.Fatalf(`选中方框颜色不正确：%v`, got)
 	}
 	markX := check.InsetLeft() + int(math.Round(.42*float64(30-1)))
 	markY := check.InsetTop() + int(math.Round(.72*float64(30-1)))
-	if got := canvas.getPixel(markX, markY); got != check.markColor.NRGBA() {
+	if got := canvas.testGetPixel(markX, markY); got != check.markColor.NRGBA() {
 		t.Fatalf(`没有绘制勾号：%v`, got)
 	}
 }
@@ -645,10 +645,10 @@ func TestProgressIndeterminateDraw(t *testing.T) {
 	canvas := NewCanvas(cpu.New(12, 4))
 	progress.Draw(canvas)
 	// 色块宽 3，包含轨道外区域的移动距离为 15，中点四舍五入到 x=5。
-	if canvas.getPixel(4, 0) != progress.trackColor.NRGBA() ||
-		canvas.getPixel(5, 0) != progress.valueColor.NRGBA() ||
-		canvas.getPixel(7, 0) != progress.valueColor.NRGBA() ||
-		canvas.getPixel(8, 0) != progress.trackColor.NRGBA() {
+	if canvas.testGetPixel(4, 0) != progress.trackColor.NRGBA() ||
+		canvas.testGetPixel(5, 0) != progress.valueColor.NRGBA() ||
+		canvas.testGetPixel(7, 0) != progress.valueColor.NRGBA() ||
+		canvas.testGetPixel(8, 0) != progress.trackColor.NRGBA() {
 		t.Fatal("不确定进度色块绘制位置不正确")
 	}
 	for _, phase := range []float64{0, 1} {
@@ -657,12 +657,12 @@ func TestProgressIndeterminateDraw(t *testing.T) {
 		canvas = NewCanvas(cpu.New(20, 4))
 		progress.Draw(canvas)
 		for x := range 12 {
-			if canvas.getPixel(x, 0) != progress.trackColor.NRGBA() {
+			if canvas.testGetPixel(x, 0) != progress.trackColor.NRGBA() {
 				t.Fatalf("端点 %v 的色块没有完全消失", phase)
 			}
 		}
 		for x := 12; x < 20; x++ {
-			if canvas.getPixel(x, 0) != (color.NRGBA{}) {
+			if canvas.testGetPixel(x, 0) != (color.NRGBA{}) {
 				t.Fatalf("端点 %v 的色块画到了轨道外", phase)
 			}
 		}
@@ -706,23 +706,23 @@ func TestProgressDrawsValue(t *testing.T) {
 	canvas := NewCanvas(cpu.New(10, 4))
 
 	progress.Draw(canvas)
-	if got := canvas.getPixel(0, 0); got != progress.trackColor.NRGBA() {
+	if got := canvas.testGetPixel(0, 0); got != progress.trackColor.NRGBA() {
 		t.Fatalf(`0%% 轨道颜色不正确：%v`, got)
 	}
 
 	// 这里只验证静态绘制，直接设置逻辑值和显示值，不启动动画。
 	progress.value, progress.displayValue = 0.25, 0.25
 	progress.Draw(canvas)
-	if got := canvas.getPixel(2, 0); got != progress.valueColor.NRGBA() {
+	if got := canvas.testGetPixel(2, 0); got != progress.valueColor.NRGBA() {
 		t.Fatalf(`25%% 完成区域宽度不足：%v`, got)
 	}
-	if got := canvas.getPixel(3, 0); got != progress.trackColor.NRGBA() {
+	if got := canvas.testGetPixel(3, 0); got != progress.trackColor.NRGBA() {
 		t.Fatalf(`25%% 完成区域宽度过大：%v`, got)
 	}
 
 	progress.value, progress.displayValue = 1, 1
 	progress.Draw(canvas)
-	if got := canvas.getPixel(9, 3); got != progress.valueColor.NRGBA() {
+	if got := canvas.testGetPixel(9, 3); got != progress.valueColor.NRGBA() {
 		t.Fatalf(`100%% 没有铺满内容区：%v`, got)
 	}
 }
@@ -1219,14 +1219,14 @@ func TestScrollDrawsClippedOffsetContent(t *testing.T) {
 
 	canvas := NewCanvas(cpu.New(20, 20))
 	scroll.Draw(canvas)
-	if got := canvas.getPixel(0, 0); got.R != 255 || got.G != 0 || got.B != 0 || got.A != 255 {
+	if got := canvas.testGetPixel(0, 0); got.R != 255 || got.G != 0 || got.B != 0 || got.A != 255 {
 		t.Fatalf(`top pixel before scrolling = %+v, want opaque red`, got)
 	}
 
 	scroll.ScrollTo(0, 20)
 	canvas = NewCanvas(cpu.New(20, 20))
 	scroll.Draw(canvas)
-	if got := canvas.getPixel(0, 0); got.R != 0 || got.G != 0 || got.B != 255 || got.A != 255 {
+	if got := canvas.testGetPixel(0, 0); got.R != 0 || got.G != 0 || got.B != 255 || got.A != 255 {
 		t.Fatalf(`top pixel after scrolling = %+v, want opaque blue`, got)
 	}
 }

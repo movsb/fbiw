@@ -182,7 +182,7 @@ func (c *Canvas) DrawMask(mask *image.Alpha, x, y int, color Color) {
 }
 
 // 供测试用。
-func (c *Canvas) getPixel(x, y int) color.NRGBA {
+func (c *Canvas) testGetPixel(x, y int) color.NRGBA {
 	xx, yy := c.x+x, c.y+y
 
 	tr, ok := c.renderer.(canvas.TestRenderer)
@@ -251,14 +251,6 @@ func (c *Canvas) Clear() {
 	c.renderer.Clear()
 }
 
-// TODO 去掉。换成画矩形。
-func (c *Canvas) DrawBorder(cr Color, w, h int, borderWidth int) {
-	c.FillRect(0, 0, w, borderWidth, cr)
-	c.FillRect(0, h-borderWidth, w, borderWidth, cr)
-	c.FillRect(0, borderWidth, borderWidth, h-borderWidth*2, cr)
-	c.FillRect(w-borderWidth, borderWidth, borderWidth, h-borderWidth*2, cr)
-}
-
 // 画字符串，以指定的字体、指定的颜色、于当前位置。
 //
 // 超出 framebuffer 的像素会被裁剪。
@@ -266,24 +258,6 @@ func (c *Canvas) DrawString(text string, faces []*FontFace, color Color) {
 	if color == canvas.ColorNone {
 		return
 	}
-	c.drawStringDevice(text, faces, color)
-}
-
-// 按设备要求直接写显存。
-//
-// 和 fillAlphaBlend 系列一样保留各个版本，方便在实际设备上持续比较。
-// 正常绘制始终调用当前最快的版本。
-func (c *Canvas) drawStringDevice(text string, faces []*FontFace, color Color) {
-	c.drawStringDevice2(text, faces, color)
-}
-
-// 版本 2：先裁剪整个字形、缓存行和颜色通道，并使用精确的快速除法混色。
-//
-// 字形缓存中保存的是每个像素的覆盖率（Alpha mask）。这里直接把覆盖率
-// 与目标颜色、显存中原有的 BGRA 像素混合，避免经过 image/draw 的通用
-// Color 接口和颜色模型转换。这个函数处于每帧绘制的热路径，内层循环应当
-// 尽量只保留读取 mask、混色和写回三个步骤。
-func (c *Canvas) drawStringDevice2(text string, faces []*FontFace, color Color) {
 	canvas.DrawText(
 		c.renderer, text, faces, image.Pt(c.x, c.y), c.clipBounds(), color,
 	)

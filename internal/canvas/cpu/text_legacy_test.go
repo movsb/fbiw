@@ -37,6 +37,14 @@ func (c *Canvas) SetPixel(x, y int, value color.NRGBA) {
 	}
 	c.renderer.SetPixel(image.Pt(xx, yy), value)
 }
+
+// 版本 2：先裁剪整个字形、缓存行和颜色通道，并使用精确的快速除法混色。
+//
+// 字形缓存中保存的是每个像素的覆盖率（Alpha mask）。这里直接把覆盖率
+// 与目标颜色、显存中原有的 BGRA 像素混合，避免经过 image/draw 的通用
+// Color 接口和颜色模型转换。这个函数处于每帧绘制的热路径，内层循环应当
+// 尽量只保留读取 mask、混色和写回三个步骤。
+// NOTE 代码已经删除了
 func (c *Canvas) drawStringDevice2(text string, faces []*FontFace, fill Color) {
 	canvas.DrawText(c.renderer, text, faces, image.Pt(c.x, c.y), c.clipBounds(), canvas.Color(fill))
 }

@@ -524,13 +524,13 @@ func (b *BaseBox) DrawOptions(canvas *Canvas, options BaseBoxDrawOptions) {
 			// 同时，宽度和高度有要向右下偏移。
 			width := layoutWidth + outlineWidth*2
 			height := layoutHeight + outlineWidth*2
-			canvas.DrawBorder(outlineColor, width, height, outlineWidth)
+			b.drawBorder(canvas, width, height, outlineWidth, outlineColor)
 		}
 	}
 
 	// 默认都是 border-box，所以以实际的宽和高为准。
 	if bcv := b.computedStyles.BorderColor; borderWidth > 0 && b.computedStyles.has(propertyBorderColor) && !bcv.IsNone() {
-		canvas.DrawBorder(bcv, layoutWidth, layoutHeight, borderWidth)
+		b.drawBorder(canvas, layoutWidth, layoutHeight, borderWidth, bcv)
 	}
 
 	if src := b.computedStyles.BackgroundImage; src != `` {
@@ -582,6 +582,13 @@ func (b *BaseBox) DrawOptions(canvas *Canvas, options BaseBoxDrawOptions) {
 			child.Draw(canvas)
 		}
 	}
+}
+
+func (b *BaseBox) drawBorder(canvas *Canvas, w, h, borderWidth int, color Color) {
+	canvas.FillRect(0, 0, w, borderWidth, color)
+	canvas.FillRect(0, h-borderWidth, w, borderWidth, color)
+	canvas.FillRect(0, borderWidth, borderWidth, h-borderWidth*2, color)
+	canvas.FillRect(w-borderWidth, borderWidth, borderWidth, h-borderWidth*2, color)
 }
 
 func (b *BaseBox) IsDisplaying() bool {
