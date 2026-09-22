@@ -1130,29 +1130,27 @@ func walkBox(box Box, callback func(box Box) bool) bool {
 }
 
 // TODO 异步解码
-// width, height 表示想要scale到的尺寸。
-// 如果均为0，则表示不scale。
 // checking: 只检测是否存在缓存。
 // 暂时只通过扩展名检测图片类型。扩展名错误行为未知。
-func (doc *Document) _loadImage(fsys fs.FS, path string, width, height int, checking bool, options ImageDecodeOptions) (any, error) {
+func (doc *Document) _loadImage(fsys fs.FS, path string, checking bool, options ImageDecodeOptions) (any, error) {
 	load := func(fsys fs.FS, path string) (any, error) {
 		if isGIF := strings.EqualFold(filepath.Ext(path), `.gif`); !isGIF {
-			return doc.imageManager.GetImageScaledCached(fsys, path, width, height, checking, options)
+			return doc.imageManager._getImageCached(fsys, path, checking, options)
 		}
-		return doc.imageManager.getGIF(fsys, path, width, height, checking)
+		return doc.imageManager.getGIF(fsys, path, checking)
 	}
 	return load(cmp.Or(fsys, doc.fsys), path)
 }
 
 // 同步加载图片，如果没有缓存，返回不存在。
-func (doc *Document) loadImageSync(fsys fs.FS, path string, width, height int, options ImageDecodeOptions) (any, error) {
-	return doc._loadImage(fsys, path, width, height, true, options)
+func (doc *Document) loadImageSync(fsys fs.FS, path string, options ImageDecodeOptions) (any, error) {
+	return doc._loadImage(fsys, path, true, options)
 }
 
 // 异步加载图片，回调发生在主线程中，可安全地修改盒子内容。
-func (doc *Document) loadImageAsync(fsys fs.FS, path string, width, height int, options ImageDecodeOptions, callback func(any, error)) {
+func (doc *Document) loadImageAsync(fsys fs.FS, path string, options ImageDecodeOptions, callback func(any, error)) {
 	go func() {
-		img, err := doc._loadImage(fsys, path, width, height, false, options)
+		img, err := doc._loadImage(fsys, path, false, options)
 		doc.Async(func() {
 			callback(img, err)
 		})

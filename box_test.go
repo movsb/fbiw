@@ -364,7 +364,7 @@ func TestFixedDimensionsOverrideStyles(t *testing.T) {
 	}
 	img := NewImage(nil)
 	img.src.path = `cached`
-	img.status = imageLoadStatusScaled
+	img.status = imageLoadStatusDecoded
 	img.decodedImage = DecodedImage{Width: 20, Height: 10}
 	img.Calc(0, 0, Constraints{FixedWidth: NumberLength(0), FixedHeight: NumberLength(0)})
 	if got := img.GetLayoutBox(); got.Width != 0 || got.Height != 0 {
@@ -1622,7 +1622,7 @@ func TestRotationBackgroundAndFiniteBoundary(t *testing.T) {
 func TestImageRotationClipsAndKeepsLayout(t *testing.T) {
 	_, doc, _ := newAnimationTestApp(t)
 	img := NewImage(doc)
-	img.status = imageLoadStatusScaled
+	img.status = imageLoadStatusDecoded
 	img.decodedImage = DecodedImage{Width: 1, Height: 1, Pixels: []byte{0, 0, 255, 255}}
 	img.layoutBox.Width = 3
 	img.layoutBox.Height = 3
@@ -1646,7 +1646,7 @@ func TestImageRotationClipsAndKeepsLayout(t *testing.T) {
 func TestImageRotationOverflow(t *testing.T) {
 	_, doc, _ := newAnimationTestApp(t)
 	img := NewImage(doc)
-	img.status = imageLoadStatusScaled
+	img.status = imageLoadStatusDecoded
 	img.decodedImage = DecodedImage{Width: 5, Height: 5, Pixels: make([]byte, 100)}
 	for i := range img.decodedImage.Pixels {
 		img.decodedImage.Pixels[i] = 255
@@ -1754,7 +1754,7 @@ func TestRotationDirection(t *testing.T) {
 func TestImageScaleDrawing(t *testing.T) {
 	_, doc, _ := newAnimationTestApp(t)
 	img := NewImage(doc)
-	img.status = imageLoadStatusScaled
+	img.status = imageLoadStatusDecoded
 	img.decodedImage = DecodedImage{Width: 3, Height: 3, Pixels: make([]byte, 36)}
 	for i := range img.decodedImage.Pixels {
 		img.decodedImage.Pixels[i] = 255

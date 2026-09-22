@@ -333,20 +333,19 @@ func (r *Renderer) releaseImageTextures() {
 		delete(r.imageTextures, key)
 	}
 }
-func (r *Renderer) DrawImageTransformed(img canvas.Image, degrees, scale, cx, cy float64, clip image.Rectangle) {
+func (r *Renderer) DrawImageTransformed(img canvas.Image, degrees, scaleX, scaleY, cx, cy float64, clip image.Rectangle) {
 	r.flushMasks()
-	if img.Width <= 0 || img.Height <= 0 || len(img.Pixels) < img.Width*img.Height*4 || scale <= 0 {
+	if img.Width <= 0 || img.Height <= 0 || len(img.Pixels) < img.Width*img.Height*4 || scaleX <= 0 || scaleY <= 0 {
 		return
 	}
 	sin, cos := math.Sincos(degrees * math.Pi / 180)
-	rx := (math.Abs(cos)*float64(img.Width)+math.Abs(sin)*float64(img.Height))*scale/2 + scale
-	ry := (math.Abs(sin)*float64(img.Width)+math.Abs(cos)*float64(img.Height))*scale/2 + scale
+	rx := (math.Abs(cos)*float64(img.Width)*scaleX+math.Abs(sin)*float64(img.Height)*scaleY)/2 + max(scaleX, scaleY)
+	ry := (math.Abs(sin)*float64(img.Width)*scaleX+math.Abs(cos)*float64(img.Height)*scaleY)/2 + max(scaleX, scaleY)
 	visible := image.Rect(int(math.Floor(cx-rx)), int(math.Floor(cy-ry)), int(math.Ceil(cx+rx)), int(math.Ceil(cy+ry)))
 	visible = visible.Intersect(clip).Intersect(image.Rect(0, 0, r.width, r.height))
 	if visible.Empty() {
 		return
 	}
-	sin, cos = sin/scale, cos/scale
 	texture := r.imageTexture(img)
 	r.api.bindTexture(glTexture2D, texture)
 	r.api.texParameteri(glTexture2D, glTextureMinFilter, glNearest)
@@ -356,7 +355,7 @@ func (r *Renderer) DrawImageTransformed(img canvas.Image, degrees, scale, cx, cy
 	r.api.uniform4f(r.transformRect, float32(visible.Min.X), float32(visible.Min.Y), float32(visible.Dx()), float32(visible.Dy()))
 	r.api.uniform2f(r.transformCenter, float32(cx), float32(cy))
 	r.api.uniform2f(r.transformImageSize, float32(img.Width), float32(img.Height))
-	r.api.uniform4f(r.transformInverse, float32(cos), float32(sin), float32(-sin), float32(cos))
+	r.api.uniform4f(r.transformInverse, float32(cos/scaleX), float32(sin/scaleX), float32(-sin/scaleY), float32(cos/scaleY))
 	r.api.uniform1i(r.transformSampler, 0)
 	r.api.bindBuffer(glArrayBuffer, r.quadBuffer)
 	r.api.enableVertexAttrib(uint32(r.transformPosition))

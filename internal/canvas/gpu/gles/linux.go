@@ -288,7 +288,7 @@ func RunProbe() error {
 	if len(r.imageTextures) != cachedImages {
 		return errors.New("GLES image texture cache missed identical storage")
 	}
-	r.DrawImageTransformed(probeImage, 28, 1.35, 850, 390, image.Rect(730, 270, 970, 510))
+	r.DrawImageTransformed(probeImage, 28, 1.35, 1.35, 850, 390, image.Rect(730, 270, 970, 510))
 	maskWidth, maskHeight := 127, 96
 	probeMask := make([]byte, maskWidth*maskHeight)
 	for y := 0; y < maskHeight; y++ {

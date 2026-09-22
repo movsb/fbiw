@@ -37,7 +37,7 @@ func TestLoadImageSharesStaticAndGIFPath(t *testing.T) {
 		path     string
 		animated bool
 	}{{"a.gif", true}, {"b.png", false}} {
-		result, err := doc._loadImage(nil, tc.path, 0, 0, false, ImageDecodeOptions{TrimTransparentBorder: true})
+		result, err := doc._loadImage(nil, tc.path, false, ImageDecodeOptions{TrimTransparentBorder: true})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -45,7 +45,7 @@ func TestLoadImageSharesStaticAndGIFPath(t *testing.T) {
 		if gifResult != tc.animated {
 			t.Fatalf("%s returned %T", tc.path, result)
 		}
-		if _, err := doc.loadImageSync(nil, tc.path, 2, 2, ImageDecodeOptions{TrimTransparentBorder: true}); err != nil {
+		if _, err := doc.loadImageSync(nil, tc.path, ImageDecodeOptions{TrimTransparentBorder: true}); err != nil {
 			t.Fatalf("%s not cached at native size: %v", tc.path, err)
 		}
 	}
@@ -54,7 +54,7 @@ func TestLoadImageSharesStaticAndGIFPath(t *testing.T) {
 		t.Fatal(err)
 	}
 	dir, base := filepath.Split(path)
-	result, err := doc._loadImage(os.DirFS(cmp.Or(dir, `.`)), base, 0, 0, false, ImageDecodeOptions{})
+	result, err := doc._loadImage(os.DirFS(cmp.Or(dir, `.`)), base, false, ImageDecodeOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}

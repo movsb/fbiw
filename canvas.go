@@ -20,7 +20,6 @@ import (
 	"github.com/movsb/fbiw/internal/canvas"
 	"github.com/movsb/fbiw/internal/ports"
 	"github.com/phuslu/lru"
-	xdraw "golang.org/x/image/draw"
 	"golang.org/x/image/font"
 	"golang.org/x/image/font/opentype"
 
@@ -144,6 +143,20 @@ func (c *Canvas) DrawImage(img DecodedImage) {
 	c.DrawImageRegion(img, 0, 0, img.Width, img.Height)
 }
 
+func (c *Canvas) DrawImageScaled(img DecodedImage, width, height int) {
+	if width <= 0 || height <= 0 || img.Width <= 0 || img.Height <= 0 {
+		return
+	}
+	if width == img.Width && height == img.Height {
+		c.DrawImage(img)
+		return
+	}
+	c.drawImageTransformedCenter(img, 0,
+		float64(width)/float64(img.Width), float64(height)/float64(img.Height),
+		float64(c.x)+float64(width)/2, float64(c.y)+float64(height)/2,
+	)
+}
+
 // DrawImageRotated 绕图片中心顺时针旋转 degrees 度并绘制。
 // 使用当前原点和裁剪范围；零角度复用 DrawImage。
 func (c *Canvas) DrawImageRotated(img DecodedImage, degrees float64) {
@@ -162,11 +175,11 @@ func (c *Canvas) DrawImageRotated(img DecodedImage, degrees float64) {
 }
 
 func (c *Canvas) drawImageRotatedCenter(img DecodedImage, degrees, cx, cy float64) {
-	c.drawImageTransformedCenter(img, degrees, 1, cx, cy)
+	c.drawImageTransformedCenter(img, degrees, 1, 1, cx, cy)
 }
 
-func (c *Canvas) drawImageTransformedCenter(img DecodedImage, degrees, scale, cx, cy float64) {
-	c.renderer.DrawImageTransformed(toCanvasImage(img), degrees, scale, cx, cy, c.clipBounds())
+func (c *Canvas) drawImageTransformedCenter(img DecodedImage, degrees, scaleX, scaleY, cx, cy float64) {
+	c.renderer.DrawImageTransformed(toCanvasImage(img), degrees, scaleX, scaleY, cx, cy, c.clipBounds())
 }
 
 // DrawImageRegion 把图片的指定区域绘制到 Canvas 当前原点。
@@ -319,10 +332,9 @@ func (c *Canvas) drawStringDevice2(text string, faces []*FontFace, color Color) 
 }
 
 type _ImageCacheKey struct {
-	fsys          fs.FS
-	path          string
-	width, height int
-	options       ImageDecodeOptions
+	fsys    fs.FS
+	path    string
+	options ImageDecodeOptions
 }
 
 // 用标准库的 draw.Draw 造成了极多不必要的计算，
@@ -375,7 +387,7 @@ func (m *ImageManager) Close() {
 
 // 如果 width和height均为0，返回原图大小。
 // 否则表示指定缩放到此大小。
-func (m *ImageManager) decodeImage(fsys fs.FS, path string, wantWidth, wantHeight int, options ImageDecodeOptions) (DecodedImage, error) {
+func (m *ImageManager) decodeImage(fsys fs.FS, path string, options ImageDecodeOptions) (DecodedImage, error) {
 	if m.closed.Load() {
 		return DecodedImage{}, fs.ErrClosed
 	}
@@ -396,18 +408,6 @@ func (m *ImageManager) decodeImage(fsys fs.FS, path string, wantWidth, wantHeigh
 	}
 	if options.TrimTransparentBorder {
 		img = trimTransparentBorder(img)
-	}
-
-	width, height := img.Bounds().Dx(), img.Bounds().Dy()
-	if wantWidth != 0 && wantHeight != 0 && (wantWidth != width || wantHeight != height) {
-		now := time.Now()
-		resized := image.NewNRGBA(image.Rect(0, 0, wantWidth, wantHeight))
-		xdraw.CatmullRom.Scale(resized, resized.Bounds(), img, img.Bounds(), draw.Src, nil)
-		img = resized
-		log.Printf(`缩放图片: %s (%dx%d)->(%dx%d) %v`,
-			path, width, height, wantWidth, wantHeight, time.Since(now).Round(time.Millisecond*100))
-		width = wantWidth
-		height = wantHeight
 	}
 
 	return decodedPixels(img), nil
@@ -443,23 +443,16 @@ func trimTransparentBorder(img image.Image) image.Image {
 
 // 多线程安全。
 func (m *ImageManager) GetImageCached(fsys fs.FS, path string, options ImageDecodeOptions) (DecodedImage, error) {
-	return m._getImageCached(fsys, path, 0, 0, false, options)
+	return m._getImageCached(fsys, path, false, options)
 }
 
-// 多线程安全。
-func (m *ImageManager) GetImageScaledCached(fsys fs.FS, path string, width, height int, checking bool, options ImageDecodeOptions) (DecodedImage, error) {
-	return m._getImageCached(fsys, path, width, height, checking, options)
-}
-
-func (m *ImageManager) _getImageCached(fsys fs.FS, path string, width, height int, checking bool, options ImageDecodeOptions) (DecodedImage, error) {
+func (m *ImageManager) _getImageCached(fsys fs.FS, path string, checking bool, options ImageDecodeOptions) (DecodedImage, error) {
 	if m.closed.Load() {
 		return DecodedImage{}, fs.ErrClosed
 	}
 	key := _ImageCacheKey{
 		fsys:    fsys,
 		path:    path,
-		width:   width,
-		height:  height,
 		options: options,
 	}
 	if checking {
@@ -471,18 +464,10 @@ func (m *ImageManager) _getImageCached(fsys fs.FS, path string, width, height in
 	}
 	img, err, _ := m.contentCache.GetOrLoad(context.Background(), key,
 		func(ctx context.Context, _ _ImageCacheKey) (DecodedImage, time.Duration, error) {
-			decoded, err := m.decodeImage(fsys, path, width, height, options)
+			decoded, err := m.decodeImage(fsys, path, options)
 			return decoded, time.Minute * 10, err
 		},
 	)
-
-	// 如果没指定尺寸，则应该用实际的尺寸也缓存一份。
-	if width == 0 && height == 0 && err == nil {
-		k := key
-		k.width = img.Width
-		k.height = img.Height
-		m.contentCache.SetIfAbsent(k, img, time.Minute*10)
-	}
 
 	return img, err
 }
@@ -492,7 +477,7 @@ type _AnimatedGIF struct {
 	delays []time.Duration
 }
 
-func decodeGIF(fsys fs.FS, path string, width, height int) (*_AnimatedGIF, error) {
+func decodeGIF(fsys fs.FS, path string) (*_AnimatedGIF, error) {
 	f, err := fsys.Open(path)
 	if err != nil {
 		return nil, err
@@ -504,9 +489,6 @@ func decodeGIF(fsys fs.FS, path string, width, height int) (*_AnimatedGIF, error
 	}
 	if len(g.Image) == 0 {
 		return nil, fmt.Errorf("GIF has no frames: %s", path)
-	}
-	if width == 0 || height == 0 {
-		width, height = g.Config.Width, g.Config.Height
 	}
 	result := &_AnimatedGIF{
 		frames: make([]DecodedImage, 0, len(g.Image)),
@@ -520,13 +502,7 @@ func decodeGIF(fsys fs.FS, path string, width, height int) (*_AnimatedGIF, error
 			copy(previous.Pix, canvas.Pix)
 		}
 		drawGIFFrame(canvas, frame)
-		resized := image.Image(canvas)
-		if width != g.Config.Width || height != g.Config.Height {
-			dst := image.NewNRGBA(image.Rect(0, 0, width, height))
-			xdraw.CatmullRom.Scale(dst, dst.Bounds(), canvas, canvas.Bounds(), draw.Src, nil)
-			resized = dst
-		}
-		result.frames = append(result.frames, decodedPixels(resized))
+		result.frames = append(result.frames, decodedPixels(canvas))
 		delay := time.Duration(g.Delay[i]) * 10 * time.Millisecond
 		if delay <= 0 {
 			delay = 10 * time.Millisecond
@@ -658,11 +634,11 @@ func decodedPixels(img image.Image) DecodedImage {
 	return decoded
 }
 
-func (m *ImageManager) getGIF(fsys fs.FS, path string, width, height int, checking bool) (*_AnimatedGIF, error) {
+func (m *ImageManager) getGIF(fsys fs.FS, path string, checking bool) (*_AnimatedGIF, error) {
 	if m.closed.Load() {
 		return nil, fs.ErrClosed
 	}
-	key := _ImageCacheKey{fsys: fsys, path: path, width: width, height: height}
+	key := _ImageCacheKey{fsys: fsys, path: path}
 	if checking {
 		if value, found := m.gifCache.Get(key); found {
 			return value, nil
@@ -670,14 +646,9 @@ func (m *ImageManager) getGIF(fsys fs.FS, path string, width, height int, checki
 		return nil, os.ErrNotExist
 	}
 	value, err, _ := m.gifCache.GetOrLoad(context.Background(), key, func(context.Context, _ImageCacheKey) (*_AnimatedGIF, time.Duration, error) {
-		v, e := decodeGIF(fsys, path, width, height)
+		v, e := decodeGIF(fsys, path)
 		return v, 10 * time.Minute, e
 	})
-	if width == 0 && height == 0 && err == nil {
-		actual := key
-		actual.width, actual.height = value.frames[0].Width, value.frames[0].Height
-		m.gifCache.SetIfAbsent(actual, value, 10*time.Minute)
-	}
 	return value, err
 }
 

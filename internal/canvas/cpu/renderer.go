@@ -179,17 +179,16 @@ func (r *Renderer) DrawImage(img canvas.Image, src image.Rectangle, dst image.Po
 	}
 }
 
-func (r *Renderer) DrawImageTransformed(img canvas.Image, degrees, scale, cx, cy float64, clip image.Rectangle) {
+func (r *Renderer) DrawImageTransformed(img canvas.Image, degrees, scaleX, scaleY, cx, cy float64, clip image.Rectangle) {
 	sin, cos := math.Sincos(degrees * math.Pi / 180)
-	rx := (math.Abs(cos)*float64(img.Width)+math.Abs(sin)*float64(img.Height))*scale/2 + scale
-	ry := (math.Abs(sin)*float64(img.Width)+math.Abs(cos)*float64(img.Height))*scale/2 + scale
-	sin, cos = sin/scale, cos/scale
+	rx := (math.Abs(cos)*float64(img.Width)*scaleX+math.Abs(sin)*float64(img.Height)*scaleY)/2 + max(scaleX, scaleY)
+	ry := (math.Abs(sin)*float64(img.Width)*scaleX+math.Abs(cos)*float64(img.Height)*scaleY)/2 + max(scaleX, scaleY)
 	clip = clip.Intersect(image.Rect(0, 0, r.Width, r.Height))
 	minX, maxX := max(clip.Min.X, int(math.Floor(cx-rx))), min(clip.Max.X, int(math.Ceil(cx+rx)))
 	minY, maxY := max(clip.Min.Y, int(math.Floor(cy-ry))), min(clip.Max.Y, int(math.Ceil(cy+ry)))
 	for y := minY; y < maxY; y++ {
 		dx, dy := float64(minX)+.5-cx, float64(y)+.5-cy
-		sx, sy := cos*dx+sin*dy+float64(img.Width)/2-.5, -sin*dx+cos*dy+float64(img.Height)/2-.5
+		sx, sy := (cos*dx+sin*dy)/scaleX+float64(img.Width)/2-.5, (-sin*dx+cos*dy)/scaleY+float64(img.Height)/2-.5
 		for x := minX; x < maxX; x++ {
 			ix, iy := int(math.Floor(sx)), int(math.Floor(sy))
 			fx, fy := sx-float64(ix), sy-float64(iy)
@@ -222,8 +221,8 @@ func (r *Renderer) DrawImageTransformed(img canvas.Image, degrees, scale, cx, cy
 				p[2] = uint8(math.Round(min(255, red+(1-a)*float64(p[2]))))
 				p[3] = uint8(math.Round(min(255, a*255+(1-a)*float64(p[3]))))
 			}
-			sx += cos
-			sy -= sin
+			sx += cos / scaleX
+			sy -= sin / scaleY
 		}
 	}
 }

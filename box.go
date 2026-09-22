@@ -539,7 +539,7 @@ func (b *BaseBox) DrawOptions(canvas *Canvas, options BaseBoxDrawOptions) {
 		canvas := canvas.Offset(borderWidth, borderWidth)
 
 		// 背景图片暂时只显示首帧（如果是GIF的话），像素本来就低，太丑了。
-		result, err := b.document.loadImageSync(nil, src, width, height, ImageDecodeOptions{TrimTransparentBorder: true})
+		result, err := b.document.loadImageSync(nil, src, ImageDecodeOptions{TrimTransparentBorder: true})
 		var img DecodedImage
 		switch value := result.(type) {
 		case DecodedImage:
@@ -549,9 +549,9 @@ func (b *BaseBox) DrawOptions(canvas *Canvas, options BaseBoxDrawOptions) {
 		}
 
 		if err == nil && len(img.Pixels) > 0 {
-			canvas.DrawImage(img)
+			canvas.DrawImageScaled(img, width, height)
 		} else {
-			b.document.loadImageAsync(nil, src, width, height,
+			b.document.loadImageAsync(nil, src,
 				ImageDecodeOptions{TrimTransparentBorder: true},
 				func(_ any, err error) {
 					if err == nil {
@@ -2251,15 +2251,12 @@ func (t *ItalicText) AppendChild(child any) {
 	t.textParts.appendChildOrText(t, child)
 }
 
-// 缩放完成才是最终Draw的形态。
 type _ImageLoadingStatus uint8
 
 const (
 	imageLoadStatusNone     _ImageLoadingStatus = iota // 还没开始
 	imageLoadStatusDecoding                            // 解码中
-	imageLoadStatusDecoded                             // 完成，并且加载成功
-	imageLoadStatusScaling                             // 缩放中
-	imageLoadStatusScaled                              // 完成，并且已缩放
+	imageLoadStatusDecoded                             // 完成，可以绘制
 	imageLoadStatusFailed                              // 完成，并且加载失败
 )
 
@@ -2286,8 +2283,8 @@ type Image struct {
 	status _ImageLoadingStatus
 
 	// 异步加载成功后写在这里。
-	// 如果是仅解析成功，只包含尺寸信息。
-	decodedImage DecodedImage
+	decodedImage          DecodedImage
+	drawWidth, drawHeight int
 
 	// GIF相关
 	gif       *_AnimatedGIF
@@ -2434,6 +2431,7 @@ func (b *Image) setSrc(fsys fs.FS, path string) {
 	b.loadVersion++
 	b.status = imageLoadStatusNone
 	b.decodedImage = DecodedImage{}
+	b.drawWidth, b.drawHeight = 0, 0
 	b.err = nil
 	if old := b.tmpFile; old != nil {
 		old.cleanup.Stop()
@@ -2472,7 +2470,7 @@ func (b *Image) SetImage(img image.Image) {
 	}()
 }
 
-func (b *Image) setLoadedImage(result any, scaled bool) {
+func (b *Image) setLoadedImage(result any) {
 	switch value := result.(type) {
 	case DecodedImage:
 		b.gif = nil
@@ -2483,9 +2481,7 @@ func (b *Image) setLoadedImage(result any, scaled bool) {
 	default:
 		panic(fmt.Sprintf("unexpected image result: %T", result))
 	}
-	if scaled {
-		b.startGIF()
-	}
+	b.startGIF()
 }
 
 func (b *Image) Calc(availWidth, availHeight int, constraints Constraints) {
@@ -2521,8 +2517,8 @@ func (b *Image) Calc(availWidth, availHeight int, constraints Constraints) {
 	case imageLoadStatusNone:
 		// 如果有缓存的大小信息，直接用。
 		// 这里总是以零大小加载，不缩放，才能获取到原始大小信息。
-		if result, err := b.document.loadImageSync(b.src.fsys, b.src.path, 0, 0, ImageDecodeOptions{TrimTransparentBorder: true}); err == nil {
-			b.setLoadedImage(result, false)
+		if result, err := b.document.loadImageSync(b.src.fsys, b.src.path, ImageDecodeOptions{TrimTransparentBorder: true}); err == nil {
+			b.setLoadedImage(result)
 			b.status = imageLoadStatusDecoded
 			b.Calc(availWidth, availHeight, constraints)
 			return
@@ -2530,7 +2526,7 @@ func (b *Image) Calc(availWidth, availHeight int, constraints Constraints) {
 
 		src, version := b.src, b.loadVersion
 		b.status = imageLoadStatusDecoding
-		b.document.loadImageAsync(b.src.fsys, b.src.path, 0, 0, ImageDecodeOptions{TrimTransparentBorder: true},
+		b.document.loadImageAsync(b.src.fsys, b.src.path, ImageDecodeOptions{TrimTransparentBorder: true},
 			func(result any, err error) {
 				// src属于防御性校验，用来防止在包内直接修改却忘记同步递增版本号。
 				// 理论上不应该判断（版本号变化src一定变化）。
@@ -2543,7 +2539,7 @@ func (b *Image) Calc(availWidth, availHeight int, constraints Constraints) {
 					b.document.RequestLayout()
 					return
 				}
-				b.setLoadedImage(result, false)
+				b.setLoadedImage(result)
 				b.status = imageLoadStatusDecoded
 				b.document.RequestLayout()
 			},
@@ -2597,33 +2593,7 @@ func (b *Image) Calc(availWidth, availHeight int, constraints Constraints) {
 			b.status = imageLoadStatusFailed
 			return
 		}
-		if result, err := b.document.loadImageSync(b.src.fsys, b.src.path, fittingWidth, fittingHeight, ImageDecodeOptions{TrimTransparentBorder: true}); err == nil {
-			b.setLoadedImage(result, true)
-			b.status = imageLoadStatusScaled
-			b.Calc(availWidth, availHeight, constraints)
-			return
-		}
-
-		src, version := b.src, b.loadVersion
-		b.status = imageLoadStatusScaling
-		b.document.loadImageAsync(src.fsys, src.path, fittingWidth, fittingHeight, ImageDecodeOptions{TrimTransparentBorder: true},
-			func(result any, err error) {
-				if b.loadVersion != version || b.src != src {
-					return
-				}
-				if err != nil {
-					b.status = imageLoadStatusFailed
-					b.err = err
-					b.document.RequestPaint()
-					return
-				}
-				b.setLoadedImage(result, true)
-				b.status = imageLoadStatusScaled
-				b.document.RequestPaint()
-			},
-		)
-		return
-	case imageLoadStatusScaled:
+		b.drawWidth, b.drawHeight = fittingWidth, fittingHeight
 		if b.layoutBox.Width == 0 {
 			b.layoutBox.Width = b.decodedImage.Width
 		}
@@ -2639,12 +2609,8 @@ func (b *Image) Draw(canvas *Canvas) {
 	b.Base().DrawOptions(canvas, BaseBoxDrawOptions{NoChildren: true})
 
 	switch b.status {
-	case imageLoadStatusScaled:
-		if b.rotation != 0 || b.rotationOverflow || b.scale != 1 {
-			b.drawImageRotated(canvas)
-		} else {
-			b.drawImageNormal(canvas)
-		}
+	case imageLoadStatusDecoded:
+		b.drawImageTransformed(canvas)
 	case imageLoadStatusFailed:
 		if b.err != nil {
 			maxWidth := max(0, b.layoutBox.Width-b.HorizontalInsets())
@@ -2673,24 +2639,7 @@ func (b *Image) Draw(canvas *Canvas) {
 // TODO 没处理border和padding
 // 图片的宽高不一定等于容器。contain 会在容器内居中；
 // cover/none 可能超出容器，此时从图片中心裁出可见部分。
-func (b *Image) drawImageNormal(canvas *Canvas) {
-	imageWidth := b.decodedImage.Width
-	imageHeight := b.decodedImage.Height
-	visibleWidth := min(imageWidth, max(0, b.layoutBox.Width))
-	visibleHeight := min(imageHeight, max(0, b.layoutBox.Height))
-	if visibleWidth <= 0 || visibleHeight <= 0 {
-		return
-	}
-	srcX := max(0, (imageWidth-b.layoutBox.Width)/2)
-	srcY := max(0, (imageHeight-b.layoutBox.Height)/2)
-	dstX := max(0, (b.layoutBox.Width-imageWidth)/2)
-	dstY := max(0, (b.layoutBox.Height-imageHeight)/2)
-	canvas.Offset(dstX, dstY).DrawImageRegion(
-		b.decodedImage, srcX, srcY, visibleWidth, visibleHeight,
-	)
-}
-
-func (b *Image) drawImageRotated(canvas *Canvas) {
+func (b *Image) drawImageTransformed(canvas *Canvas) {
 	if b.layoutBox.Width <= 0 || b.layoutBox.Height <= 0 {
 		return
 	}
@@ -2701,12 +2650,21 @@ func (b *Image) drawImageRotated(canvas *Canvas) {
 		}
 		clipped = canvas.Clip(0, 0, b.layoutBox.Width, b.layoutBox.Height)
 	}
-	if b.rotation == 0 && b.scale == 1 {
+	drawWidth, drawHeight := b.drawWidth, b.drawHeight
+	if drawWidth <= 0 {
+		drawWidth = b.decodedImage.Width
+	}
+	if drawHeight <= 0 {
+		drawHeight = b.decodedImage.Height
+	}
+	if b.rotation == 0 && b.scale == 1 && drawWidth == b.decodedImage.Width && drawHeight == b.decodedImage.Height {
 		canvas.Offset((b.layoutBox.Width-b.decodedImage.Width)/2,
 			(b.layoutBox.Height-b.decodedImage.Height)/2).DrawImage(b.decodedImage)
 		return
 	}
-	clipped.drawImageTransformedCenter(b.decodedImage, b.rotation, b.scale,
+	scaleX := float64(drawWidth) / float64(b.decodedImage.Width) * b.scale
+	scaleY := float64(drawHeight) / float64(b.decodedImage.Height) * b.scale
+	clipped.drawImageTransformedCenter(b.decodedImage, b.rotation, scaleX, scaleY,
 		float64(canvas.x)+float64(b.layoutBox.Width)/2,
 		float64(canvas.y)+float64(b.layoutBox.Height)/2,
 	)

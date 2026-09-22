@@ -19,12 +19,14 @@ import (
 func (c *Canvas) softwarePixels() []byte { return c.renderer.(*cpu.Renderer).Pixels }
 
 type recordingCanvasRenderer struct {
-	width, height int
-	fillRectRect  image.Rectangle
-	fillRectClip  image.Rectangle
-	imageSrc      image.Rectangle
-	imageDst      image.Point
-	imageClip     image.Rectangle
+	width, height                      int
+	fillRectRect                       image.Rectangle
+	fillRectClip                       image.Rectangle
+	imageSrc                           image.Rectangle
+	imageDst                           image.Point
+	imageClip                          image.Rectangle
+	transformScaleX, transformScaleY   float64
+	transformCenterX, transformCenterY float64
 }
 
 func testSoftwareCanvas(width, height int, x, y int) *Canvas {
@@ -47,7 +49,9 @@ func (r *recordingCanvasRenderer) FillRect(rect, clip image.Rectangle, _ canvas.
 func (r *recordingCanvasRenderer) DrawImage(_ canvas.Image, src image.Rectangle, dst image.Point, clip image.Rectangle) {
 	r.imageSrc, r.imageDst, r.imageClip = src, dst, clip
 }
-func (*recordingCanvasRenderer) DrawImageTransformed(canvas.Image, float64, float64, float64, float64, image.Rectangle) {
+func (r *recordingCanvasRenderer) DrawImageTransformed(_ canvas.Image, _ float64, scaleX, scaleY, cx, cy float64, _ image.Rectangle) {
+	r.transformScaleX, r.transformScaleY = scaleX, scaleY
+	r.transformCenterX, r.transformCenterY = cx, cy
 }
 func (*recordingCanvasRenderer) DrawMask([]byte, int, int, image.Point, image.Rectangle, canvas.Color) {
 }
@@ -140,18 +144,6 @@ func TestDecodeImageTrimTransparentBorder(t *testing.T) {
 		t.Fatal("裁剪不应改变内容像素的半透明状态")
 	}
 
-	scaled, err := manager.GetImageScaledCached(fsys, "border.png", 4, 4, false, ImageDecodeOptions{
-		TrimTransparentBorder: true,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if scaled.Width != 4 || scaled.Height != 4 || len(scaled.Pixels) != 4*4*4 {
-		t.Fatalf("缩放后尺寸错误：%dx%d, pixels=%d", scaled.Width, scaled.Height, len(scaled.Pixels))
-	}
-	if scaled.Opaque {
-		t.Fatal("缩放不应丢失半透明状态")
-	}
 }
 
 func TestTrimTransparentBorderFullyTransparent(t *testing.T) {
@@ -162,6 +154,18 @@ func TestTrimTransparentBorderFullyTransparent(t *testing.T) {
 	_, _, _, alpha := trimmed.At(0, 0).RGBA()
 	if alpha != 0 {
 		t.Fatalf("保留的像素应为全透明：alpha=%d", alpha)
+	}
+}
+
+func TestDrawImageScaledUsesRendererTransform(t *testing.T) {
+	renderer := &recordingCanvasRenderer{width: 100, height: 80}
+	canvas := NewCanvas(renderer).Offset(7, 9)
+	canvas.DrawImageScaled(DecodedImage{Width: 20, Height: 10, Pixels: make([]byte, 20*10*4)}, 50, 30)
+	if renderer.transformScaleX != 2.5 || renderer.transformScaleY != 3 {
+		t.Fatalf("scale = %v,%v", renderer.transformScaleX, renderer.transformScaleY)
+	}
+	if renderer.transformCenterX != 32 || renderer.transformCenterY != 24 {
+		t.Fatalf("center = %v,%v", renderer.transformCenterX, renderer.transformCenterY)
 	}
 }
 
@@ -305,7 +309,7 @@ func TestDecodeGIFFrames(t *testing.T) {
 	if err := gif.EncodeAll(&encoded, g); err != nil {
 		t.Fatal(err)
 	}
-	got, err := decodeGIF(fstest.MapFS{"a.gif": &fstest.MapFile{Data: encoded.Bytes()}}, "a.gif", 0, 0)
+	got, err := decodeGIF(fstest.MapFS{"a.gif": &fstest.MapFile{Data: encoded.Bytes()}}, "a.gif")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -331,7 +335,7 @@ func TestSingleFrameGIFAndStaticPNG(t *testing.T) {
 		t.Fatal(err)
 	}
 	fsy := fstest.MapFS{"one.gif": &fstest.MapFile{Data: encoded.Bytes()}}
-	g, err := decodeGIF(fsy, "one.gif", 0, 0)
+	g, err := decodeGIF(fsy, "one.gif")
 	if err != nil || len(g.frames) != 1 {
 		t.Fatalf("single frame: %v %v", g, err)
 	}

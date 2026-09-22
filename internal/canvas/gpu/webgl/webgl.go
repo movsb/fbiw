@@ -289,13 +289,13 @@ func (r *Renderer) DrawMask(mask []byte, w, h int, dst image.Point, clip image.R
 	g.Call("uniform4f", r.uv, float64(v.Min.X-dst.X)/float64(w), float64(v.Min.Y-dst.Y)/float64(h), float64(v.Dx())/float64(w), float64(v.Dy())/float64(h))
 	r.draw(v, 2, c.NRGBA(), true)
 }
-func (r *Renderer) DrawImageTransformed(img canvas.Image, degrees, scale, cx, cy float64, clip image.Rectangle) {
-	if img.Width <= 0 || img.Height <= 0 || len(img.Pixels) < img.Width*img.Height*4 || scale <= 0 {
+func (r *Renderer) DrawImageTransformed(img canvas.Image, degrees, scaleX, scaleY, cx, cy float64, clip image.Rectangle) {
+	if img.Width <= 0 || img.Height <= 0 || len(img.Pixels) < img.Width*img.Height*4 || scaleX <= 0 || scaleY <= 0 {
 		return
 	}
 	s, c := math.Sincos(degrees * math.Pi / 180)
-	rx := (math.Abs(c)*float64(img.Width)+math.Abs(s)*float64(img.Height))*scale/2 + scale
-	ry := (math.Abs(s)*float64(img.Width)+math.Abs(c)*float64(img.Height))*scale/2 + scale
+	rx := (math.Abs(c)*float64(img.Width)*scaleX+math.Abs(s)*float64(img.Height)*scaleY)/2 + max(scaleX, scaleY)
+	ry := (math.Abs(s)*float64(img.Width)*scaleX+math.Abs(c)*float64(img.Height)*scaleY)/2 + max(scaleX, scaleY)
 	rect := image.Rect(int(math.Floor(cx-rx)), int(math.Floor(cy-ry)), int(math.Ceil(cx+rx)), int(math.Ceil(cy+ry))).Intersect(clip).Intersect(image.Rect(0, 0, r.width, r.height))
 	if rect.Empty() {
 		return
@@ -305,7 +305,7 @@ func (r *Renderer) DrawImageTransformed(img canvas.Image, degrees, scale, cx, cy
 	g.Call("useProgram", r.program)
 	g.Call("uniform2f", r.center, cx, cy)
 	g.Call("uniform2f", r.imageSize, img.Width, img.Height)
-	g.Call("uniform4f", r.inverse, c/scale, s/scale, -s/scale, c/scale)
+	g.Call("uniform4f", r.inverse, c/scaleX, s/scaleX, -s/scaleY, c/scaleY)
 	r.draw(rect, 3, color.NRGBA{}, true)
 }
 func (r *Renderer) Snapshot() image.Image {

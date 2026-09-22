@@ -168,8 +168,8 @@ func (r *Renderer) DrawImage(img canvas.Image, src image.Rectangle, dst image.Po
 	d := sdl.Rect{X: int32(dst.X), Y: int32(dst.Y), W: int32(w), H: int32(h)}
 	must(r.renderer.Copy(t, &s, &d))
 }
-func (r *Renderer) DrawImageTransformed(img canvas.Image, degrees, scale, cx, cy float64, clip image.Rectangle) {
-	if img.Width <= 0 || img.Height <= 0 || scale <= 0 || len(img.Pixels) < img.Width*img.Height*4 {
+func (r *Renderer) DrawImageTransformed(img canvas.Image, degrees, scaleX, scaleY, cx, cy float64, clip image.Rectangle) {
+	if img.Width <= 0 || img.Height <= 0 || scaleX <= 0 || scaleY <= 0 || len(img.Pixels) < img.Width*img.Height*4 {
 		return
 	}
 	clip = clip.Intersect(image.Rect(0, 0, r.width, r.height))
@@ -181,7 +181,7 @@ func (r *Renderer) DrawImageTransformed(img canvas.Image, degrees, scale, cx, cy
 	// CPU/GLES 的双线性采样允许图片边缘外一像素的透明样本参与插值。
 	// SDL_RenderCopyExF 只栅格化目标四边形，所以这里把旋转专用纹理的
 	// 一像素透明边框也计入目标尺寸，否则边缘会被提前截断。
-	w, h := float64(img.Width+2)*scale, float64(img.Height+2)*scale
+	w, h := float64(img.Width+2)*scaleX, float64(img.Height+2)*scaleY
 	d := sdl.FRect{X: float32(cx - w/2), Y: float32(cy - h/2), W: float32(w), H: float32(h)}
 	must(r.renderer.CopyExF(r.imageTexture(img, true), nil, &d, degrees, nil, sdl.FLIP_NONE))
 }
