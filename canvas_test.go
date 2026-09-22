@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"image"
 	"image/color"
+	"image/draw"
 	"image/gif"
 	"image/png"
 	"testing"
@@ -225,6 +226,65 @@ func TestDecodedPixelsPalettedOffset(t *testing.T) {
 	got := decodedPixels(img)
 	if got.Width != 1 || got.Height != 1 || got.Opaque || !bytes.Equal(got.Pixels, []byte{56, 34, 12, 128}) {
 		t.Fatalf("paletted offset: %+v", got)
+	}
+}
+
+func TestDrawGIFFrameMatchesDrawOver(t *testing.T) {
+	palette := color.Palette{
+		color.NRGBA{},
+		color.NRGBA{R: 240, G: 20, B: 30, A: 255},
+		color.NRGBA{R: 30, G: 210, B: 90, A: 128},
+	}
+	paletted := image.NewPaletted(image.Rect(1, 1, 5, 3), palette)
+	copy(paletted.Pix, []byte{0, 1, 2, 1, 2, 0, 1, 2})
+	nrgba := image.NewNRGBA(image.Rect(0, 0, 6, 4))
+	for y := 1; y < 3; y++ {
+		for x := 1; x < 5; x++ {
+			nrgba.SetNRGBA(x, y, palette[(x+y)%len(palette)].(color.NRGBA))
+		}
+	}
+	for _, source := range []image.Image{paletted, nrgba.SubImage(image.Rect(1, 1, 5, 3))} {
+		got := image.NewNRGBA(image.Rect(0, 0, 4, 4))
+		want := image.NewNRGBA(got.Bounds())
+		for y := 0; y < 4; y++ {
+			for x := 0; x < 4; x++ {
+				c := color.NRGBA{R: 60, G: 100, B: 170, A: uint8(80 + x*25)}
+				got.SetNRGBA(x, y, c)
+				want.SetNRGBA(x, y, c)
+			}
+		}
+		drawGIFFrame(got, source)
+		r := source.Bounds().Intersect(want.Bounds())
+		draw.Draw(want, r, source, r.Min, draw.Over)
+		for i := range got.Pix {
+			delta := int(got.Pix[i]) - int(want.Pix[i])
+			if delta < -1 || delta > 1 {
+				t.Fatalf("%T byte %d: got %d, want %d", source, i, got.Pix[i], want.Pix[i])
+			}
+		}
+	}
+}
+
+func BenchmarkGIFFrameComposite(b *testing.B) {
+	palette := color.Palette{color.NRGBA{}, color.NRGBA{R: 255, G: 90, B: 40, A: 255}}
+	frame := image.NewPaletted(image.Rect(0, 0, 256, 256), palette)
+	for i := range frame.Pix {
+		frame.Pix[i] = uint8(i % 2)
+	}
+	for _, tc := range []struct {
+		name string
+		draw func(*image.NRGBA)
+	}{
+		{"standard", func(dst *image.NRGBA) { draw.Draw(dst, frame.Bounds(), frame, frame.Bounds().Min, draw.Over) }},
+		{"specialized", func(dst *image.NRGBA) { drawGIFFrame(dst, frame) }},
+	} {
+		b.Run(tc.name, func(b *testing.B) {
+			dst := image.NewNRGBA(frame.Bounds())
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				tc.draw(dst)
+			}
+		})
 	}
 }
 

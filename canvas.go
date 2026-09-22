@@ -519,7 +519,7 @@ func decodeGIF(fsys fs.FS, path string, width, height int) (*_AnimatedGIF, error
 			previous = image.NewNRGBA(canvas.Bounds())
 			copy(previous.Pix, canvas.Pix)
 		}
-		draw.Draw(canvas, frame.Bounds(), frame, frame.Bounds().Min, draw.Over)
+		drawGIFFrame(canvas, frame)
 		resized := image.Image(canvas)
 		if width != g.Config.Width || height != g.Config.Height {
 			dst := image.NewNRGBA(image.Rect(0, 0, width, height))
@@ -544,6 +544,58 @@ func decodeGIF(fsys fs.FS, path string, width, height int) (*_AnimatedGIF, error
 		}
 	}
 	return result, nil
+}
+
+// GIF 帧和画布使用相同坐标。直接读取常见帧格式的像素，避免
+// draw.Draw 在 NRGBA 目标上逐像素调用 At 和颜色转换。
+func drawGIFFrame(dst *image.NRGBA, src image.Image) {
+	r := src.Bounds().Intersect(dst.Bounds())
+	if r.Empty() {
+		return
+	}
+	var palette []color.NRGBA
+	switch frame := src.(type) {
+	case *image.Paletted:
+		palette = make([]color.NRGBA, len(frame.Palette))
+		for i, c := range frame.Palette {
+			palette[i] = color.NRGBAModel.Convert(c).(color.NRGBA)
+		}
+		for y := r.Min.Y; y < r.Max.Y; y++ {
+			d, s := dst.PixOffset(r.Min.X, y), frame.PixOffset(r.Min.X, y)
+			for x := r.Min.X; x < r.Max.X; x++ {
+				c := palette[frame.Pix[s]]
+				blendNRGBA(dst.Pix[d:d+4], c.R, c.G, c.B, c.A)
+				d, s = d+4, s+1
+			}
+		}
+	case *image.NRGBA:
+		for y := r.Min.Y; y < r.Max.Y; y++ {
+			d, s := dst.PixOffset(r.Min.X, y), frame.PixOffset(r.Min.X, y)
+			for x := r.Min.X; x < r.Max.X; x++ {
+				blendNRGBA(dst.Pix[d:d+4], frame.Pix[s], frame.Pix[s+1], frame.Pix[s+2], frame.Pix[s+3])
+				d, s = d+4, s+4
+			}
+		}
+	default:
+		draw.Draw(dst, r, src, r.Min, draw.Over)
+	}
+}
+
+func blendNRGBA(dst []byte, red, green, blue, alpha uint8) {
+	if alpha == 0 {
+		return
+	}
+	if alpha == 255 || dst[3] == 0 {
+		dst[0], dst[1], dst[2], dst[3] = red, green, blue, alpha
+		return
+	}
+	sa, da := uint32(alpha), uint32(dst[3])
+	covered := (da*(255-sa) + 127) / 255
+	outA := sa + covered
+	dst[0] = uint8((uint32(red)*sa + uint32(dst[0])*covered + outA/2) / outA)
+	dst[1] = uint8((uint32(green)*sa + uint32(dst[1])*covered + outA/2) / outA)
+	dst[2] = uint8((uint32(blue)*sa + uint32(dst[2])*covered + outA/2) / outA)
+	dst[3] = uint8(outA)
 }
 
 func decodedPixels(img image.Image) DecodedImage {
