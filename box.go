@@ -2295,7 +2295,10 @@ type Image struct {
 	gifCancel func()
 
 	// 如果失败？
-	err     error
+	err error
+
+	// 如果调用了 SetImage 使用内存图片，目前的做法比较朴素：
+	// 直接重新保存并解析……为了走自动裁剪那一套逻辑。
 	tmpFile *_ImageTempFile
 
 	// 旋转相关参数
@@ -2644,8 +2647,25 @@ func (b *Image) Draw(canvas *Canvas) {
 		}
 	case imageLoadStatusFailed:
 		if b.err != nil {
-			// 暂时！没有换行，没有border、padding……
-			canvas.DrawString(b.err.Error(), b.document.LoadFaces(b), ColorFromRGBA(0xFF, 0, 0, 0xFF))
+			maxWidth := max(0, b.layoutBox.Width-b.HorizontalInsets())
+			parts := []string{}
+			faces := b.document.LoadFaces(b)
+			color := ColorFromString(`red`)
+			s := b.err.Error()
+			for s != `` {
+				endIndex, subWidth, err := SegmentText(s, maxWidth, faces)
+				if err != nil {
+					break
+				}
+				if subWidth <= 0 {
+					break
+				}
+				parts = append(parts, s[:endIndex])
+				s = s[endIndex:]
+			}
+			for line, part := range parts {
+				canvas.Offset(0, line*faces[0].TextHeight()).DrawString(part, faces, color)
+			}
 		}
 	}
 }
