@@ -22,8 +22,8 @@ var vertex string
 var fragment string
 
 type Renderer struct {
-	gl, element, program, buffer, framebuffer, target, empty   js.Value
-	rect, viewport, uv, tint, mode, inverse, center, imageSize js.Value
+	gl, element, program, buffer, framebuffer, target, empty               js.Value
+	rect, viewport, uv, tint, mode, inverse, center, imageSize, sourceRect js.Value
 
 	width, height int
 	position      int
@@ -90,6 +90,7 @@ func New(element js.Value) (*Renderer, error) {
 	r.inverse = g.Call("getUniformLocation", p, "u_inverse")
 	r.center = g.Call("getUniformLocation", p, "u_center")
 	r.imageSize = g.Call("getUniformLocation", p, "u_image_size")
+	r.sourceRect = g.Call("getUniformLocation", p, "u_source_rect")
 	r.position = g.Call("getAttribLocation", p, "a_position").Int()
 	r.buffer = g.Call("createBuffer")
 	g.Call("bindBuffer", g.Get("ARRAY_BUFFER"), r.buffer)
@@ -220,48 +221,6 @@ func (r *Renderer) imageTexture(img canvas.Image) js.Value {
 	r.textures[k] = imageTexture{t, img.Pixels}
 	return t
 }
-func (r *Renderer) DrawImage(img canvas.Image, src image.Rectangle, dst image.Point, clip image.Rectangle) {
-	if img.Width <= 0 || img.Height <= 0 || len(img.Pixels) < img.Width*img.Height*4 {
-		return
-	}
-	w, h := src.Dx(), src.Dy()
-	sx, sy := src.Min.X, src.Min.Y
-	if sx < 0 {
-		dst.X -= sx
-		w += sx
-		sx = 0
-	}
-	if sy < 0 {
-		dst.Y -= sy
-		h += sy
-		sy = 0
-	}
-	w, h = min(w, img.Width-sx), min(h, img.Height-sy)
-	clip = clip.Intersect(image.Rect(0, 0, r.width, r.height))
-	if dst.X < clip.Min.X {
-		d := clip.Min.X - dst.X
-		dst.X += d
-		sx += d
-		w -= d
-	}
-	if dst.Y < clip.Min.Y {
-		d := clip.Min.Y - dst.Y
-		dst.Y += d
-		sy += d
-		h -= d
-	}
-	w = min(w, clip.Max.X-dst.X)
-	h = min(h, clip.Max.Y-dst.Y)
-	if w <= 0 || h <= 0 {
-		return
-	}
-	v := image.Rect(dst.X, dst.Y, dst.X+w, dst.Y+h)
-	g := r.gl
-	g.Call("bindTexture", g.Get("TEXTURE_2D"), r.imageTexture(img))
-	g.Call("useProgram", r.program)
-	g.Call("uniform4f", r.uv, float64(sx)/float64(img.Width), float64(sy)/float64(img.Height), float64(v.Dx())/float64(img.Width), float64(v.Dy())/float64(img.Height))
-	r.draw(v, 1, color.NRGBA{}, !img.Opaque)
-}
 func (r *Renderer) DrawMask(mask []byte, w, h int, dst image.Point, clip image.Rectangle, c canvas.Color) {
 	if w <= 0 || h <= 0 || len(mask) < w*h {
 		return
@@ -289,13 +248,17 @@ func (r *Renderer) DrawMask(mask []byte, w, h int, dst image.Point, clip image.R
 	g.Call("uniform4f", r.uv, float64(v.Min.X-dst.X)/float64(w), float64(v.Min.Y-dst.Y)/float64(h), float64(v.Dx())/float64(w), float64(v.Dy())/float64(h))
 	r.draw(v, 2, c.NRGBA(), true)
 }
-func (r *Renderer) DrawImageTransformed(img canvas.Image, degrees, scaleX, scaleY, cx, cy float64, clip image.Rectangle) {
+func (r *Renderer) DrawImage(img canvas.Image, src image.Rectangle, degrees, scaleX, scaleY, cx, cy float64, clip image.Rectangle) {
 	if img.Width <= 0 || img.Height <= 0 || len(img.Pixels) < img.Width*img.Height*4 || scaleX <= 0 || scaleY <= 0 {
 		return
 	}
+	src = src.Intersect(image.Rect(0, 0, img.Width, img.Height))
+	if src.Empty() {
+		return
+	}
 	s, c := math.Sincos(degrees * math.Pi / 180)
-	rx := (math.Abs(c)*float64(img.Width)*scaleX+math.Abs(s)*float64(img.Height)*scaleY)/2 + max(scaleX, scaleY)
-	ry := (math.Abs(s)*float64(img.Width)*scaleX+math.Abs(c)*float64(img.Height)*scaleY)/2 + max(scaleX, scaleY)
+	rx := (math.Abs(c)*float64(src.Dx())*scaleX+math.Abs(s)*float64(src.Dy())*scaleY)/2 + max(scaleX, scaleY)
+	ry := (math.Abs(s)*float64(src.Dx())*scaleX+math.Abs(c)*float64(src.Dy())*scaleY)/2 + max(scaleX, scaleY)
 	rect := image.Rect(int(math.Floor(cx-rx)), int(math.Floor(cy-ry)), int(math.Ceil(cx+rx)), int(math.Ceil(cy+ry))).Intersect(clip).Intersect(image.Rect(0, 0, r.width, r.height))
 	if rect.Empty() {
 		return
@@ -305,6 +268,7 @@ func (r *Renderer) DrawImageTransformed(img canvas.Image, degrees, scaleX, scale
 	g.Call("useProgram", r.program)
 	g.Call("uniform2f", r.center, cx, cy)
 	g.Call("uniform2f", r.imageSize, img.Width, img.Height)
+	g.Call("uniform4f", r.sourceRect, src.Min.X, src.Min.Y, src.Dx(), src.Dy())
 	g.Call("uniform4f", r.inverse, c/scaleX, s/scaleX, -s/scaleY, c/scaleY)
 	r.draw(rect, 3, color.NRGBA{}, true)
 }

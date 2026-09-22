@@ -131,45 +131,12 @@ func (r *Renderer) FillRect(rect, clip image.Rectangle, c canvas.Color) {
 	sr := sdl.Rect{X: int32(rect.Min.X), Y: int32(rect.Min.Y), W: int32(rect.Dx()), H: int32(rect.Dy())}
 	must(r.renderer.FillRect(&sr))
 }
-func (r *Renderer) DrawImage(img canvas.Image, src image.Rectangle, dst image.Point, clip image.Rectangle) {
-	w, h, sx, sy := src.Dx(), src.Dy(), src.Min.X, src.Min.Y
-	if sx < 0 {
-		dst.X -= sx
-		w += sx
-		sx = 0
-	}
-	if sy < 0 {
-		dst.Y -= sy
-		h += sy
-		sy = 0
-	}
-	w = min(w, img.Width-sx)
-	h = min(h, img.Height-sy)
-	clip = clip.Intersect(image.Rect(0, 0, r.width, r.height))
-	if dst.X < clip.Min.X {
-		d := clip.Min.X - dst.X
-		dst.X += d
-		sx += d
-		w -= d
-	}
-	if dst.Y < clip.Min.Y {
-		d := clip.Min.Y - dst.Y
-		dst.Y += d
-		sy += d
-		h -= d
-	}
-	w = min(w, clip.Max.X-dst.X)
-	h = min(h, clip.Max.Y-dst.Y)
-	if w <= 0 || h <= 0 || len(img.Pixels) < img.Width*img.Height*4 {
+func (r *Renderer) DrawImage(img canvas.Image, src image.Rectangle, degrees, scaleX, scaleY, cx, cy float64, clip image.Rectangle) {
+	if img.Width <= 0 || img.Height <= 0 || scaleX <= 0 || scaleY <= 0 || len(img.Pixels) < img.Width*img.Height*4 {
 		return
 	}
-	t := r.imageTexture(img, false)
-	s := sdl.Rect{X: int32(sx), Y: int32(sy), W: int32(w), H: int32(h)}
-	d := sdl.Rect{X: int32(dst.X), Y: int32(dst.Y), W: int32(w), H: int32(h)}
-	must(r.renderer.Copy(t, &s, &d))
-}
-func (r *Renderer) DrawImageTransformed(img canvas.Image, degrees, scaleX, scaleY, cx, cy float64, clip image.Rectangle) {
-	if img.Width <= 0 || img.Height <= 0 || scaleX <= 0 || scaleY <= 0 || len(img.Pixels) < img.Width*img.Height*4 {
+	src = src.Intersect(image.Rect(0, 0, img.Width, img.Height))
+	if src.Empty() {
 		return
 	}
 	clip = clip.Intersect(image.Rect(0, 0, r.width, r.height))
@@ -181,9 +148,16 @@ func (r *Renderer) DrawImageTransformed(img canvas.Image, degrees, scaleX, scale
 	// CPU/GLES 的双线性采样允许图片边缘外一像素的透明样本参与插值。
 	// SDL_RenderCopyExF 只栅格化目标四边形，所以这里把旋转专用纹理的
 	// 一像素透明边框也计入目标尺寸，否则边缘会被提前截断。
-	w, h := float64(img.Width+2)*scaleX, float64(img.Height+2)*scaleY
+	padded := src == image.Rect(0, 0, img.Width, img.Height) && (degrees != 0 || scaleX != 1 || scaleY != 1)
+	w, h := float64(src.Dx())*scaleX, float64(src.Dy())*scaleY
+	var s *sdl.Rect
+	if padded {
+		w, h = float64(img.Width+2)*scaleX, float64(img.Height+2)*scaleY
+	} else {
+		s = &sdl.Rect{X: int32(src.Min.X), Y: int32(src.Min.Y), W: int32(src.Dx()), H: int32(src.Dy())}
+	}
 	d := sdl.FRect{X: float32(cx - w/2), Y: float32(cy - h/2), W: float32(w), H: float32(h)}
-	must(r.renderer.CopyExF(r.imageTexture(img, true), nil, &d, degrees, nil, sdl.FLIP_NONE))
+	must(r.renderer.CopyExF(r.imageTexture(img, padded), s, &d, degrees, nil, sdl.FLIP_NONE))
 }
 func (r *Renderer) DrawMask(mask []byte, w, h int, dst image.Point, clip image.Rectangle, c canvas.Color) {
 	if w <= 0 || h <= 0 || len(mask) < w*h {

@@ -1261,8 +1261,6 @@ stop := picture.Rotate(fbiw.RotationOptions{
 `Image.Rotate` 通过公共 `Document.Animate` 实现循环；自定义组件也可以使用
 `AnimationOptions.Iterations`，无需访问文档内部 Timeline。注意旋转接口的 `0`
 表示无限循环，而通用 Animate 的 `0` 保留默认单次语义。
-`Canvas.DrawImageRotated` 提供同样的中心旋转绘制，遵守当前原点与裁剪范围。
-
 运行示例（在 `demo/rotation` 目录）：`GOEXPERIMENT=simd go run .`。
 
 ## 通用值过渡

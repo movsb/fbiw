@@ -11,7 +11,6 @@ import (
 	"io"
 	"io/fs"
 	"log"
-	"math"
 	"os"
 	"sync/atomic"
 	"time"
@@ -139,58 +138,17 @@ func (c *Canvas) Offset(x, y int) *Canvas {
 	}
 }
 
-func (c *Canvas) DrawImage(img DecodedImage) {
-	c.DrawImageRegion(img, 0, 0, img.Width, img.Height)
-}
-
-func (c *Canvas) DrawImageScaled(img DecodedImage, width, height int) {
-	if width <= 0 || height <= 0 || img.Width <= 0 || img.Height <= 0 {
-		return
-	}
-	if width == img.Width && height == img.Height {
-		c.DrawImage(img)
-		return
-	}
-	c.drawImageTransformedCenter(img, 0,
-		float64(width)/float64(img.Width), float64(height)/float64(img.Height),
-		float64(c.x)+float64(width)/2, float64(c.y)+float64(height)/2,
-	)
-}
-
-// DrawImageRotated 绕图片中心顺时针旋转 degrees 度并绘制。
-// 使用当前原点和裁剪范围；零角度复用 DrawImage。
-func (c *Canvas) DrawImageRotated(img DecodedImage, degrees float64) {
-	if math.IsNaN(degrees) || math.IsInf(degrees, 0) {
-		panic("DrawImageRotated: 无效的角度。")
-	}
-	degrees = math.Mod(degrees, 360)
-	if degrees == 0 {
-		c.DrawImage(img)
-		return
-	}
-	if img.Width <= 0 || img.Height <= 0 {
-		return
-	}
-	c.drawImageRotatedCenter(img, degrees, float64(c.x)+float64(img.Width)/2, float64(c.y)+float64(img.Height)/2)
-}
-
-func (c *Canvas) drawImageRotatedCenter(img DecodedImage, degrees, cx, cy float64) {
-	c.drawImageTransformedCenter(img, degrees, 1, 1, cx, cy)
-}
-
-func (c *Canvas) drawImageTransformedCenter(img DecodedImage, degrees, scaleX, scaleY, cx, cy float64) {
-	c.renderer.DrawImageTransformed(toCanvasImage(img), degrees, scaleX, scaleY, cx, cy, c.clipBounds())
-}
-
-// DrawImageRegion 把图片的指定区域绘制到 Canvas 当前原点。
-func (c *Canvas) DrawImageRegion(img DecodedImage, srcX, srcY, width, height int) {
-	if width <= 0 || height <= 0 {
-		return
-	}
+// DrawImage 以 Canvas 当前原点为坐标系，绕 (cx, cy) 旋转和缩放整张图片。
+func (c *Canvas) DrawImage(img DecodedImage, degrees, scaleX, scaleY, cx, cy float64) {
 	c.renderer.DrawImage(
-		toCanvasImage(img),
-		image.Rect(srcX, srcY, srcX+width, srcY+height),
-		image.Pt(c.x, c.y),
+		canvas.Image{
+			Pixels: img.Pixels,
+			Width:  img.Width,
+			Height: img.Height,
+			Opaque: img.Opaque,
+		},
+		image.Rect(0, 0, img.Width, img.Height),
+		degrees, scaleX, scaleY, float64(c.x)+cx, float64(c.y)+cy,
 		c.clipBounds(),
 	)
 }
@@ -345,14 +303,6 @@ type DecodedImage struct {
 	Pixels        []byte // 内存格式：B G R A，长度：width*height*4
 	Width, Height int    // 如果指定了移除透明像素，则保存的是移除后的大小。
 	Opaque        bool   // 整张图片的 Alpha 是否全部为 255；用于选择直接复制路径。
-}
-
-func toCanvasImage(img DecodedImage) canvas.Image {
-	return canvas.Image{
-		Pixels: img.Pixels,
-		Width:  img.Width, Height: img.Height,
-		Opaque: img.Opaque,
-	}
 }
 
 // ImageDecodeOptions 控制图片解码时执行的变换。

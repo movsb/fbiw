@@ -549,7 +549,10 @@ func (b *BaseBox) DrawOptions(canvas *Canvas, options BaseBoxDrawOptions) {
 		}
 
 		if err == nil && len(img.Pixels) > 0 {
-			canvas.DrawImageScaled(img, width, height)
+			canvas.DrawImage(img, 0,
+				float64(width)/float64(img.Width), float64(height)/float64(img.Height),
+				float64(width)/2, float64(height)/2,
+			)
 		} else {
 			b.document.loadImageAsync(nil, src,
 				ImageDecodeOptions{TrimTransparentBorder: true},
@@ -2659,14 +2662,18 @@ func (b *Image) drawImageTransformed(canvas *Canvas) {
 	}
 	if b.rotation == 0 && b.scale == 1 && drawWidth == b.decodedImage.Width && drawHeight == b.decodedImage.Height {
 		canvas.Offset((b.layoutBox.Width-b.decodedImage.Width)/2,
-			(b.layoutBox.Height-b.decodedImage.Height)/2).DrawImage(b.decodedImage)
+			(b.layoutBox.Height-b.decodedImage.Height)/2).DrawImage(
+			b.decodedImage, 0, 1, 1,
+			float64(b.decodedImage.Width)/2, float64(b.decodedImage.Height)/2,
+		)
 		return
 	}
 	scaleX := float64(drawWidth) / float64(b.decodedImage.Width) * b.scale
 	scaleY := float64(drawHeight) / float64(b.decodedImage.Height) * b.scale
-	clipped.drawImageTransformedCenter(b.decodedImage, b.rotation, scaleX, scaleY,
-		float64(canvas.x)+float64(b.layoutBox.Width)/2,
-		float64(canvas.y)+float64(b.layoutBox.Height)/2,
+	clipped.DrawImage(
+		b.decodedImage, b.rotation, scaleX, scaleY,
+		float64(b.layoutBox.Width)/2,
+		float64(b.layoutBox.Height)/2,
 	)
 }
 

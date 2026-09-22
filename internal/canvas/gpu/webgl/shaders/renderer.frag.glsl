@@ -8,11 +8,12 @@ uniform vec4 u_uv;
 uniform vec4 u_inverse;
 uniform vec2 u_center;
 uniform vec2 u_image_size;
+uniform vec4 u_source_rect;
 uniform int u_mode;
 
 vec4 samplePixel(vec2 pixel) {
-	if (pixel.x < 0.0 || pixel.y < 0.0 ||
-		pixel.x >= u_image_size.x || pixel.y >= u_image_size.y) {
+	if (pixel.x < u_source_rect.x || pixel.y < u_source_rect.y ||
+		pixel.x >= u_source_rect.x + u_source_rect.z || pixel.y >= u_source_rect.y + u_source_rect.w) {
 		return vec4(0.0);
 	}
 	return texture2D(u_texture, (pixel + 0.5) / u_image_size).bgra;
@@ -21,10 +22,6 @@ vec4 samplePixel(vec2 pixel) {
 void main() {
 	if (u_mode == 0) {
 		gl_FragColor = u_color;
-		return;
-	}
-	if (u_mode == 1) {
-		gl_FragColor = texture2D(u_texture, u_uv.xy + v_uv * u_uv.zw).bgra;
 		return;
 	}
 	if (u_mode == 4) {
@@ -42,7 +39,7 @@ void main() {
 	vec2 source = vec2(
 		u_inverse.x * delta.x + u_inverse.y * delta.y,
 		u_inverse.z * delta.x + u_inverse.w * delta.y
-	) + u_image_size * 0.5 - 0.5;
+	) + u_source_rect.xy + u_source_rect.zw * 0.5 - 0.5;
 	vec2 base = floor(source);
 	vec2 fraction = source - base;
 	vec4 c00 = samplePixel(base);

@@ -2,11 +2,13 @@ precision highp float;
 uniform sampler2D u_texture;
 uniform vec2 u_center;
 uniform vec2 u_image_size;
+uniform vec4 u_source_rect;
 uniform vec4 u_inverse;
 varying vec2 v_pixel;
 
 vec4 sourcePixel(vec2 pixel) {
-	if (pixel.x < 0.0 || pixel.y < 0.0 || pixel.x >= u_image_size.x || pixel.y >= u_image_size.y) {
+	if (pixel.x < u_source_rect.x || pixel.y < u_source_rect.y ||
+		pixel.x >= u_source_rect.x + u_source_rect.z || pixel.y >= u_source_rect.y + u_source_rect.w) {
 		return vec4(0.0);
 	}
 	return texture2D(u_texture, (pixel + 0.5) / u_image_size).bgra;
@@ -17,7 +19,7 @@ void main() {
 	vec2 source = vec2(
 		u_inverse.x * delta.x + u_inverse.y * delta.y,
 		u_inverse.z * delta.x + u_inverse.w * delta.y
-	) + u_image_size * 0.5 - 0.5;
+	) + u_source_rect.xy + u_source_rect.zw * 0.5 - 0.5;
 	vec2 base = floor(source);
 	vec2 fraction = source - base;
 	vec4 c00 = sourcePixel(base);

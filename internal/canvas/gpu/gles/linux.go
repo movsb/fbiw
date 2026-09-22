@@ -244,10 +244,6 @@ func Open() (_ *Renderer, err error) {
 		renderer.releaseGLResources()
 		return nil, err
 	}
-	if err = renderer.initTexturePipeline(); err != nil {
-		renderer.releaseGLResources()
-		return nil, err
-	}
 	if err = renderer.initMaskPipeline(); err != nil {
 		renderer.releaseGLResources()
 		return nil, err
@@ -282,13 +278,13 @@ func RunProbe() error {
 			}
 		}
 	}
-	r.DrawImage(probeImage, image.Rect(20, 10, 150, 110), image.Pt(650, 160), image.Rect(680, 180, 790, 250))
+	r.DrawImage(probeImage, image.Rect(20, 10, 150, 110), 0, 1, 1, 715, 210, image.Rect(680, 180, 790, 250))
 	cachedImages := len(r.imageTextures)
-	r.DrawImage(probeImage, image.Rect(0, 0, 80, 60), image.Pt(820, 160), bounds)
+	r.DrawImage(probeImage, image.Rect(0, 0, 80, 60), 0, 1, 1, 860, 190, bounds)
 	if len(r.imageTextures) != cachedImages {
 		return errors.New("GLES image texture cache missed identical storage")
 	}
-	r.DrawImageTransformed(probeImage, 28, 1.35, 1.35, 850, 390, image.Rect(730, 270, 970, 510))
+	r.DrawImage(probeImage, image.Rect(0, 0, probeImage.Width, probeImage.Height), 28, 1.35, 1.35, 850, 390, image.Rect(730, 270, 970, 510))
 	maskWidth, maskHeight := 127, 96
 	probeMask := make([]byte, maskWidth*maskHeight)
 	for y := 0; y < maskHeight; y++ {

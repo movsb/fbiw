@@ -54,8 +54,7 @@ type Renderer interface {
 
 	Clear()
 	FillRect(rect, clip image.Rectangle, color Color)
-	DrawImage(img Image, src image.Rectangle, dst image.Point, clip image.Rectangle)
-	DrawImageTransformed(img Image, degrees, scaleX, scaleY, cx, cy float64, clip image.Rectangle)
+	DrawImage(img Image, src image.Rectangle, degrees, scaleX, scaleY, cx, cy float64, clip image.Rectangle)
 	DrawMask(mask []byte, maskWidth, maskHeight int, dst image.Point, clip image.Rectangle, color Color)
 	Snapshot() image.Image
 

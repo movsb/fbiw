@@ -29,12 +29,6 @@ type recordingCanvasRenderer struct {
 	transformCenterX, transformCenterY float64
 }
 
-func testSoftwareCanvas(width, height int, x, y int) *Canvas {
-	c := NewCanvas(cpu.New(width, height))
-	c.x, c.y = x, y
-	return c
-}
-
 func (r *recordingCanvasRenderer) Size() (int, int) { return r.width, r.height }
 func (r *recordingCanvasRenderer) Resize(width, height int) error {
 	r.width, r.height = width, height
@@ -46,10 +40,8 @@ func (*recordingCanvasRenderer) Clear()      {}
 func (r *recordingCanvasRenderer) FillRect(rect, clip image.Rectangle, _ canvas.Color) {
 	r.fillRectRect, r.fillRectClip = rect, clip
 }
-func (r *recordingCanvasRenderer) DrawImage(_ canvas.Image, src image.Rectangle, dst image.Point, clip image.Rectangle) {
-	r.imageSrc, r.imageDst, r.imageClip = src, dst, clip
-}
-func (r *recordingCanvasRenderer) DrawImageTransformed(_ canvas.Image, _ float64, scaleX, scaleY, cx, cy float64, _ image.Rectangle) {
+func (r *recordingCanvasRenderer) DrawImage(_ canvas.Image, src image.Rectangle, _ float64, scaleX, scaleY, cx, cy float64, clip image.Rectangle) {
+	r.imageSrc, r.imageDst, r.imageClip = src, image.Pt(int(cx)-src.Dx()/2, int(cy)-src.Dy()/2), clip
 	r.transformScaleX, r.transformScaleY = scaleX, scaleY
 	r.transformCenterX, r.transformCenterY = cx, cy
 }
@@ -96,12 +88,12 @@ func TestCanvasDelegatesAbsoluteCoordinatesAndClip(t *testing.T) {
 	}
 
 	img := DecodedImage{Width: 5, Height: 4, Pixels: make([]byte, 5*4*4)}
-	canvas.DrawImageRegion(img, 1, 2, 3, 2)
-	if renderer.imageSrc != image.Rect(1, 2, 4, 4) {
-		t.Fatalf("DrawImageRegion source = %v", renderer.imageSrc)
+	canvas.DrawImage(img, 0, 1, 1, 2.5, 2)
+	if renderer.imageSrc != image.Rect(0, 0, 5, 4) {
+		t.Fatalf("DrawImage source = %v", renderer.imageSrc)
 	}
 	if renderer.imageDst != image.Pt(5, 3) || renderer.imageClip != wantClip {
-		t.Fatalf("DrawImageRegion dst/clip = %v/%v, want %v/%v", renderer.imageDst, renderer.imageClip, image.Pt(5, 3), wantClip)
+		t.Fatalf("DrawImage dst/clip = %v/%v, want %v/%v", renderer.imageDst, renderer.imageClip, image.Pt(5, 3), wantClip)
 	}
 }
 
@@ -157,35 +149,15 @@ func TestTrimTransparentBorderFullyTransparent(t *testing.T) {
 	}
 }
 
-func TestDrawImageScaledUsesRendererTransform(t *testing.T) {
+func TestDrawImageUsesRendererTransform(t *testing.T) {
 	renderer := &recordingCanvasRenderer{width: 100, height: 80}
 	canvas := NewCanvas(renderer).Offset(7, 9)
-	canvas.DrawImageScaled(DecodedImage{Width: 20, Height: 10, Pixels: make([]byte, 20*10*4)}, 50, 30)
+	canvas.DrawImage(DecodedImage{Width: 20, Height: 10, Pixels: make([]byte, 20*10*4)}, 0, 2.5, 3, 25, 15)
 	if renderer.transformScaleX != 2.5 || renderer.transformScaleY != 3 {
 		t.Fatalf("scale = %v,%v", renderer.transformScaleX, renderer.transformScaleY)
 	}
 	if renderer.transformCenterX != 32 || renderer.transformCenterY != 24 {
 		t.Fatalf("center = %v,%v", renderer.transformCenterX, renderer.transformCenterY)
-	}
-}
-
-func TestDrawImageRegion(t *testing.T) {
-	img := DecodedImage{Width: 4, Height: 3, Pixels: make([]byte, 4*3*4), Opaque: true}
-	for i := range 12 {
-		img.Pixels[i*4] = byte(i + 1)
-		img.Pixels[i*4+3] = 255
-	}
-	canvas := testSoftwareCanvas(3, 2, 0, 0)
-	canvas.DrawImageRegion(img, 1, 1, 3, 2)
-
-	for y := range 2 {
-		for x := range 3 {
-			got := canvas.softwarePixels()[(y*3+x)*4]
-			want := byte((y+1)*4 + (x + 1) + 1)
-			if got != want {
-				t.Fatalf("pixel (%d,%d)=%d, want %d", x, y, got, want)
-			}
-		}
 	}
 }
 

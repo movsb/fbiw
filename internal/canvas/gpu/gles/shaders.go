@@ -7,10 +7,6 @@ var (
 	colorVertexShader string
 	//go:embed shaders/color.frag.glsl
 	colorFragmentShader string
-	//go:embed shaders/texture.vert.glsl
-	textureVertexShader string
-	//go:embed shaders/texture.frag.glsl
-	textureFragmentShader string
 	//go:embed shaders/mask.vert.glsl
 	maskVertexShader string
 	//go:embed shaders/mask.frag.glsl

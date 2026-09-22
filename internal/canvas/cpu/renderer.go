@@ -119,7 +119,7 @@ func (r *Renderer) FillRect(rect, clip image.Rectangle, fill canvas.Color) {
 
 func div255(value uint32) uint8 { return uint8((value + 1 + (value >> 8)) >> 8) }
 
-func (r *Renderer) DrawImage(img canvas.Image, src image.Rectangle, dst image.Point, clip image.Rectangle) {
+func (r *Renderer) drawImage(img canvas.Image, src image.Rectangle, dst image.Point, clip image.Rectangle) {
 	w, h := src.Dx(), src.Dy()
 	sx, sy := src.Min.X, src.Min.Y
 	if sx < 0 {
@@ -179,16 +179,27 @@ func (r *Renderer) DrawImage(img canvas.Image, src image.Rectangle, dst image.Po
 	}
 }
 
-func (r *Renderer) DrawImageTransformed(img canvas.Image, degrees, scaleX, scaleY, cx, cy float64, clip image.Rectangle) {
+func (r *Renderer) DrawImage(img canvas.Image, src image.Rectangle, degrees, scaleX, scaleY, cx, cy float64, clip image.Rectangle) {
+	if degrees == 0 && scaleX == 1 && scaleY == 1 {
+		r.drawImage(img, src, image.Pt(
+			int(math.Round(cx-float64(src.Dx())/2)),
+			int(math.Round(cy-float64(src.Dy())/2)),
+		), clip)
+		return
+	}
+	src = src.Intersect(image.Rect(0, 0, img.Width, img.Height))
+	if src.Empty() || scaleX <= 0 || scaleY <= 0 {
+		return
+	}
 	sin, cos := math.Sincos(degrees * math.Pi / 180)
-	rx := (math.Abs(cos)*float64(img.Width)*scaleX+math.Abs(sin)*float64(img.Height)*scaleY)/2 + max(scaleX, scaleY)
-	ry := (math.Abs(sin)*float64(img.Width)*scaleX+math.Abs(cos)*float64(img.Height)*scaleY)/2 + max(scaleX, scaleY)
+	rx := (math.Abs(cos)*float64(src.Dx())*scaleX+math.Abs(sin)*float64(src.Dy())*scaleY)/2 + max(scaleX, scaleY)
+	ry := (math.Abs(sin)*float64(src.Dx())*scaleX+math.Abs(cos)*float64(src.Dy())*scaleY)/2 + max(scaleX, scaleY)
 	clip = clip.Intersect(image.Rect(0, 0, r.Width, r.Height))
 	minX, maxX := max(clip.Min.X, int(math.Floor(cx-rx))), min(clip.Max.X, int(math.Ceil(cx+rx)))
 	minY, maxY := max(clip.Min.Y, int(math.Floor(cy-ry))), min(clip.Max.Y, int(math.Ceil(cy+ry)))
 	for y := minY; y < maxY; y++ {
 		dx, dy := float64(minX)+.5-cx, float64(y)+.5-cy
-		sx, sy := (cos*dx+sin*dy)/scaleX+float64(img.Width)/2-.5, (-sin*dx+cos*dy)/scaleY+float64(img.Height)/2-.5
+		sx, sy := (cos*dx+sin*dy)/scaleX+float64(src.Min.X+src.Max.X)/2-.5, (-sin*dx+cos*dy)/scaleY+float64(src.Min.Y+src.Max.Y)/2-.5
 		for x := minX; x < maxX; x++ {
 			ix, iy := int(math.Floor(sx)), int(math.Floor(sy))
 			fx, fy := sx-float64(ix), sy-float64(iy)
@@ -196,7 +207,7 @@ func (r *Renderer) DrawImageTransformed(img canvas.Image, degrees, scaleX, scale
 			for oy := range 2 {
 				for ox := range 2 {
 					px, py := ix+ox, iy+oy
-					if px < 0 || px >= img.Width || py < 0 || py >= img.Height {
+					if px < src.Min.X || px >= src.Max.X || py < src.Min.Y || py >= src.Max.Y {
 						continue
 					}
 					wx, wy := 1-fx, 1-fy
