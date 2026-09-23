@@ -595,6 +595,36 @@ func (s *Styles) parseProperty(name string, raw string) (
 	}
 }
 
+func parseAspectRatio(raw string) (float64, error) {
+	raw = strings.TrimSpace(raw)
+	parts := []string{raw}
+	if strings.ContainsAny(raw, `/:`) {
+		if strings.Count(raw, `/`)+strings.Count(raw, `:`) != 1 {
+			return 0, fmt.Errorf(`无效 aspect-ratio：%q`, raw)
+		}
+		parts = strings.FieldsFunc(raw, func(r rune) bool { return r == '/' || r == ':' })
+		if len(parts) != 2 {
+			return 0, fmt.Errorf(`无效 aspect-ratio：%q`, raw)
+		}
+	}
+	values := make([]float64, len(parts))
+	for i, part := range parts {
+		value, err := strconv.ParseFloat(strings.TrimSpace(part), 64)
+		if err != nil || value <= 0 || math.IsNaN(value) || math.IsInf(value, 0) {
+			return 0, fmt.Errorf(`无效 aspect-ratio：%q`, raw)
+		}
+		values[i] = value
+	}
+	ratio := values[0]
+	if len(values) == 2 {
+		ratio /= values[1]
+	}
+	if ratio <= 0 || math.IsNaN(ratio) || math.IsInf(ratio, 0) {
+		return 0, fmt.Errorf(`无效 aspect-ratio：%q`, raw)
+	}
+	return ratio, nil
+}
+
 type LengthKind uint8
 
 const (

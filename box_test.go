@@ -3,6 +3,7 @@ package fbiw
 import (
 	"bytes"
 	"fmt"
+	"image"
 	"math"
 	"os"
 	"reflect"
@@ -369,6 +370,107 @@ func TestFixedDimensionsOverrideStyles(t *testing.T) {
 	img.Calc(0, 0, Constraints{FixedWidth: NumberLength(0), FixedHeight: NumberLength(0)})
 	if got := img.GetLayoutBox(); got.Width != 0 || got.Height != 0 {
 		t.Fatalf("image ignored fixed zero: %+v", got)
+	}
+}
+
+func TestImageAspectRatioLayout(t *testing.T) {
+	newImage := func(ratio float64) *Image {
+		img := NewImage(nil)
+		img.aspectRatio = ratio
+		return img
+	}
+
+	widthOnly := newImage(2)
+	widthOnly.computedStyles.SetWidth(NumberLength(101))
+	widthOnly.Calc(300, 200, Constraints{})
+	if got := widthOnly.GetLayoutBox(); got.Width != 101 || got.Height != 51 {
+		t.Fatalf(`width-only ratio layout = %+v`, got)
+	}
+
+	heightOnly := newImage(2)
+	heightOnly.computedStyles.SetHeight(NumberLength(51))
+	heightOnly.Calc(300, 200, Constraints{})
+	if got := heightOnly.GetLayoutBox(); got.Width != 102 || got.Height != 51 {
+		t.Fatalf(`height-only ratio layout = %+v`, got)
+	}
+
+	both := newImage(2)
+	both.computedStyles.SetWidth(NumberLength(80))
+	both.computedStyles.SetHeight(NumberLength(30))
+	both.Calc(300, 200, Constraints{})
+	if got := both.GetLayoutBox(); got.Width != 80 || got.Height != 30 {
+		t.Fatalf(`explicit dimensions lost priority: %+v`, got)
+	}
+
+	bounded := newImage(16.0 / 9)
+	bounded.Calc(200, 100, Constraints{})
+	if got := bounded.GetLayoutBox(); got.Width != 178 || got.Height != 100 {
+		t.Fatalf(`bounded ratio layout = %+v`, got)
+	}
+	bounded.src.path = `cached`
+	bounded.status = imageLoadStatusDecoded
+	bounded.decodedImage = DecodedImage{Width: 20, Height: 10}
+	bounded.Calc(200, 100, Constraints{})
+	if got := bounded.GetLayoutBox(); got.Width != 178 || got.Height != 100 {
+		t.Fatalf(`ratio layout changed after decode: %+v`, got)
+	}
+
+	widthBounded := newImage(16.0 / 9)
+	widthBounded.Calc(200, 100, Constraints{UnboundedHeight: true})
+	if got := widthBounded.GetLayoutBox(); got.Width != 200 || got.Height != 113 {
+		t.Fatalf(`width-bounded ratio layout = %+v`, got)
+	}
+
+	heightBounded := newImage(16.0 / 9)
+	heightBounded.Calc(200, 100, Constraints{UnboundedWidth: true})
+	if got := heightBounded.GetLayoutBox(); got.Width != 178 || got.Height != 100 {
+		t.Fatalf(`height-bounded ratio layout = %+v`, got)
+	}
+
+	intrinsic := newImage(1.5)
+	intrinsic.src.path = `cached`
+	intrinsic.status = imageLoadStatusDecoded
+	intrinsic.decodedImage = DecodedImage{Width: 20, Height: 10}
+	intrinsic.Calc(0, 0, Constraints{UnboundedWidth: true, UnboundedHeight: true})
+	if got := intrinsic.GetLayoutBox(); got.Width != 20 || got.Height != 13 {
+		t.Fatalf(`unbounded ratio layout = %+v`, got)
+	}
+
+	fixed := newImage(2)
+	fixed.Calc(300, 200, Constraints{FixedWidth: NumberLength(90)})
+	if got := fixed.GetLayoutBox(); got.Width != 90 || got.Height != 45 {
+		t.Fatalf(`fixed-width ratio layout = %+v`, got)
+	}
+}
+
+func TestImageAspectRatioZeroAndFill(t *testing.T) {
+	zero := NewImage(nil)
+	zero.aspectRatio = 2
+	zero.src.path = `cached`
+	zero.status = imageLoadStatusDecoded
+	zero.decodedImage = DecodedImage{Width: 20, Height: 10}
+	zero.Calc(100, 100, Constraints{FixedWidth: NumberLength(0)})
+	if got := zero.GetLayoutBox(); got.Width != 0 || got.Height != 0 || zero.status != imageLoadStatusDecoded {
+		t.Fatalf(`zero ratio layout = %+v, status = %v`, got, zero.status)
+	}
+
+	for fill, want := range map[Fill]image.Point{
+		FillStretch:   image.Pt(100, 100),
+		FillContain:   image.Pt(100, 50),
+		FillCover:     image.Pt(200, 100),
+		FillNone:      image.Pt(20, 10),
+		FillScaleDown: image.Pt(20, 10),
+	} {
+		img := NewImage(nil)
+		img.aspectRatio = 1
+		img.src.path = `cached`
+		img.status = imageLoadStatusDecoded
+		img.decodedImage = DecodedImage{Width: 20, Height: 10}
+		img.computedStyles.SetFill(fill)
+		img.Calc(100, 100, Constraints{})
+		if got := image.Pt(img.drawWidth, img.drawHeight); got != want {
+			t.Errorf(`fill %v draw size = %v, want %v`, fill, got, want)
+		}
 	}
 }
 

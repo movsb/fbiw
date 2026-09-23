@@ -1,6 +1,7 @@
 package fbiw
 
 import (
+	"math"
 	"reflect"
 	"strings"
 	"testing"
@@ -600,6 +601,28 @@ func TestParseStyle(t *testing.T) {
 		if !reflect.DeepEqual(tc.Rules, sheet.Rules) {
 			t.Errorf("解析不一致: #%d\nwant: %+v\ngot:  %+v", i+1, tc.Rules, sheet.Rules)
 			continue
+		}
+	}
+}
+
+func TestAspectRatioParsing(t *testing.T) {
+	for raw, want := range map[string]float64{
+		`16/9`:     16.0 / 9,
+		`16:9`:     16.0 / 9,
+		` 16 / 9 `: 16.0 / 9,
+		`1.7778`:   1.7778,
+	} {
+		img := NewImage(nil)
+		if err := img.SetProp(`aspect-ratio`, raw); err != nil {
+			t.Fatalf(`aspect-ratio %q: %v`, raw, err)
+		}
+		if math.Abs(img.aspectRatio-want) > 1e-9 {
+			t.Fatalf(`aspect-ratio %q = %v, want %v`, raw, img.aspectRatio, want)
+		}
+	}
+	for _, raw := range []string{``, `0`, `-1`, `NaN`, `Inf`, `16/`, `/9`, `16/9/4`, `16:9:4`, `16/:9`, `x/y`} {
+		if err := NewImage(nil).SetProp(`aspect-ratio`, raw); err == nil {
+			t.Fatalf(`invalid aspect-ratio %q accepted`, raw)
 		}
 	}
 }

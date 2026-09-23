@@ -1095,13 +1095,16 @@ listHeight = border + padding + contentHeight
 ```html
 <img src="icon.png" width="64" height="64">
 <img src="loading.gif" width="64" height="64">
+<img src="cover.png" width="160" aspect-ratio="16/9" fill="cover">
 <block background-image="panel.png"></block>
 ```
 
 GIF 在 `<img>` 中按文件的帧间隔自动循环播放；单帧 GIF 显示为静态图片。
 播放使用 GIF 的完整画布尺寸，避免局部帧导致布局抖动。
 
-也可以通过 `os:` 来源读取操作系统文件。应用应只加载可信路径。
+`<img>` 的 `aspect-ratio` 接受 `16/9`、`16:9` 或小数。只指定宽或高时，
+另一边按比例计算；宽高都未指定时，在父布局的有界可用空间内取最大内接尺寸。
+宽高都显式指定时忽略该比例。
 
 添加字体：
 

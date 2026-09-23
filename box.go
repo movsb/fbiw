@@ -2309,6 +2309,16 @@ type Image struct {
 	rotationCancel   func()
 	// 缩放相关参数
 	scale float64
+
+	// 容器宽高比；零表示未设置。
+	//
+	//  1. 宽高都已由样式或固定约束确定：保持两者，忽略比例。
+	//  2. 只有宽度确定：`height = round(width / ratio)`。
+	//  3. 只有高度确定：`width = round(height * ratio)`。
+	//  4. 宽高都未指定且两轴有界：在 `availWidth × availHeight` 内取满足比例的最大内接尺寸。
+	//  5. 只有一轴有界：使用该轴计算另一轴。
+	//  6. 两轴都无界：图片解码后以固有宽度为基准，根据比例计算高度。
+	aspectRatio float64
 }
 
 type _ImageTempFile struct {
@@ -2397,6 +2407,18 @@ func (b *Image) SetProp(key string, val string) error {
 	switch key {
 	case `src`:
 		b.setSrc(nil, val)
+		return nil
+	case `aspect-ratio`:
+		ratio, err := parseAspectRatio(val)
+		if err != nil {
+			return err
+		}
+		if b.aspectRatio != ratio {
+			b.aspectRatio = ratio
+			if b.document != nil {
+				b.document.RequestLayout()
+			}
+		}
 		return nil
 	default:
 		return b.BaseBox.SetProp(key, val)
@@ -2491,6 +2513,41 @@ func (b *Image) setLoadedImage(result any) {
 
 func (b *Image) Calc(availWidth, availHeight int, constraints Constraints) {
 	size := b.resolveDimensions(constraints)
+
+	// 参看成员定义说明比例是如何优先决策的。
+	if b.aspectRatio > 0 {
+		widthSet, heightSet := size.Width.IsNumber(), size.Height.IsNumber()
+		switch {
+		case widthSet && !heightSet:
+			size.Height = NumberLength(int64(math.Round(float64(size.Width.Number()) / b.aspectRatio)))
+		case !widthSet && heightSet:
+			size.Width = NumberLength(int64(math.Round(float64(size.Height.Number()) * b.aspectRatio)))
+		case !widthSet && !heightSet:
+			boundedWidth, boundedHeight := !constraints.UnboundedWidth, !constraints.UnboundedHeight
+			switch {
+			case boundedWidth && boundedHeight:
+				width, height := max(0, availWidth), max(0, availHeight)
+				if float64(width) > float64(height)*b.aspectRatio {
+					width = int(math.Round(float64(height) * b.aspectRatio))
+				} else {
+					height = int(math.Round(float64(width) / b.aspectRatio))
+				}
+				size.Width, size.Height = NumberLength(width), NumberLength(height)
+			case boundedWidth:
+				width := max(0, availWidth)
+				size.Width = NumberLength(width)
+				size.Height = NumberLength(int64(math.Round(float64(width) / b.aspectRatio)))
+			case boundedHeight:
+				height := max(0, availHeight)
+				size.Width = NumberLength(int64(math.Round(float64(height) * b.aspectRatio)))
+				size.Height = NumberLength(height)
+			case b.status == imageLoadStatusDecoded:
+				size.Width = NumberLength(b.decodedImage.Width)
+				size.Height = NumberLength(int64(math.Round(float64(b.decodedImage.Width) / b.aspectRatio)))
+			}
+		}
+	}
+
 	// 图片内容的固有尺寸不能覆盖父布局分配的尺寸（包括显式的零）。
 	defer func() {
 		if constraints.FixedWidth.IsNumber() {
@@ -2503,8 +2560,10 @@ func (b *Image) Calc(availWidth, availHeight int, constraints Constraints) {
 	b.layoutBox.Width = Iif(constraints.PrefersMaxWidth && !constraints.UnboundedWidth, availWidth, 0)
 	b.layoutBox.Height = Iif(constraints.PrefersMaxHeight && !constraints.UnboundedHeight, availHeight, 0)
 
-	if !size.Width.Empty() && !size.Height.Empty() {
+	if size.Width.IsNumber() {
 		b.layoutBox.Width = int(size.Width.Number())
+	}
+	if size.Height.IsNumber() {
 		b.layoutBox.Height = int(size.Height.Number())
 	}
 	if constraints.FixedWidth.IsNumber() {
@@ -2555,6 +2614,11 @@ func (b *Image) Calc(availWidth, availHeight int, constraints Constraints) {
 	case imageLoadStatusDecoded:
 		// 图片数据加载成功，获得了真实尺寸，重新布局。
 		fittingWidth, fittingHeight := 0, 0
+
+		if size.Width.IsNumber() && size.Height.IsNumber() && (b.layoutBox.Width == 0 || b.layoutBox.Height == 0) {
+			b.drawWidth, b.drawHeight = 0, 0
+			return
+		}
 
 		if b.layoutBox.Width == 0 || b.layoutBox.Height == 0 {
 			fittingWidth = b.decodedImage.Width
