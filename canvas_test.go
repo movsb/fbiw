@@ -149,6 +149,61 @@ func TestTrimTransparentBorderFullyTransparent(t *testing.T) {
 	}
 }
 
+func trimTransparentBorder(img image.Image) image.Image {
+	return trimImageBorder(img, func(_, _, _, alpha uint32) bool { return alpha == 0 }, color.NRGBA{})
+}
+
+func TestDecodeImageTrimBlackBorder(t *testing.T) {
+	source := image.NewNRGBA(image.Rect(0, 0, 7, 6))
+	for y := range 6 {
+		for x := range 7 {
+			source.SetNRGBA(x, y, color.NRGBA{A: 255})
+		}
+	}
+	source.SetNRGBA(2, 1, color.NRGBA{R: 10, G: 20, B: 30, A: 255})
+	source.SetNRGBA(3, 1, color.NRGBA{R: 40, G: 50, B: 60, A: 255})
+	source.SetNRGBA(2, 2, color.NRGBA{R: 70, G: 80, B: 90, A: 255})
+	source.SetNRGBA(3, 2, color.NRGBA{R: 100, G: 110, B: 120, A: 255})
+
+	var encoded bytes.Buffer
+	if err := png.Encode(&encoded, source); err != nil {
+		t.Fatal(err)
+	}
+	manager := NewImageManager()
+	mapFS := fstest.MapFS{"black.png": &fstest.MapFile{Data: encoded.Bytes()}}
+	trimmed, err := manager.GetImageCached(
+		&mapFS,
+		"black.png", ImageDecodeOptions{TrimBlackBorder: true},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if trimmed.Width != 2 || trimmed.Height != 2 {
+		t.Fatalf("裁剪后尺寸错误：%dx%d", trimmed.Width, trimmed.Height)
+	}
+	if got := trimmed.Pixels[:4]; !bytes.Equal(got, []byte{30, 20, 10, 255}) {
+		t.Fatalf("裁剪后的首个像素错误：%v", got)
+	}
+}
+
+func TestTrimBlackBorderFullyBlack(t *testing.T) {
+	source := image.NewNRGBA(image.Rect(0, 0, 4, 3))
+	for i := 3; i < len(source.Pix); i += 4 {
+		source.Pix[i] = 255
+	}
+	trimmed := trimImageBorder(source,
+		func(r, g, b, a uint32) bool { return r == 0 && g == 0 && b == 0 && a == 0xffff },
+		color.NRGBA{A: 255},
+	)
+	if trimmed.Bounds() != image.Rect(0, 0, 1, 1) {
+		t.Fatalf("全黑图片应保留一个黑色像素：%v", trimmed.Bounds())
+	}
+	_, _, _, alpha := trimmed.At(0, 0).RGBA()
+	if alpha != 0xffff {
+		t.Fatalf("保留的黑色像素应不透明：alpha=%d", alpha)
+	}
+}
+
 func TestDrawImageUsesRendererTransform(t *testing.T) {
 	renderer := &recordingCanvasRenderer{width: 100, height: 80}
 	canvas := NewCanvas(renderer).Offset(7, 9)

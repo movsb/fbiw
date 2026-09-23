@@ -373,7 +373,7 @@ type _ImageCacheKey struct {
 // 所以这里直接在内存中保存目标格式，加快渲染效率。
 type DecodedImage struct {
 	Pixels        []byte // 内存格式：B G R A，长度：width*height*4
-	Width, Height int    // 如果指定了移除透明像素，则保存的是移除后的大小。
+	Width, Height int    // 如果指定了边缘裁剪，则保存裁剪后的大小。
 	Opaque        bool   // 整张图片的 Alpha 是否全部为 255；用于选择直接复制路径。
 }
 
@@ -383,6 +383,10 @@ type ImageDecodeOptions struct {
 	// 全透明图片会保留为一个透明像素。
 	// 先移除再计算大小。
 	TrimTransparentBorder bool
+
+	// TrimBlackBorder 移除图片四周全部像素均为不透明纯黑的行和列。
+	// 全黑图片会保留一个黑色像素。
+	TrimBlackBorder bool
 }
 
 type ImageManager struct {
@@ -407,8 +411,6 @@ func (m *ImageManager) Close() {
 	m.closed.Store(true)
 }
 
-// 如果 width和height均为0，返回原图大小。
-// 否则表示指定缩放到此大小。
 func (m *ImageManager) decodeImage(fsys fs.FS, path string, options ImageDecodeOptions) (DecodedImage, error) {
 	if m.closed.Load() {
 		return DecodedImage{}, fs.ErrClosed
@@ -428,20 +430,23 @@ func (m *ImageManager) decodeImage(fsys fs.FS, path string, options ImageDecodeO
 		log.Println(`图片解码错误`, err, path)
 		return DecodedImage{}, err
 	}
-	if options.TrimTransparentBorder {
-		img = trimTransparentBorder(img)
+	if options.TrimTransparentBorder || options.TrimBlackBorder {
+		img = trimImageBorder(img, func(r, g, b, a uint32) bool {
+			return options.TrimTransparentBorder && a == 0 ||
+				options.TrimBlackBorder && r == 0 && g == 0 && b == 0 && a == 0xffff
+		}, Iif(options.TrimTransparentBorder, color.NRGBA{}, color.NRGBA{A: 255}))
 	}
 
 	return decodedPixels(img), nil
 }
 
-func trimTransparentBorder(img image.Image) image.Image {
+func trimImageBorder(img image.Image, removable func(r, g, b, a uint32) bool, empty color.NRGBA) image.Image {
 	bounds := img.Bounds()
 	content := image.Rectangle{Min: bounds.Max, Max: bounds.Min}
 	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
 		for x := bounds.Min.X; x < bounds.Max.X; x++ {
-			_, _, _, alpha := img.At(x, y).RGBA()
-			if alpha == 0 {
+			r, g, b, a := img.At(x, y).RGBA()
+			if removable(r, g, b, a) {
 				continue
 			}
 			content.Min.X = min(content.Min.X, x)
@@ -452,7 +457,9 @@ func trimTransparentBorder(img image.Image) image.Image {
 	}
 
 	if content.Empty() {
-		return image.NewNRGBA(image.Rect(0, 0, 1, 1))
+		trimmed := image.NewNRGBA(image.Rect(0, 0, 1, 1))
+		trimmed.SetNRGBA(0, 0, empty)
+		return trimmed
 	}
 	if content == bounds {
 		return img

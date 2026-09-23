@@ -540,7 +540,7 @@ func (b *BaseBox) DrawOptions(canvas *Canvas, options BaseBoxDrawOptions) {
 		canvas := canvas.Offset(borderWidth, borderWidth)
 
 		// 背景图片暂时只显示首帧（如果是GIF的话），像素本来就低，太丑了。
-		result, err := b.document.loadImageSync(nil, src, ImageDecodeOptions{TrimTransparentBorder: true})
+		result, err := b.document.loadImageSync(nil, src, ImageDecodeOptions{TrimTransparentBorder: true, TrimBlackBorder: true})
 		var img DecodedImage
 		switch value := result.(type) {
 		case DecodedImage:
@@ -556,7 +556,7 @@ func (b *BaseBox) DrawOptions(canvas *Canvas, options BaseBoxDrawOptions) {
 			)
 		} else {
 			b.document.loadImageAsync(nil, src,
-				ImageDecodeOptions{TrimTransparentBorder: true},
+				ImageDecodeOptions{TrimTransparentBorder: true, TrimBlackBorder: true},
 				func(_ any, err error) {
 					if err == nil {
 						b.document.RequestPaint()
@@ -2522,7 +2522,7 @@ func (b *Image) Calc(availWidth, availHeight int, constraints Constraints) {
 	case imageLoadStatusNone:
 		// 如果有缓存的大小信息，直接用。
 		// 这里总是以零大小加载，不缩放，才能获取到原始大小信息。
-		if result, err := b.document.loadImageSync(b.src.fsys, b.src.path, ImageDecodeOptions{TrimTransparentBorder: true}); err == nil {
+		if result, err := b.document.loadImageSync(b.src.fsys, b.src.path, ImageDecodeOptions{TrimTransparentBorder: true, TrimBlackBorder: true}); err == nil {
 			b.setLoadedImage(result)
 			b.status = imageLoadStatusDecoded
 			b.Calc(availWidth, availHeight, constraints)
@@ -2531,7 +2531,7 @@ func (b *Image) Calc(availWidth, availHeight int, constraints Constraints) {
 
 		src, version := b.src, b.loadVersion
 		b.status = imageLoadStatusDecoding
-		b.document.loadImageAsync(b.src.fsys, b.src.path, ImageDecodeOptions{TrimTransparentBorder: true},
+		b.document.loadImageAsync(b.src.fsys, b.src.path, ImageDecodeOptions{TrimTransparentBorder: true, TrimBlackBorder: true},
 			func(result any, err error) {
 				// src属于防御性校验，用来防止在包内直接修改却忘记同步递增版本号。
 				// 理论上不应该判断（版本号变化src一定变化）。
