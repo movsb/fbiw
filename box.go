@@ -537,7 +537,9 @@ func (b *BaseBox) DrawOptions(canvas *Canvas, options BaseBoxDrawOptions) {
 	if src := b.computedStyles.BackgroundImage; src != `` {
 		width := layoutWidth - borderWidth*2
 		height := layoutHeight - borderWidth*2
-		canvas := canvas.Offset(borderWidth, borderWidth)
+		canvas := canvas.Offset(borderWidth, borderWidth).ClipRounded(
+			0, 0, width, height, max(0, borderRadius-borderWidth),
+		)
 
 		// 背景图片暂时只显示首帧（如果是GIF的话），像素本来就低，太丑了。
 		result, err := b.document.loadImageSync(nil, src, ImageDecodeOptions{TrimTransparentBorder: true, TrimBlackBorder: true})
@@ -2713,7 +2715,13 @@ func (b *Image) drawImageTransformed(canvas *Canvas) {
 		return
 	}
 	clipped := canvas
-	if !b.rotationOverflow {
+	radius := max(0, b.computedStyles.BorderRadius)
+	if radius > 0 {
+		if canvas.clipBounds().Intersect(image.Rect(canvas.x, canvas.y, canvas.x+b.layoutBox.Width, canvas.y+b.layoutBox.Height)).Empty() {
+			return
+		}
+		clipped = canvas.ClipRounded(0, 0, b.layoutBox.Width, b.layoutBox.Height, radius)
+	} else if !b.rotationOverflow {
 		if canvas.clipBounds().Intersect(image.Rect(canvas.x, canvas.y, canvas.x+b.layoutBox.Width, canvas.y+b.layoutBox.Height)).Empty() {
 			return
 		}
@@ -2727,7 +2735,7 @@ func (b *Image) drawImageTransformed(canvas *Canvas) {
 		drawHeight = b.decodedImage.Height
 	}
 	if b.rotation == 0 && b.scale == 1 && drawWidth == b.decodedImage.Width && drawHeight == b.decodedImage.Height {
-		canvas.Offset((b.layoutBox.Width-b.decodedImage.Width)/2,
+		clipped.Offset((b.layoutBox.Width-b.decodedImage.Width)/2,
 			(b.layoutBox.Height-b.decodedImage.Height)/2).DrawImage(
 			b.decodedImage, 0, 1, 1,
 			float64(b.decodedImage.Width)/2, float64(b.decodedImage.Height)/2,

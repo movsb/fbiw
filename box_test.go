@@ -1681,6 +1681,28 @@ func TestImageRotationClipsAndKeepsLayout(t *testing.T) {
 	}
 }
 
+func TestImageBorderRadiusClipsPixels(t *testing.T) {
+	_, doc, _ := newAnimationTestApp(t)
+	img := NewImage(doc)
+	img.status = imageLoadStatusDecoded
+	img.decodedImage = DecodedImage{Width: 8, Height: 8, Pixels: make([]byte, 8*8*4)}
+	for i := range 8 * 8 {
+		img.decodedImage.Pixels[i*4+3] = 255
+	}
+	img.layoutBox.Width, img.layoutBox.Height = 8, 8
+	img.computedStyles.BorderRadius = 3
+	img.rotationOverflow = true
+
+	canvas := NewCanvas(cpu.New(8, 8))
+	img.Draw(canvas)
+	if canvas.softwarePixels()[3] != 0 {
+		t.Fatal("image pixels escaped the rounded corner")
+	}
+	if canvas.softwarePixels()[(4*8+4)*4+3] != 255 {
+		t.Fatal("rounded clipping removed the image center")
+	}
+}
+
 func TestImageRotationOverflow(t *testing.T) {
 	_, doc, _ := newAnimationTestApp(t)
 	img := NewImage(doc)

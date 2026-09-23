@@ -130,6 +130,8 @@ type Renderer struct {
 	transformCenter     int32
 	transformImageSize  int32
 	transformSourceRect int32
+	transformClipRect   int32
+	transformClipParams int32
 	transformInverse    int32
 	transformSampler    int32
 	framebuffer         uint32
@@ -271,7 +273,7 @@ func (r *Renderer) releaseImageTextures() {
 		delete(r.imageTextures, key)
 	}
 }
-func (r *Renderer) DrawImage(img canvas.Image, src image.Rectangle, degrees, scaleX, scaleY, cx, cy float64, clip image.Rectangle) {
+func (r *Renderer) DrawImage(img canvas.Image, src image.Rectangle, degrees, scaleX, scaleY, cx, cy float64, clip, roundedClip image.Rectangle, radius float64) {
 	r.flushMasks()
 	if img.Width <= 0 || img.Height <= 0 || len(img.Pixels) < img.Width*img.Height*4 || scaleX <= 0 || scaleY <= 0 {
 		return
@@ -298,6 +300,8 @@ func (r *Renderer) DrawImage(img canvas.Image, src image.Rectangle, degrees, sca
 	r.api.uniform2f(r.transformCenter, float32(cx), float32(cy))
 	r.api.uniform2f(r.transformImageSize, float32(img.Width), float32(img.Height))
 	r.api.uniform4f(r.transformSourceRect, float32(src.Min.X), float32(src.Min.Y), float32(src.Dx()), float32(src.Dy()))
+	r.api.uniform4f(r.transformClipRect, float32(roundedClip.Min.X), float32(roundedClip.Min.Y), float32(roundedClip.Dx()), float32(roundedClip.Dy()))
+	r.api.uniform2f(r.transformClipParams, float32(radius), 0)
 	r.api.uniform4f(r.transformInverse, float32(cos/scaleX), float32(sin/scaleX), float32(-sin/scaleY), float32(cos/scaleY))
 	r.api.uniform1i(r.transformSampler, 0)
 	r.api.bindBuffer(glArrayBuffer, r.quadBuffer)
@@ -677,6 +681,7 @@ func (r *Renderer) initTransformPipeline() error {
 	positionName, rectName := glName("a_position"), glName("u_rect")
 	viewportName, centerName := glName("u_viewport"), glName("u_center")
 	imageSizeName, sourceRectName, inverseName := glName("u_image_size"), glName("u_source_rect"), glName("u_inverse")
+	clipRectName, clipParamsName := glName("u_clip_rect"), glName("u_clip_params")
 	samplerName := glName("u_texture")
 	r.transformPosition = r.api.getAttribLocation(program, &positionName[0])
 	r.transformRect = r.api.getUniformLocation(program, &rectName[0])
@@ -684,9 +689,11 @@ func (r *Renderer) initTransformPipeline() error {
 	r.transformCenter = r.api.getUniformLocation(program, &centerName[0])
 	r.transformImageSize = r.api.getUniformLocation(program, &imageSizeName[0])
 	r.transformSourceRect = r.api.getUniformLocation(program, &sourceRectName[0])
+	r.transformClipRect = r.api.getUniformLocation(program, &clipRectName[0])
+	r.transformClipParams = r.api.getUniformLocation(program, &clipParamsName[0])
 	r.transformInverse = r.api.getUniformLocation(program, &inverseName[0])
 	r.transformSampler = r.api.getUniformLocation(program, &samplerName[0])
-	if r.transformPosition < 0 || r.transformRect < 0 || r.transformViewport < 0 || r.transformCenter < 0 || r.transformImageSize < 0 || r.transformSourceRect < 0 || r.transformInverse < 0 || r.transformSampler < 0 {
+	if r.transformPosition < 0 || r.transformRect < 0 || r.transformViewport < 0 || r.transformCenter < 0 || r.transformImageSize < 0 || r.transformSourceRect < 0 || r.transformClipRect < 0 || r.transformClipParams < 0 || r.transformInverse < 0 || r.transformSampler < 0 {
 		r.api.deleteProgram(program)
 		r.transformProgram = 0
 		return errors.New("GLES transform shader locations unavailable")

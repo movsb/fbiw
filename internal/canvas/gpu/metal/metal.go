@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"image"
+	"math"
 	"runtime"
 	"unsafe"
 
@@ -131,7 +132,7 @@ func (r *Renderer) FillRect(rect, clip image.Rectangle, c canvas.Color) {
 	sr := sdl.Rect{X: int32(rect.Min.X), Y: int32(rect.Min.Y), W: int32(rect.Dx()), H: int32(rect.Dy())}
 	must(r.renderer.FillRect(&sr))
 }
-func (r *Renderer) DrawImage(img canvas.Image, src image.Rectangle, degrees, scaleX, scaleY, cx, cy float64, clip image.Rectangle) {
+func (r *Renderer) DrawImage(img canvas.Image, src image.Rectangle, degrees, scaleX, scaleY, cx, cy float64, clip, roundedClip image.Rectangle, radius float64) {
 	if img.Width <= 0 || img.Height <= 0 || scaleX <= 0 || scaleY <= 0 || len(img.Pixels) < img.Width*img.Height*4 {
 		return
 	}
@@ -143,8 +144,6 @@ func (r *Renderer) DrawImage(img canvas.Image, src image.Rectangle, degrees, sca
 	if clip.Empty() {
 		return
 	}
-	setClip(r.renderer, clip)
-	defer r.renderer.SetClipRect(nil)
 	// CPU/GLES 的双线性采样允许图片边缘外一像素的透明样本参与插值。
 	// SDL_RenderCopyExF 只栅格化目标四边形，所以这里把旋转专用纹理的
 	// 一像素透明边框也计入目标尺寸，否则边缘会被提前截断。
@@ -157,7 +156,30 @@ func (r *Renderer) DrawImage(img canvas.Image, src image.Rectangle, degrees, sca
 		s = &sdl.Rect{X: int32(src.Min.X), Y: int32(src.Min.Y), W: int32(src.Dx()), H: int32(src.Dy())}
 	}
 	d := sdl.FRect{X: float32(cx - w/2), Y: float32(cy - h/2), W: float32(w), H: float32(h)}
-	must(r.renderer.CopyExF(r.imageTexture(img, padded), s, &d, degrees, nil, sdl.FLIP_NONE))
+	texture := r.imageTexture(img, padded)
+	draw := func(band image.Rectangle) {
+		band = band.Intersect(clip)
+		if band.Empty() {
+			return
+		}
+		setClip(r.renderer, band)
+		must(r.renderer.CopyExF(texture, s, &d, degrees, nil, sdl.FLIP_NONE))
+	}
+	defer r.renderer.SetClipRect(nil)
+	if radius <= 0 || roundedClip.Empty() {
+		draw(clip)
+		return
+	}
+	radius = min(radius, float64(min(roundedClip.Dx(), roundedClip.Dy()))/2)
+	cornerRows := int(math.Ceil(radius))
+	draw(image.Rect(roundedClip.Min.X, roundedClip.Min.Y+cornerRows, roundedClip.Max.X, roundedClip.Max.Y-cornerRows))
+	for y := roundedClip.Min.Y; y < roundedClip.Min.Y+cornerRows; y++ {
+		dy := radius - (float64(y-roundedClip.Min.Y) + .5)
+		inset := int(math.Ceil(radius - math.Sqrt(max(0, radius*radius-dy*dy))))
+		draw(image.Rect(roundedClip.Min.X+inset, y, roundedClip.Max.X-inset, y+1))
+		bottom := roundedClip.Max.Y - 1 - (y - roundedClip.Min.Y)
+		draw(image.Rect(roundedClip.Min.X+inset, bottom, roundedClip.Max.X-inset, bottom+1))
+	}
 }
 func (r *Renderer) DrawMask(mask []byte, w, h int, dst image.Point, clip image.Rectangle, c canvas.Color) {
 	if w <= 0 || h <= 0 || len(mask) < w*h {

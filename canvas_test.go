@@ -40,7 +40,7 @@ func (*recordingCanvasRenderer) Clear()      {}
 func (r *recordingCanvasRenderer) FillRect(rect, clip image.Rectangle, _ canvas.Color) {
 	r.fillRectRect, r.fillRectClip = rect, clip
 }
-func (r *recordingCanvasRenderer) DrawImage(_ canvas.Image, src image.Rectangle, _ float64, scaleX, scaleY, cx, cy float64, clip image.Rectangle) {
+func (r *recordingCanvasRenderer) DrawImage(_ canvas.Image, src image.Rectangle, _ float64, scaleX, scaleY, cx, cy float64, clip, _ image.Rectangle, _ float64) {
 	r.imageSrc, r.imageDst, r.imageClip = src, image.Pt(int(cx)-src.Dx()/2, int(cy)-src.Dy()/2), clip
 	r.transformScaleX, r.transformScaleY = scaleX, scaleY
 	r.transformCenterX, r.transformCenterY = cx, cy
@@ -229,6 +229,37 @@ func TestCanvasClipLimitsDrawing(t *testing.T) {
 				t.Fatalf(`pixel (%d,%d) painted=%t, want %t`, x, y, painted, want)
 			}
 		}
+	}
+}
+
+func TestCanvasRoundedClipLimitsImage(t *testing.T) {
+	canvas := NewCanvas(cpu.New(8, 8))
+	pixels := make([]byte, 8*8*4)
+	for i := range 8 * 8 {
+		pixels[i*4+0] = 255
+		pixels[i*4+1] = 255
+		pixels[i*4+2] = 255
+		pixels[i*4+3] = 255
+	}
+	canvas.ClipRounded(0, 0, 8, 8, 3).DrawImage(
+		DecodedImage{Width: 8, Height: 8, Pixels: pixels},
+		0, 1, 1, 4, 4,
+	)
+
+	if got := canvas.testGetPixel(0, 0); got.A != 0 {
+		t.Fatalf("rounded image corner alpha = %d, want 0", got.A)
+	}
+	if got := canvas.testGetPixel(4, 4); got.A != 255 {
+		t.Fatalf("rounded image center alpha = %d, want 255", got.A)
+	}
+
+	plain := NewCanvas(cpu.New(8, 8))
+	plain.ClipRounded(0, 0, 8, 8, 0).DrawImage(
+		DecodedImage{Width: 8, Height: 8, Pixels: pixels},
+		0, 1, 1, 4, 4,
+	)
+	if got := plain.testGetPixel(0, 0); got.A != 255 {
+		t.Fatalf("zero-radius image corner alpha = %d, want 255", got.A)
 	}
 }
 

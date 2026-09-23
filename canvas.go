@@ -50,7 +50,9 @@ type Canvas struct {
 	width, height int
 
 	// framebuffer 坐标系中的可绘制区域。
-	clip image.Rectangle
+	clip        image.Rectangle
+	roundedClip image.Rectangle
+	clipRadius  float64
 }
 
 type _RoundedRectMaskKey struct {
@@ -122,6 +124,14 @@ func (c *Canvas) Clip(x, y, width, height int) *Canvas {
 	return &clipped
 }
 
+// ClipRounded 返回一个带圆角图片裁剪的 Canvas，不修改原 Canvas。
+func (c *Canvas) ClipRounded(x, y, width, height, radius int) *Canvas {
+	clipped := c.Clip(x, y, width, height)
+	clipped.roundedClip = image.Rect(c.x+x, c.y+y, c.x+x+max(0, width), c.y+y+max(0, height))
+	clipped.clipRadius = float64(min(max(radius, 0), min(max(0, width), max(0, height))/2))
+	return clipped
+}
+
 func (c *Canvas) clipBounds() image.Rectangle {
 	if c.clip.Empty() {
 		return image.Rect(0, 0, c.width, c.height)
@@ -143,6 +153,8 @@ func (c *Canvas) Offset(x, y int) *Canvas {
 		width:            c.width,
 		height:           c.height,
 		clip:             c.clip,
+		roundedClip:      c.roundedClip,
+		clipRadius:       c.clipRadius,
 	}
 }
 
@@ -157,7 +169,7 @@ func (c *Canvas) DrawImage(img DecodedImage, degrees, scaleX, scaleY, cx, cy flo
 		},
 		image.Rect(0, 0, img.Width, img.Height),
 		degrees, scaleX, scaleY, float64(c.x)+cx, float64(c.y)+cy,
-		c.clipBounds(),
+		c.clipBounds(), c.roundedClip, c.clipRadius,
 	)
 }
 

@@ -333,7 +333,7 @@ func _pollKeyboardEvents(ctx context.Context, handler func(*event.Message)) {
 				sendAxis(ev.Code, ev.Value, sticks.Left, sticks.Right)
 			}
 		}
-		fmt.Printf("Keyboard: type=%d code=%d value=%d\n", ev.Type, ev.Code, ev.Value)
+		// fmt.Printf("Keyboard: type=%d code=%d value=%d\n", ev.Type, ev.Code, ev.Value)
 	}
 }
 

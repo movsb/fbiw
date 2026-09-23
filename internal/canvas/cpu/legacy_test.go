@@ -272,7 +272,8 @@ func (c *Canvas) drawImage5(img DecodedImage, width, height int) {
 
 func (c *Canvas) drawImage5Region(img DecodedImage, srcX, srcY, width, height int) {
 	c.renderer.DrawImage(toCanvasImage(img), image.Rect(srcX, srcY, srcX+width, srcY+height),
-		0, 1, 1, float64(c.x)+float64(width)/2, float64(c.y)+float64(height)/2, c.clipBounds())
+		0, 1, 1, float64(c.x)+float64(width)/2, float64(c.y)+float64(height)/2,
+		c.clipBounds(), image.Rectangle{}, 0)
 }
 
 func (c *Canvas) drawImage5RegionSoftware(img DecodedImage, srcX, srcY, width, height int) {

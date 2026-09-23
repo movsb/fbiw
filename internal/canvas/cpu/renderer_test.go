@@ -26,7 +26,7 @@ func TestDrawImageTransformsOnlySourceRegion(t *testing.T) {
 		},
 		Width: 3, Height: 1, Opaque: true,
 	}
-	r.DrawImage(img, image.Rect(1, 0, 2, 1), 0, 2, 2, 3, 1.5, image.Rect(0, 0, 6, 3))
+	r.DrawImage(img, image.Rect(1, 0, 2, 1), 0, 2, 2, 3, 1.5, image.Rect(0, 0, 6, 3), image.Rectangle{}, 0)
 
 	seenGreen := false
 	for i := 0; i < len(r.Pixels); i += 4 {

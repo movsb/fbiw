@@ -179,8 +179,8 @@ func (r *Renderer) drawImage(img canvas.Image, src image.Rectangle, dst image.Po
 	}
 }
 
-func (r *Renderer) DrawImage(img canvas.Image, src image.Rectangle, degrees, scaleX, scaleY, cx, cy float64, clip image.Rectangle) {
-	if degrees == 0 && scaleX == 1 && scaleY == 1 {
+func (r *Renderer) DrawImage(img canvas.Image, src image.Rectangle, degrees, scaleX, scaleY, cx, cy float64, clip, roundedClip image.Rectangle, radius float64) {
+	if degrees == 0 && scaleX == 1 && scaleY == 1 && radius <= 0 {
 		r.drawImage(img, src, image.Pt(
 			int(math.Round(cx-float64(src.Dx())/2)),
 			int(math.Round(cy-float64(src.Dy())/2)),
@@ -224,6 +224,13 @@ func (r *Renderer) DrawImage(img canvas.Image, src image.Rectangle, degrees, sca
 					g += wa * float64(p[1])
 					red += wa * float64(p[2])
 				}
+			}
+			if radius > 0 {
+				halfWidth, halfHeight := float64(roundedClip.Dx())/2, float64(roundedClip.Dy())/2
+				qx := max(math.Abs(float64(x)+.5-float64(roundedClip.Min.X)-halfWidth)-halfWidth+radius, 0)
+				qy := max(math.Abs(float64(y)+.5-float64(roundedClip.Min.Y)-halfHeight)-halfHeight+radius, 0)
+				coverage := max(0, min(1, .5-(math.Hypot(qx, qy)-radius)))
+				a, b, g, red = a*coverage, b*coverage, g*coverage, red*coverage
 			}
 			if a > 0 {
 				p := r.Pixels[(y*r.Width+x)*4:]

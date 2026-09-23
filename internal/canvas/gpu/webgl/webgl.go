@@ -24,6 +24,7 @@ var fragment string
 type Renderer struct {
 	gl, element, program, buffer, framebuffer, target, empty               js.Value
 	rect, viewport, uv, tint, mode, inverse, center, imageSize, sourceRect js.Value
+	clipRect, clipParams                                                   js.Value
 
 	width, height int
 	position      int
@@ -91,6 +92,8 @@ func New(element js.Value) (*Renderer, error) {
 	r.center = g.Call("getUniformLocation", p, "u_center")
 	r.imageSize = g.Call("getUniformLocation", p, "u_image_size")
 	r.sourceRect = g.Call("getUniformLocation", p, "u_source_rect")
+	r.clipRect = g.Call("getUniformLocation", p, "u_clip_rect")
+	r.clipParams = g.Call("getUniformLocation", p, "u_clip_params")
 	r.position = g.Call("getAttribLocation", p, "a_position").Int()
 	r.buffer = g.Call("createBuffer")
 	g.Call("bindBuffer", g.Get("ARRAY_BUFFER"), r.buffer)
@@ -248,7 +251,7 @@ func (r *Renderer) DrawMask(mask []byte, w, h int, dst image.Point, clip image.R
 	g.Call("uniform4f", r.uv, float64(v.Min.X-dst.X)/float64(w), float64(v.Min.Y-dst.Y)/float64(h), float64(v.Dx())/float64(w), float64(v.Dy())/float64(h))
 	r.draw(v, 2, c.NRGBA(), true)
 }
-func (r *Renderer) DrawImage(img canvas.Image, src image.Rectangle, degrees, scaleX, scaleY, cx, cy float64, clip image.Rectangle) {
+func (r *Renderer) DrawImage(img canvas.Image, src image.Rectangle, degrees, scaleX, scaleY, cx, cy float64, clip, roundedClip image.Rectangle, radius float64) {
 	if img.Width <= 0 || img.Height <= 0 || len(img.Pixels) < img.Width*img.Height*4 || scaleX <= 0 || scaleY <= 0 {
 		return
 	}
@@ -269,6 +272,8 @@ func (r *Renderer) DrawImage(img canvas.Image, src image.Rectangle, degrees, sca
 	g.Call("uniform2f", r.center, cx, cy)
 	g.Call("uniform2f", r.imageSize, img.Width, img.Height)
 	g.Call("uniform4f", r.sourceRect, src.Min.X, src.Min.Y, src.Dx(), src.Dy())
+	g.Call("uniform4f", r.clipRect, roundedClip.Min.X, roundedClip.Min.Y, roundedClip.Dx(), roundedClip.Dy())
+	g.Call("uniform2f", r.clipParams, radius, 0)
 	g.Call("uniform4f", r.inverse, c/scaleX, s/scaleX, -s/scaleY, c/scaleY)
 	r.draw(rect, 3, color.NRGBA{}, true)
 }
