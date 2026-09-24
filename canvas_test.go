@@ -27,6 +27,7 @@ type recordingCanvasRenderer struct {
 	imageClip                          image.Rectangle
 	transformScaleX, transformScaleY   float64
 	transformCenterX, transformCenterY float64
+	imageOpacity                       float64
 }
 
 func (r *recordingCanvasRenderer) Size() (int, int) { return r.width, r.height }
@@ -40,10 +41,11 @@ func (*recordingCanvasRenderer) Clear()      {}
 func (r *recordingCanvasRenderer) FillRect(rect, clip image.Rectangle, _ canvas.Color) {
 	r.fillRectRect, r.fillRectClip = rect, clip
 }
-func (r *recordingCanvasRenderer) DrawImage(_ canvas.Image, src image.Rectangle, _ float64, scaleX, scaleY, cx, cy float64, clip, _ image.Rectangle, _ float64) {
+func (r *recordingCanvasRenderer) DrawImage(_ canvas.Image, src image.Rectangle, _ float64, scaleX, scaleY, cx, cy, opacity float64, clip, _ image.Rectangle, _ float64) {
 	r.imageSrc, r.imageDst, r.imageClip = src, image.Pt(int(cx)-src.Dx()/2, int(cy)-src.Dy()/2), clip
 	r.transformScaleX, r.transformScaleY = scaleX, scaleY
 	r.transformCenterX, r.transformCenterY = cx, cy
+	r.imageOpacity = opacity
 }
 func (*recordingCanvasRenderer) DrawMask([]byte, int, int, image.Point, image.Rectangle, canvas.Color) {
 }
@@ -88,7 +90,7 @@ func TestCanvasDelegatesAbsoluteCoordinatesAndClip(t *testing.T) {
 	}
 
 	img := DecodedImage{Width: 5, Height: 4, Pixels: make([]byte, 5*4*4)}
-	canvas.DrawImage(img, 0, 1, 1, 2.5, 2)
+	canvas.DrawImage(img, 0, 1, 1, 2.5, 2, 1)
 	if renderer.imageSrc != image.Rect(0, 0, 5, 4) {
 		t.Fatalf("DrawImage source = %v", renderer.imageSrc)
 	}
@@ -206,7 +208,7 @@ func TestTrimBlackBorderFullyBlack(t *testing.T) {
 func TestDrawImageUsesRendererTransform(t *testing.T) {
 	renderer := &recordingCanvasRenderer{width: 100, height: 80}
 	canvas := NewCanvas(renderer).Offset(7, 9)
-	canvas.DrawImage(DecodedImage{Width: 20, Height: 10, Pixels: make([]byte, 20*10*4)}, 0, 2.5, 3, 25, 15)
+	canvas.DrawImage(DecodedImage{Width: 20, Height: 10, Pixels: make([]byte, 20*10*4)}, 0, 2.5, 3, 25, 15, 1)
 	if renderer.transformScaleX != 2.5 || renderer.transformScaleY != 3 {
 		t.Fatalf("scale = %v,%v", renderer.transformScaleX, renderer.transformScaleY)
 	}
@@ -242,7 +244,7 @@ func TestCanvasRoundedClipLimitsImage(t *testing.T) {
 	}
 	canvas.ClipRounded(0, 0, 8, 8, 3).DrawImage(
 		DecodedImage{Width: 8, Height: 8, Pixels: pixels},
-		0, 1, 1, 4, 4,
+		0, 1, 1, 4, 4, 1,
 	)
 
 	if got := canvas.testGetPixel(0, 0); got.A != 0 {
@@ -255,7 +257,7 @@ func TestCanvasRoundedClipLimitsImage(t *testing.T) {
 	plain := NewCanvas(cpu.New(8, 8))
 	plain.ClipRounded(0, 0, 8, 8, 0).DrawImage(
 		DecodedImage{Width: 8, Height: 8, Pixels: pixels},
-		0, 1, 1, 4, 4,
+		0, 1, 1, 4, 4, 1,
 	)
 	if got := plain.testGetPixel(0, 0); got.A != 255 {
 		t.Fatalf("zero-radius image corner alpha = %d, want 255", got.A)

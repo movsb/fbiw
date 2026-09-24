@@ -2079,3 +2079,87 @@ func TestAsymmetricBorderInsetsAndPaint(t *testing.T) {
 		}
 	}
 }
+
+func TestImageOpacityAndFadeIn(t *testing.T) {
+	app, doc, clock := newAnimationTestApp(t)
+	img := NewImage(doc)
+	if img.Opacity() != 1 {
+		t.Fatal("default image opacity is not opaque")
+	}
+	stop := img.FadeIn(time.Second)
+	if img.Opacity() != 0 || !img.fadePending || doc.timeline != nil {
+		t.Fatal("fade started before image loaded")
+	}
+	img.setLoadedImage(DecodedImage{Width: 1, Height: 1, Pixels: []byte{0, 0, 255, 255}, Opaque: true})
+	img.status = imageLoadStatusDecoded
+	if img.fadePending || img.fadeTransition == nil {
+		t.Fatal("loaded image did not start fade")
+	}
+	clock.now = clock.now.Add(500 * time.Millisecond)
+	animationStep(app)
+	if img.Opacity() != .75 {
+		t.Fatalf("fade opacity = %v", img.Opacity())
+	}
+	stop()
+	stop()
+	clock.now = clock.now.Add(time.Second)
+	animationStep(app)
+	if img.Opacity() != .75 || img.fadeTransition != nil {
+		t.Fatal("stopped fade continued")
+	}
+	img.FadeIn(time.Second)
+	clock.now = clock.now.Add(time.Second)
+	animationStep(app)
+	if img.Opacity() != 1 || img.fadeTransition != nil {
+		t.Fatal("fade did not finish opaque")
+	}
+}
+
+func TestImageFadeCancelBeforeLoadAndManualOpacity(t *testing.T) {
+	_, doc, _ := newAnimationTestApp(t)
+	img := NewImage(doc)
+	stop := img.FadeIn(time.Second)
+	stop()
+	img.setLoadedImage(DecodedImage{Width: 1, Height: 1, Pixels: make([]byte, 4)})
+	if img.fadePending || img.fadeTransition != nil || img.Opacity() != 0 {
+		t.Fatal("cancelled pending fade started")
+	}
+	img.SetOpacity(.4)
+	if img.Opacity() != .4 {
+		t.Fatal("manual opacity not applied")
+	}
+	for _, value := range []float64{-1, 1.1, math.NaN(), math.Inf(1)} {
+		func() {
+			defer func() {
+				if recover() == nil {
+					t.Error("invalid opacity accepted")
+				}
+			}()
+			img.SetOpacity(value)
+		}()
+	}
+	for _, duration := range []time.Duration{0, -1} {
+		func() {
+			defer func() {
+				if recover() == nil {
+					t.Error("invalid fade duration accepted")
+				}
+			}()
+			img.FadeIn(duration)
+		}()
+	}
+}
+
+func TestImageDrawPassesOpacity(t *testing.T) {
+	_, doc, _ := newAnimationTestApp(t)
+	img := NewImage(doc)
+	img.status = imageLoadStatusDecoded
+	img.decodedImage = DecodedImage{Width: 2, Height: 2, Pixels: make([]byte, 16)}
+	img.layoutBox = Rect{Width: 2, Height: 2}
+	img.SetOpacity(.3)
+	renderer := &recordingCanvasRenderer{width: 2, height: 2}
+	img.Draw(NewCanvas(renderer))
+	if renderer.imageOpacity != .3 {
+		t.Fatalf("renderer opacity = %v", renderer.imageOpacity)
+	}
+}

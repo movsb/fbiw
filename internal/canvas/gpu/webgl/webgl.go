@@ -251,8 +251,8 @@ func (r *Renderer) DrawMask(mask []byte, w, h int, dst image.Point, clip image.R
 	g.Call("uniform4f", r.uv, float64(v.Min.X-dst.X)/float64(w), float64(v.Min.Y-dst.Y)/float64(h), float64(v.Dx())/float64(w), float64(v.Dy())/float64(h))
 	r.draw(v, 2, c.NRGBA(), true)
 }
-func (r *Renderer) DrawImage(img canvas.Image, src image.Rectangle, degrees, scaleX, scaleY, cx, cy float64, clip, roundedClip image.Rectangle, radius float64) {
-	if img.Width <= 0 || img.Height <= 0 || len(img.Pixels) < img.Width*img.Height*4 || scaleX <= 0 || scaleY <= 0 {
+func (r *Renderer) DrawImage(img canvas.Image, src image.Rectangle, degrees, scaleX, scaleY, cx, cy, opacity float64, clip, roundedClip image.Rectangle, radius float64) {
+	if img.Width <= 0 || img.Height <= 0 || len(img.Pixels) < img.Width*img.Height*4 || scaleX <= 0 || scaleY <= 0 || opacity <= 0 {
 		return
 	}
 	src = src.Intersect(image.Rect(0, 0, img.Width, img.Height))
@@ -275,7 +275,7 @@ func (r *Renderer) DrawImage(img canvas.Image, src image.Rectangle, degrees, sca
 	g.Call("uniform4f", r.clipRect, roundedClip.Min.X, roundedClip.Min.Y, roundedClip.Dx(), roundedClip.Dy())
 	g.Call("uniform2f", r.clipParams, radius, 0)
 	g.Call("uniform4f", r.inverse, c/scaleX, s/scaleX, -s/scaleY, c/scaleY)
-	r.draw(rect, 3, color.NRGBA{}, true)
+	r.draw(rect, 3, color.NRGBA{A: uint8(math.Round(min(1, opacity) * 255))}, true)
 }
 func (r *Renderer) Snapshot() image.Image {
 	g := r.gl

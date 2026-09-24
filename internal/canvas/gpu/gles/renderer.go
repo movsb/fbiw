@@ -273,9 +273,9 @@ func (r *Renderer) releaseImageTextures() {
 		delete(r.imageTextures, key)
 	}
 }
-func (r *Renderer) DrawImage(img canvas.Image, src image.Rectangle, degrees, scaleX, scaleY, cx, cy float64, clip, roundedClip image.Rectangle, radius float64) {
+func (r *Renderer) DrawImage(img canvas.Image, src image.Rectangle, degrees, scaleX, scaleY, cx, cy, opacity float64, clip, roundedClip image.Rectangle, radius float64) {
 	r.flushMasks()
-	if img.Width <= 0 || img.Height <= 0 || len(img.Pixels) < img.Width*img.Height*4 || scaleX <= 0 || scaleY <= 0 {
+	if img.Width <= 0 || img.Height <= 0 || len(img.Pixels) < img.Width*img.Height*4 || scaleX <= 0 || scaleY <= 0 || opacity <= 0 {
 		return
 	}
 	src = src.Intersect(image.Rect(0, 0, img.Width, img.Height))
@@ -301,7 +301,7 @@ func (r *Renderer) DrawImage(img canvas.Image, src image.Rectangle, degrees, sca
 	r.api.uniform2f(r.transformImageSize, float32(img.Width), float32(img.Height))
 	r.api.uniform4f(r.transformSourceRect, float32(src.Min.X), float32(src.Min.Y), float32(src.Dx()), float32(src.Dy()))
 	r.api.uniform4f(r.transformClipRect, float32(roundedClip.Min.X), float32(roundedClip.Min.Y), float32(roundedClip.Dx()), float32(roundedClip.Dy()))
-	r.api.uniform2f(r.transformClipParams, float32(radius), 0)
+	r.api.uniform2f(r.transformClipParams, float32(radius), float32(min(1, opacity)))
 	r.api.uniform4f(r.transformInverse, float32(cos/scaleX), float32(sin/scaleX), float32(-sin/scaleY), float32(cos/scaleY))
 	r.api.uniform1i(r.transformSampler, 0)
 	r.api.bindBuffer(glArrayBuffer, r.quadBuffer)

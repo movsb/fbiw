@@ -158,7 +158,8 @@ func (c *Canvas) Offset(x, y int) *Canvas {
 }
 
 // DrawImage 以 Canvas 当前原点为坐标系，绕 (cx, cy) 旋转和缩放整张图片。
-func (c *Canvas) DrawImage(img DecodedImage, degrees, scaleX, scaleY, cx, cy float64) {
+// opacity 的取值范围为 0 到 1。
+func (c *Canvas) DrawImage(img DecodedImage, degrees, scaleX, scaleY, cx, cy, opacity float64) {
 	c.renderer.DrawImage(
 		canvas.Image{
 			Pixels: img.Pixels,
@@ -167,7 +168,7 @@ func (c *Canvas) DrawImage(img DecodedImage, degrees, scaleX, scaleY, cx, cy flo
 			Opaque: img.Opaque,
 		},
 		image.Rect(0, 0, img.Width, img.Height),
-		degrees, scaleX, scaleY, float64(c.x)+cx, float64(c.y)+cy,
+		degrees, scaleX, scaleY, float64(c.x)+cx, float64(c.y)+cy, opacity,
 		c.clipBounds(), c.roundedClip, c.clipRadius,
 	)
 }

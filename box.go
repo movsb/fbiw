@@ -565,7 +565,7 @@ func (b *BaseBox) DrawOptions(canvas *Canvas, options BaseBoxDrawOptions) {
 		if err == nil && len(img.Pixels) > 0 {
 			canvas.DrawImage(img, 0,
 				float64(width)/float64(img.Width), float64(height)/float64(img.Height),
-				float64(width)/2, float64(height)/2,
+				float64(width)/2, float64(height)/2, 1,
 			)
 		} else {
 			b.document.loadImageAsync(nil, src,
@@ -2358,8 +2358,12 @@ type Image struct {
 	rotationOverflow bool
 	rotation         float64
 	rotationCancel   func()
-	// 缩放相关参数
-	scale float64
+	// 缩放和透明度相关参数。
+	scale, opacity float64
+	fadeDuration   time.Duration
+	fadePending    bool
+	fadeVersion    uint64
+	fadeTransition *Transition[float64]
 
 	// 容器宽高比；零表示未设置。
 	//
@@ -2378,7 +2382,7 @@ type _ImageTempFile struct {
 }
 
 func NewImage(doc *Document) *Image {
-	return &Image{BaseBox: NewBaseBox(doc, `img`), scale: 1}
+	return &Image{BaseBox: NewBaseBox(doc, `img`), scale: 1, opacity: 1}
 }
 
 // SetRotation 设置图片绕中心顺时针旋转的角度。必须在 UI 主线程调用。
@@ -2399,6 +2403,79 @@ func (b *Image) SetScale(scale float64) {
 	}
 	b.scale = scale
 	b.document.RequestPaint()
+}
+
+// Opacity 返回图片内容的透明度，范围为 [0,1]。
+func (b *Image) Opacity() float64 { return b.opacity }
+
+func (b *Image) setOpacity(opacity float64) {
+	b.opacity = opacity
+	b.document.RequestPaint()
+}
+
+// SetOpacity 设置图片内容的透明度，0 为完全透明，1 为完全不透明。
+// 它会停止正在进行或等待加载的淡入动画；不影响图片的布局和命中区域。
+func (b *Image) SetOpacity(opacity float64) {
+	if math.IsNaN(opacity) || math.IsInf(opacity, 0) || opacity < 0 || opacity > 1 {
+		panic("SetOpacity: 无效的透明度。")
+	}
+	b.cancelFade()
+	b.setOpacity(opacity)
+}
+
+// FadeIn 让图片从完全透明过渡到完全不透明。图片尚未解码时，动画会等到
+// 解码成功后再开始。Duration 必须大于零。返回可重复调用的停止函数，
+// 停止后保持当前透明度。
+func (b *Image) FadeIn(duration time.Duration) func() {
+	if duration <= 0 {
+		panic("FadeIn: 无效的时长。")
+	}
+	b.cancelFade()
+	version := b.fadeVersion
+	b.fadeDuration, b.fadePending = duration, true
+	b.setOpacity(0)
+	if b.status == imageLoadStatusDecoded {
+		b.startFadeIn()
+	}
+	stopped := false
+	return func() {
+		if stopped {
+			return
+		}
+		stopped = true
+		if b.fadeVersion == version {
+			b.cancelFade()
+		}
+	}
+}
+
+func (b *Image) cancelFade() {
+	b.fadeVersion++
+	b.fadePending = false
+	if b.fadeTransition != nil {
+		b.fadeTransition.Cancel()
+		b.fadeTransition = nil
+	}
+}
+
+func (b *Image) startFadeIn() {
+	if !b.fadePending {
+		return
+	}
+	b.fadePending = false
+	version := b.fadeVersion
+	var transition *Transition[float64]
+	transition = b.document.NewTransition(b.opacity, TransitionOptions[float64]{
+		Duration: b.fadeDuration, Easing: EaseOut, Animator: NumberAnimator,
+		OnUpdate: b.setOpacity,
+		OnComplete: func() {
+			if b.fadeVersion == version && b.fadeTransition == transition {
+				b.fadeTransition = nil
+			}
+		},
+	})
+	b.fadeTransition = transition
+	transition.SetTarget(1)
 }
 
 // RotationOptions 描述匀速中心旋转。
@@ -2560,6 +2637,7 @@ func (b *Image) setLoadedImage(result any) {
 		panic(fmt.Sprintf("unexpected image result: %T", result))
 	}
 	b.startGIF()
+	b.startFadeIn()
 }
 
 func (b *Image) Calc(availWidth, availHeight int, constraints Constraints) {
@@ -2787,7 +2865,7 @@ func (b *Image) drawImageTransformed(canvas *Canvas) {
 		clipped.Offset((b.layoutBox.Width-b.decodedImage.Width)/2,
 			(b.layoutBox.Height-b.decodedImage.Height)/2).DrawImage(
 			b.decodedImage, 0, 1, 1,
-			float64(b.decodedImage.Width)/2, float64(b.decodedImage.Height)/2,
+			float64(b.decodedImage.Width)/2, float64(b.decodedImage.Height)/2, b.opacity,
 		)
 		return
 	}
@@ -2796,7 +2874,7 @@ func (b *Image) drawImageTransformed(canvas *Canvas) {
 	clipped.DrawImage(
 		b.decodedImage, b.rotation, scaleX, scaleY,
 		float64(b.layoutBox.Width)/2,
-		float64(b.layoutBox.Height)/2,
+		float64(b.layoutBox.Height)/2, b.opacity,
 	)
 }
 

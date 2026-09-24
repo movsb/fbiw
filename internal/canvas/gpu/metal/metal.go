@@ -132,8 +132,8 @@ func (r *Renderer) FillRect(rect, clip image.Rectangle, c canvas.Color) {
 	sr := sdl.Rect{X: int32(rect.Min.X), Y: int32(rect.Min.Y), W: int32(rect.Dx()), H: int32(rect.Dy())}
 	must(r.renderer.FillRect(&sr))
 }
-func (r *Renderer) DrawImage(img canvas.Image, src image.Rectangle, degrees, scaleX, scaleY, cx, cy float64, clip, roundedClip image.Rectangle, radius float64) {
-	if img.Width <= 0 || img.Height <= 0 || scaleX <= 0 || scaleY <= 0 || len(img.Pixels) < img.Width*img.Height*4 {
+func (r *Renderer) DrawImage(img canvas.Image, src image.Rectangle, degrees, scaleX, scaleY, cx, cy, opacity float64, clip, roundedClip image.Rectangle, radius float64) {
+	if img.Width <= 0 || img.Height <= 0 || scaleX <= 0 || scaleY <= 0 || opacity <= 0 || len(img.Pixels) < img.Width*img.Height*4 {
 		return
 	}
 	src = src.Intersect(image.Rect(0, 0, img.Width, img.Height))
@@ -157,6 +157,23 @@ func (r *Renderer) DrawImage(img canvas.Image, src image.Rectangle, degrees, sca
 	}
 	d := sdl.FRect{X: float32(cx - w/2), Y: float32(cy - h/2), W: float32(w), H: float32(h)}
 	texture := r.imageTexture(img, padded)
+	opacity = min(1, opacity)
+	alpha := uint8(math.Round(opacity * 255))
+	must(texture.SetAlphaMod(alpha))
+	if padded {
+		must(texture.SetColorMod(alpha, alpha, alpha))
+	} else {
+		must(texture.SetColorMod(255, 255, 255))
+	}
+	if padded {
+		must(texture.SetBlendMode(sdl.ComposeCustomBlendMode(
+			sdl.BLENDFACTOR_ONE, sdl.BLENDFACTOR_ONE_MINUS_SRC_ALPHA, sdl.BLENDOPERATION_ADD,
+			sdl.BLENDFACTOR_ONE, sdl.BLENDFACTOR_ONE_MINUS_SRC_ALPHA, sdl.BLENDOPERATION_ADD)))
+	} else if img.Opaque && opacity == 1 {
+		must(texture.SetBlendMode(sdl.BLENDMODE_NONE))
+	} else {
+		must(texture.SetBlendMode(sdl.BLENDMODE_BLEND))
+	}
 	draw := func(band image.Rectangle) {
 		band = band.Intersect(clip)
 		if band.Empty() {

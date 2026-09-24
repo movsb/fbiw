@@ -63,5 +63,5 @@ void main() {
 	if (alpha <= 0.0 || coverage <= 0.0) discard;
 	vec3 premultiplied = c00.rgb*c00.a*w00 + c10.rgb*c10.a*w10 +
 						 c01.rgb*c01.a*w01 + c11.rgb*c11.a*w11;
-	gl_FragColor = vec4(premultiplied / alpha, alpha * coverage);
+	gl_FragColor = vec4(premultiplied / alpha, alpha * coverage * u_color.a);
 }

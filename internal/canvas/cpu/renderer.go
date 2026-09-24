@@ -119,7 +119,7 @@ func (r *Renderer) FillRect(rect, clip image.Rectangle, fill canvas.Color) {
 
 func div255(value uint32) uint8 { return uint8((value + 1 + (value >> 8)) >> 8) }
 
-func (r *Renderer) drawImage(img canvas.Image, src image.Rectangle, dst image.Point, clip image.Rectangle) {
+func (r *Renderer) drawImage(img canvas.Image, src image.Rectangle, dst image.Point, clip image.Rectangle, opacity float64) {
 	w, h := src.Dx(), src.Dy()
 	sx, sy := src.Min.X, src.Min.Y
 	if sx < 0 {
@@ -150,7 +150,7 @@ func (r *Renderer) drawImage(img canvas.Image, src image.Rectangle, dst image.Po
 	if w <= 0 || h <= 0 {
 		return
 	}
-	if img.Opaque {
+	if img.Opaque && opacity == 1 {
 		for y := 0; y < h; y++ {
 			srcOffset := ((sy+y)*img.Width + sx) * 4
 			dstOffset := ((dst.Y+y)*r.Width + dst.X) * 4
@@ -162,7 +162,7 @@ func (r *Renderer) drawImage(img canvas.Image, src image.Rectangle, dst image.Po
 		for x := 0; x < w; x++ {
 			s := img.Pixels[((sy+y)*img.Width+sx+x)*4:]
 			d := r.Pixels[((dst.Y+y)*r.Width+dst.X+x)*4:]
-			a := uint32(s[3])
+			a := uint32(math.Round(float64(s[3]) * opacity))
 			if a == 255 {
 				copy(d[:4], s[:4])
 				continue
@@ -179,12 +179,16 @@ func (r *Renderer) drawImage(img canvas.Image, src image.Rectangle, dst image.Po
 	}
 }
 
-func (r *Renderer) DrawImage(img canvas.Image, src image.Rectangle, degrees, scaleX, scaleY, cx, cy float64, clip, roundedClip image.Rectangle, radius float64) {
+func (r *Renderer) DrawImage(img canvas.Image, src image.Rectangle, degrees, scaleX, scaleY, cx, cy, opacity float64, clip, roundedClip image.Rectangle, radius float64) {
+	if opacity <= 0 {
+		return
+	}
+	opacity = min(1, opacity)
 	if degrees == 0 && scaleX == 1 && scaleY == 1 && radius <= 0 {
 		r.drawImage(img, src, image.Pt(
 			int(math.Round(cx-float64(src.Dx())/2)),
 			int(math.Round(cy-float64(src.Dy())/2)),
-		), clip)
+		), clip, opacity)
 		return
 	}
 	src = src.Intersect(image.Rect(0, 0, img.Width, img.Height))
@@ -232,6 +236,7 @@ func (r *Renderer) DrawImage(img canvas.Image, src image.Rectangle, degrees, sca
 				coverage := max(0, min(1, .5-(math.Hypot(qx, qy)-radius)))
 				a, b, g, red = a*coverage, b*coverage, g*coverage, red*coverage
 			}
+			a, b, g, red = a*opacity, b*opacity, g*opacity, red*opacity
 			if a > 0 {
 				p := r.Pixels[(y*r.Width+x)*4:]
 				p[0] = uint8(math.Round(min(255, b+(1-a)*float64(p[0]))))
