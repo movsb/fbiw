@@ -10,6 +10,9 @@ b {
 i {
 	italic: true;
 }
+code {
+	font-family: monospace;
+}
 button {
 	padding: 10 18;
 	align: both;

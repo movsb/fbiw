@@ -1017,6 +1017,37 @@ func TestSetRichEscapesArgumentsAndPreservesOrdinaryBraces(t *testing.T) {
 	}
 }
 
+func TestCodeTextFragment(t *testing.T) {
+	doc := newFlexTestDocument(t, `<block><text>用 <code>fmt.Println(&quot;hi&quot;)</code> 输出</text></block>`, 400, 100)
+	text := doc.Root().Children()[0].(*Text)
+	if got, want := text.GetText(), `用fmt.Println("hi")输出`; got != want {
+		t.Fatalf(`GetText() = %q, want %q`, got, want)
+	}
+	code, ok := text.Children()[0].(*CodeText)
+	if !ok {
+		t.Fatalf(`text child = %T, want *CodeText`, text.Children()[0])
+	}
+	if code.GetComputedStyles().FontFamily != `monospace` {
+		t.Fatalf(`code font family = %q`, code.GetComputedStyles().FontFamily)
+	}
+	faces := doc.LoadFaces(code)
+	if len(faces) != 1 || faces[0] != doc.fontManager.GetSystemFace(int(code.GetComputedStyles().FontSize.Number()), false, false) {
+		t.Fatalf(`missing monospace should fall back to system, got %d faces`, len(faces))
+	}
+	if code.GetComputedStyles().BackgroundColor.IsNone() {
+		t.Fatal(`code background is none`)
+	}
+	if err := text.SetRich(`<code>{$1}</code>`, `<b>&</b>`); err != nil {
+		t.Fatal(err)
+	}
+	if got := text.GetText(); got != `<b>&</b>` {
+		t.Fatalf(`escaped code text = %q`, got)
+	}
+	if _, ok := text.Children()[0].(*CodeText); !ok {
+		t.Fatalf(`rich child = %T, want *CodeText`, text.Children()[0])
+	}
+}
+
 func TestSetRichRejectsInvalidInputAtomically(t *testing.T) {
 	tests := []struct {
 		name string

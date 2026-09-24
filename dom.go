@@ -911,12 +911,12 @@ func (n _NodeTransformer) transform(parent Box, node *html.Node) (Box, error) {
 				text.(*Text).expandTextNodes()
 			}
 			return text, err
-		case `b`, `i`:
+		case `b`, `i`, `code`:
 			if parent == nil {
 				return nil, fmt.Errorf(`此处不能有元素：%s`, node.Data)
 			}
 			switch parent.GetTag() {
-			case `text`, `b`, `i`:
+			case `text`, `b`, `i`, `code`:
 			default:
 				return nil, fmt.Errorf(`父子关系不正确：%s -> %s`, parent.GetTag(), node.Data)
 			}
@@ -926,6 +926,8 @@ func (n _NodeTransformer) transform(parent Box, node *html.Node) (Box, error) {
 				box = NewBoldText(n.doc)
 			case `i`:
 				box = NewItalicText(n.doc)
+			case `code`:
+				box = NewCodeText(n.doc)
 			default:
 				panic(`未处理的节点`)
 			}
@@ -1174,7 +1176,9 @@ func (doc *Document) LoadFaces(box Box) []*FontFace {
 			face, err = doc.fontManager.GetFace(name, int(size), false, false)
 		}
 		if err != nil {
-			log.Panicf(`找不到指定的字体: %s: %v`, name, err)
+			// 缺失的候选字体交给下一个名字，最终回退到 system。
+			log.Println(`找不到指定的字体:`, name)
+			continue
 		}
 		faces = append(faces, face)
 	}

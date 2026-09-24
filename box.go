@@ -1600,7 +1600,7 @@ func (t *Text) SetTextFormat(format string, args ...any) {
 }
 
 // SetRich 使用从 1 开始编号的 {$n} 位置参数设置富文本。模板只支持
-// <b> 和 <i> 标签；参数始终作为普通文本转义，不能注入标签。同一个参数
+// <b>、<i> 和 <code> 标签；参数始终作为普通文本转义，不能注入标签。同一个参数
 // 可以重复使用，{{ 用于输出字面的 {。
 //
 // 替换是原子的：模板或富文本解析失败时，Text 的原内容保持不变。
@@ -1744,6 +1744,8 @@ func (t *Text) expandTextNodes() {
 		case *BoldText:
 			children = typed.textParts.children
 		case *ItalicText:
+			children = typed.textParts.children
+		case *CodeText:
 			children = typed.textParts.children
 		}
 		for _, child := range children {
@@ -2255,6 +2257,20 @@ func NewItalicText(doc *Document) *ItalicText {
 }
 
 func (t *ItalicText) AppendChild(child any) {
+	t.textParts.appendChildOrText(t, child)
+}
+
+type CodeText struct {
+	BaseBox
+
+	textParts _TextParts
+}
+
+func NewCodeText(doc *Document) *CodeText {
+	return &CodeText{BaseBox: NewBaseBox(doc, `code`)}
+}
+
+func (t *CodeText) AppendChild(child any) {
 	t.textParts.appendChildOrText(t, child)
 }
 
