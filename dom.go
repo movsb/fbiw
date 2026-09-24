@@ -906,11 +906,7 @@ func (n _NodeTransformer) transform(parent Box, node *html.Node) (Box, error) {
 		case `img`:
 			return n.transformNode(NewImage(n.doc), node, true, false)
 		case `text`:
-			text, err := n.transformNode(NewText(n.doc), node, false, true)
-			if err == nil {
-				text.(*Text).expandTextNodes()
-			}
-			return text, err
+			return n.transformNode(NewText(n.doc), node, false, true)
 		case `b`, `i`, `code`:
 			if parent == nil {
 				return nil, fmt.Errorf(`此处不能有元素：%s`, node.Data)

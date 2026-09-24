@@ -28,20 +28,23 @@ type Item struct {
 }
 
 func init() {
-	fbiw.Define(`ol`, false, newOrderedList)
-	fbiw.Define(`ul`, false, newUnorderedList)
-	fbiw.Define(`li`, false, newItem)
+	fbiw.Define(`ol`, false, NewOrderedList)
+	fbiw.Define(`ul`, false, NewUnorderedList)
+	fbiw.Define(`li`, false, NewItem)
 }
 
-func newOrderedList(doc *fbiw.Document) *List {
+// NewOrderedList creates an <ol> box.
+func NewOrderedList(doc *fbiw.Document) *List {
 	return &List{BaseBox: fbiw.NewBaseBox(doc, `ol`), ordered: true, start: 1}
 }
 
-func newUnorderedList(doc *fbiw.Document) *List {
+// NewUnorderedList creates a <ul> box.
+func NewUnorderedList(doc *fbiw.Document) *List {
 	return &List{BaseBox: fbiw.NewBaseBox(doc, `ul`), start: 1}
 }
 
-func newItem(doc *fbiw.Document) *Item {
+// NewItem creates a <li> box.
+func NewItem(doc *fbiw.Document) *Item {
 	return &Item{BaseBox: fbiw.NewBaseBox(doc, `li`)}
 }
 

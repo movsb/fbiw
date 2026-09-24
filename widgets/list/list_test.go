@@ -75,11 +75,11 @@ func TestListMarkerDrawsInGutter(t *testing.T) {
 }
 
 func TestListPropertiesAndStructure(t *testing.T) {
-	ordered := newOrderedList(nil)
+	ordered := NewOrderedList(nil)
 	if err := ordered.SetProp(`start`, `bad`); err == nil {
 		t.Fatal(`invalid start accepted`)
 	}
-	item := newItem(nil)
+	item := NewItem(nil)
 	if err := item.SetProp(`value`, `bad`); err == nil {
 		t.Fatal(`invalid value accepted`)
 	}

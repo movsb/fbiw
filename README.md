@@ -890,6 +890,10 @@ item := doc.Unmarshal[Item](`
 item.text.SetText("项目内容")
 ```
 
+也可以直接调用 `NewBlock`、`NewText` 及 `widgets/list`、`widgets/table` 的
+具体构造函数组装盒子树。子盒子挂载时会自动完成事件绑定；
+列表与表格可通过各自的 `ValidateChildren()` 检查结构。
+
 ## 事件系统
 
 Box 同时也是事件目标。事件按照捕获、目标和冒泡三个阶段传播：

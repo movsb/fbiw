@@ -12,7 +12,6 @@ import (
 	"math"
 	"os"
 	"path/filepath"
-	"reflect"
 	"runtime"
 	"slices"
 	"strconv"
@@ -168,7 +167,8 @@ type BaseBox struct {
 // 创建一个基类盒子。
 //
 // 返回的不是指针。
-// 所以不要在这里初始化内部循环引用（比如： eventTarget.box）。
+// 所以不要在这里初始化内部循环引用（比如： eventTarget.box）；
+// 子盒子挂载时由 AppendChild 完成，文档根盒子由解析器完成。
 func NewBaseBox(doc *Document, tagName string) BaseBox {
 	return BaseBox{
 		document:       doc,
@@ -282,7 +282,7 @@ func (b *BaseBox) AppendChild(child Box) {
 		panic(`Child is nil`)
 	}
 	if child.Base()._EventTarget.box == nil {
-		panic(`事件对象未完成初始化:` + reflect.TypeOf(child).String())
+		child.Base()._EventTarget.box = child
 	}
 
 	// prevLastChild := b.lastChild()
@@ -605,6 +605,7 @@ type IntrinsicWidths struct {
 func MeasureIntrinsicWidths(child Box, referenceWidth, referenceHeight int) IntrinsicWidths {
 	minimum := 0
 	if text, ok := child.(*Text); ok {
+		text.ensureTextRuns()
 		for i := range text.textRuns {
 			run := &text.textRuns[i]
 			faces := text.document.LoadFaces(run.Owner)
@@ -1442,9 +1443,14 @@ func (p *_TextParts) appendChildOrText(owner Box, child any) {
 	p.children = append(p.children, child)
 	if box, ok := child.(Box); ok {
 		owner.Base().AppendChild(box)
-	} else {
-		if doc := owner.Document(); doc != nil {
-			doc.layoutDirty = true
+	}
+	for box := owner; box != nil; box = box.Parent() {
+		if text, ok := box.(*Text); ok {
+			text.textRunsDirty = true
+			if doc := text.Document(); doc != nil {
+				doc.RequestLayout()
+			}
+			break
 		}
 	}
 }
@@ -1467,7 +1473,8 @@ type Text struct {
 	// 参考 expandTextNodes 方法。
 	// 用于 Calc。
 	// 除非更新 text 节点，否则不要修改。
-	textRuns []_TextRun
+	textRuns      []_TextRun
+	textRunsDirty bool
 
 	// 当前使用到哪个 textRuns 了
 	textRunIndex int
@@ -1488,7 +1495,8 @@ type Text struct {
 
 func NewText(doc *Document) *Text {
 	return &Text{
-		BaseBox: NewBaseBox(doc, `text`),
+		BaseBox:       NewBaseBox(doc, `text`),
+		textRunsDirty: true,
 		marquee: _TextMarquee{
 			speed:     60,
 			pause:     time.Second,
@@ -1584,6 +1592,9 @@ func (t *Text) SetProp(key, value string) error {
 
 // 设置普通文本。
 func (t *Text) SetText(text string) {
+	for _, child := range t.children {
+		child.Base().parent = nil
+	}
 	t.textParts.children = nil
 	t.children = nil
 	// 替换整段内容时从头开始显示。普通的重新排版不应该重置这个
@@ -1592,7 +1603,6 @@ func (t *Text) SetText(text string) {
 	t.resetMarqueePosition()
 	t.stopMarquee()
 	t.AppendChild(text)
-	t.expandTextNodes()
 }
 
 func (t *Text) SetTextFormat(format string, args ...any) {
@@ -1631,7 +1641,7 @@ func (t *Text) SetRich(tmpl string, args ...any) error {
 	t.setDrawLineOffset(0)
 	t.resetMarqueePosition()
 	t.stopMarquee()
-	t.expandTextNodes()
+	t.textRunsDirty = true
 	if t.document != nil {
 		// 文档样式在加载时已经校验；与 BaseBox.AppendChild 保持一致，
 		// 运行时挂接新节点时重新应用样式并请求布局。
@@ -1719,6 +1729,7 @@ func appendEscapedRichText(out *strings.Builder, text string) {
 
 // 获取普通文件。
 func (t *Text) GetText() string {
+	t.ensureTextRuns()
 	sb := strings.Builder{}
 	for _, run := range t.textRuns {
 		sb.WriteString(run.Data)
@@ -1729,6 +1740,15 @@ func (t *Text) GetText() string {
 // 这个方法重写了基类的方法，只在 transform 中被调用。
 func (t *Text) AppendChild(child any) {
 	t.textParts.appendChildOrText(t, child)
+}
+
+func (t *Text) ensureTextRuns() {
+	if !t.textRunsDirty {
+		return
+	}
+	t.expandTextNodes()
+	t.textRunsDirty = false
+	t.clearStates()
 }
 
 // 把 <text> 的树形节点平铺展开方便排版。
@@ -1779,6 +1799,7 @@ func (t *Text) Calc(availWidth, availHeight int, constraints Constraints) {
 }
 
 func (t *Text) segmentBlock(availWidth, availHeight int, size resolvedDimensions, unboundedWidth, unboundedHeight bool) {
+	t.ensureTextRuns()
 	t.clearStates()
 
 	// availHeight 应该内部没有使用，至少会使用一行行高。
@@ -1914,6 +1935,7 @@ func (t *Text) SegmentInline(availWidth, availHeight int) bool {
 }
 
 func (t *Text) segmentInline(availWidth, availHeight int, widthStyle Length) bool {
+	t.ensureTextRuns()
 	line := _TextLine{}
 	cannotFitFirstCharacter := false
 

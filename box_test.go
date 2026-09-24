@@ -1048,6 +1048,40 @@ func TestCodeTextFragment(t *testing.T) {
 	}
 }
 
+func TestTextRunsRebuildAfterFragmentChanges(t *testing.T) {
+	doc := newFlexTestDocument(t, `<block><text>a</text></block>`, 400, 100)
+	text := doc.Root().Children()[0].(*Text)
+	before := MeasureIntrinsicWidths(text, 400, 100).Preferred
+
+	code := NewCodeText(doc)
+	code.AppendChild(` bb`)
+	text.AppendChild(code)
+	if got := text.GetText(); got != `a bb` {
+		t.Fatalf(`after attach: %q`, got)
+	}
+	if got := MeasureIntrinsicWidths(text, 400, 100).Preferred; got <= before {
+		t.Fatalf(`intrinsic width did not grow: before=%d after=%d`, before, got)
+	}
+
+	code.AppendChild(` cc`)
+	text.AppendChild(` dd`)
+	if got := text.GetText(); got != `a bb cc dd` {
+		t.Fatalf(`after mutation: %q`, got)
+	}
+	text.Calc(400, 100, Constraints{ParentContentWidth: 400, ParentContentHeight: 100})
+	if len(text.textLines) == 0 {
+		t.Fatal(`mutated text did not lay out`)
+	}
+	text.SetText(`reset`)
+	if got := text.GetText(); got != `reset` {
+		t.Fatalf(`after SetText: %q`, got)
+	}
+	code.AppendChild(` detached`)
+	if text.textRunsDirty || text.GetText() != `reset` {
+		t.Fatal(`detached fragment invalidated replacement text`)
+	}
+}
+
 func TestSetRichRejectsInvalidInputAtomically(t *testing.T) {
 	tests := []struct {
 		name string
@@ -1983,5 +2017,29 @@ func TestGIFPlaybackAndSourceChange(t *testing.T) {
 	timer.callback() // A callback already queued before cancellation must be harmless.
 	if img.gifFrame != 0 {
 		t.Fatal("stale callback advanced GIF")
+	}
+}
+
+func TestAppendChildBindsEventTarget(t *testing.T) {
+	doc := &Document{}
+	parent := NewBlock(doc)
+	child := NewBlock(doc)
+	if child._EventTarget.box != nil {
+		t.Fatal(`new child was already bound`)
+	}
+	called := false
+	child.Listen(InputDownEvent, func(event *Event) {
+		called = true
+		if event.Target != child {
+			t.Fatalf(`event target = %T, want child`, event.Target)
+		}
+	})
+	parent.AppendChild(child)
+	if child._EventTarget.box != child {
+		t.Fatal(`child was not bound on attachment`)
+	}
+	child.Dispatch(InputDownEvent, InputEventArgs{})
+	if !called {
+		t.Fatal(`attached child did not dispatch event`)
 	}
 }

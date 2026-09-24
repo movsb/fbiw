@@ -14,10 +14,10 @@ func TestConstructors(t *testing.T) {
 		box fbiw.Box
 		tag string
 	}{
-		{newTable(nil), `table`},
-		{newTableRow(nil), `tr`},
-		{newTableCell(nil), `td`},
-		{newTableHeaderCell(nil), `th`},
+		{NewTable(nil), `table`},
+		{NewTableRow(nil), `tr`},
+		{NewTableCell(nil), `td`},
+		{NewTableHeaderCell(nil), `th`},
 	} {
 		if got := test.box.GetTag(); got != test.tag {
 			t.Fatalf(`tag = %q, want %q`, got, test.tag)
@@ -26,7 +26,7 @@ func TestConstructors(t *testing.T) {
 }
 
 func TestCellSpans(t *testing.T) {
-	cell := newTableCell(nil)
+	cell := NewTableCell(nil)
 	if err := cell.SetProp(`rowspan`, `2`); err != nil {
 		t.Fatal(err)
 	}

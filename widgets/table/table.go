@@ -29,22 +29,24 @@ func newDrop(doc *fbiw.Document, tag string) *_Drop {
 
 func init() {
 	fbiw.DefineStyles(`th { bold: true; align: both; }`)
-	fbiw.Define(`table`, false, newTable)
-	fbiw.Define(`tr`, false, newTableRow)
-	fbiw.Define(`td`, false, newTableCell)
-	fbiw.Define(`th`, false, newTableHeaderCell)
+	fbiw.Define(`table`, false, NewTable)
+	fbiw.Define(`tr`, false, NewTableRow)
+	fbiw.Define(`td`, false, NewTableCell)
+	fbiw.Define(`th`, false, NewTableHeaderCell)
 	fbiw.Define(`tbody`, false, func(doc *fbiw.Document) *_Drop { return newDrop(doc, `tbody`) })
 	fbiw.Define(`thead`, false, func(doc *fbiw.Document) *_Drop { return newDrop(doc, `thead`) })
 	fbiw.Define(`tfoot`, false, func(doc *fbiw.Document) *_Drop { return newDrop(doc, `tfoot`) })
 }
 
-func newTable(doc *fbiw.Document) *Table {
+// NewTable creates a <table> box.
+func NewTable(doc *fbiw.Document) *Table {
 	return &Table{BaseBox: fbiw.NewBaseBox(doc, `table`)}
 }
 
 type TableRow struct{ fbiw.BaseBox }
 
-func newTableRow(doc *fbiw.Document) *TableRow {
+// NewTableRow creates a <tr> box.
+func NewTableRow(doc *fbiw.Document) *TableRow {
 	return &TableRow{BaseBox: fbiw.NewBaseBox(doc, `tr`)}
 }
 
@@ -54,9 +56,11 @@ type TableCell struct {
 	colSpan int
 }
 
-func newTableCell(doc *fbiw.Document) *TableCell { return newCell(doc, `td`) }
+// NewTableCell creates a <td> box.
+func NewTableCell(doc *fbiw.Document) *TableCell { return newCell(doc, `td`) }
 
-func newTableHeaderCell(doc *fbiw.Document) *TableCell { return newCell(doc, `th`) }
+// NewTableHeaderCell creates a <th> box.
+func NewTableHeaderCell(doc *fbiw.Document) *TableCell { return newCell(doc, `th`) }
 
 func newCell(doc *fbiw.Document, tag string) *TableCell {
 	return &TableCell{
