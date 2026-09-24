@@ -249,13 +249,13 @@ func (r *Renderer) DrawMask(mask []byte, mw, mh int, dst image.Point, clip image
 	visible := image.Rect(dst.X, dst.Y, dst.X+mw, dst.Y+mh).Intersect(clip).Intersect(image.Rect(0, 0, r.Width, r.Height))
 	for y := visible.Min.Y; y < visible.Max.Y; y++ {
 		for x := visible.Min.X; x < visible.Max.X; x++ {
-			a := uint32(mask[(y-dst.Y)*mw+x-dst.X])
+			a := uint32(div255(uint32(mask[(y-dst.Y)*mw+x-dst.X]) * uint32(fill.A())))
 			if a == 0 {
 				continue
 			}
 			p := r.Pixels[(y*r.Width+x)*4:]
 			if a == 255 {
-				p[0], p[1], p[2], p[3] = fill.B(), fill.G(), fill.R(), 255
+				p[0], p[1], p[2], p[3] = fill.B(), fill.G(), fill.R(), fill.A()
 				continue
 			}
 			ia := uint32(255) - a

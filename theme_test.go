@@ -299,7 +299,7 @@ func TestBuiltInThemesAndPartialOverride(t *testing.T) {
 	if custom.Colors[`--color-primary`] != override {
 		t.Fatal(`自定义颜色未覆盖系统主题`)
 	}
-	if custom.Colors[`--color-selection-background`] != mixThemeColor(custom.Colors[`--color-surface`], override, 0.18) {
+	if custom.Colors[`--color-selection-background`] != withThemeColorOpacity(override, 0.18) {
 		t.Fatal(`自定义主题的 primary 未生成选中背景色`)
 	}
 	if custom.Colors[`--color-control-background`] != light.Colors[`--color-control-background`] {
@@ -354,7 +354,7 @@ func TestThemeAccent(t *testing.T) {
 	}
 	selection := theme.Colors[`--color-selection-background`]
 	ratio := Iif(isLightThemeTime(time.Now()), 0.18, 0.28)
-	if selection != mixThemeColor(theme.Colors[`--color-surface`], darkAccent, ratio) {
+	if selection != withThemeColorOpacity(darkAccent, ratio) {
 		t.Fatalf(`选中背景色未从强调色生成：%v`, selection)
 	}
 	if theme.Colors[`--color-on-primary`] != ColorFromString(`#ffffff`) {

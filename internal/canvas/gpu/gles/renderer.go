@@ -415,7 +415,7 @@ func (r *Renderer) flushMasks() {
 	r.api.disable(glScissorTest)
 	r.api.useProgram(r.maskProgram)
 	r.api.bindTexture(glTexture2D, r.maskAtlases[r.maskBatch.atlas].texture)
-	r.api.uniform4f(r.maskColor, float32(r.maskBatch.color.R())/255, float32(r.maskBatch.color.G())/255, float32(r.maskBatch.color.B())/255, 1)
+	r.api.uniform4f(r.maskColor, float32(r.maskBatch.color.R())/255, float32(r.maskBatch.color.G())/255, float32(r.maskBatch.color.B())/255, float32(r.maskBatch.color.A())/255)
 	r.api.bindBuffer(glArrayBuffer, r.maskBuffer)
 	r.api.bufferData(glArrayBuffer, uintptr(len(vertices))*unsafe.Sizeof(vertices[0]), uintptr(unsafe.Pointer(&vertices[0])), glDynamicDraw)
 	r.api.enableVertexAttrib(uint32(r.maskPosition))

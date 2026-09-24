@@ -2123,7 +2123,7 @@ func (t *Text) Draw(canvas *Canvas) {
 			owner := fragment.Run.Owner
 			canvas := canvas.Offset(drawOffsetX, drawOffsetY)
 
-			if cr := owner.Base().computedStyles.BackgroundColor; owner.Base().computedStyles.has(propertyBackgroundColor) && !cr.IsNone() {
+			if cr := owner.Base().computedStyles.BackgroundColor; owner != t && owner.Base().computedStyles.has(propertyBackgroundColor) && !cr.IsNone() {
 				canvas.FillRect(0, 0, rc.Width, rc.Height, cr)
 			}
 
@@ -2148,7 +2148,7 @@ func (t *Text) drawTextLines(canvas *Canvas, drawOffsetY, contentWidth int) {
 			owner := fragment.Run.Owner
 			fragmentCanvas := canvas.Offset(drawOffsetX, drawOffsetY)
 
-			if cr := owner.Base().computedStyles.BackgroundColor; owner.Base().computedStyles.has(propertyBackgroundColor) && !cr.IsNone() {
+			if cr := owner.Base().computedStyles.BackgroundColor; owner != t && owner.Base().computedStyles.has(propertyBackgroundColor) && !cr.IsNone() {
 				fragmentCanvas.FillRect(0, 0, rc.Width, rc.Height, cr)
 			}
 			fragmentCanvas.DrawString(

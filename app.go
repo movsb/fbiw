@@ -593,7 +593,9 @@ func (f *_FPSCounter) Frame() {
 		f.fps = float64(f.frames) / elapsed.Seconds()
 		f.frames = 0
 		f.start = time.Now()
-		log.Printf("帧率: %f", f.fps)
+		if f.fps >= 10 {
+			log.Printf("帧率: %f", f.fps)
+		}
 	}
 }
 

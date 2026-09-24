@@ -3,7 +3,6 @@ package fbiw
 import (
 	"bytes"
 	"cmp"
-	_ "embed"
 	"fmt"
 	"io"
 	"io/fs"

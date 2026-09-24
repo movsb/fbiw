@@ -279,6 +279,17 @@ func TestDrawRoundedRect(t *testing.T) {
 	}
 }
 
+func TestDrawRoundedRectPreservesFillAlpha(t *testing.T) {
+	canvas := NewCanvas(cpu.New(5, 5))
+	canvas.FillRect(0, 0, 5, 5, ColorFromRGBA(0, 0, 255, 255))
+	canvas.DrawRect(0, 0, 5, 5, 2, 0, ColorFromRGBA(255, 0, 0, 128), ColorNone)
+
+	got := canvas.testGetPixel(2, 2)
+	if got.A != 255 || got.R < 127 || got.R > 128 || got.G != 0 || got.B < 127 || got.B > 128 {
+		t.Fatalf("rounded translucent fill pixel = %v, want approximately rgba(128, 0, 127, 255)", got)
+	}
+}
+
 func TestDecodedPixelsFastPathWithSubimage(t *testing.T) {
 	for _, source := range []image.Image{
 		image.NewNRGBA(image.Rect(0, 0, 3, 2)),

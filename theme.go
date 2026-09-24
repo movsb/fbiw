@@ -265,23 +265,20 @@ func (m *ThemeManager) resolved(name string, base Theme, light bool) (Theme, boo
 		selectionColor = primary
 		deriveSelection = !selectionOverridden
 	}
-	if surface, ok := resolved.Colors[`--color-surface`]; ok && deriveSelection {
+	if _, ok := resolved.Colors[`--color-surface`]; ok && deriveSelection {
 		ratio := Iif(light, 0.18, 0.28)
-		resolved.Colors[`--color-selection-background`] = mixThemeColor(surface, selectionColor, ratio)
+		resolved.Colors[`--color-selection-background`] = withThemeColorOpacity(selectionColor, ratio)
 	}
 	resolved = withRegisteredThemeColors(resolved, light, theme.Colors)
 	return resolved, true
 }
 
-func mixThemeColor(base, overlay Color, ratio float64) Color {
-	mix := func(a, b uint8) uint8 {
-		return uint8(math.Round(float64(a)*(1-ratio) + float64(b)*ratio))
-	}
+func withThemeColorOpacity(color Color, opacity float64) Color {
 	return ColorFromRGBA(
-		mix(base.R(), overlay.R()),
-		mix(base.G(), overlay.G()),
-		mix(base.B(), overlay.B()),
-		0xff,
+		color.R(),
+		color.G(),
+		color.B(),
+		uint8(math.Round(0xff*opacity)),
 	)
 }
 

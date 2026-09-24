@@ -238,6 +238,20 @@ func TestFlexTextReflowsAtAllocatedWidth(t *testing.T) {
 	}
 }
 
+func TestTextDoesNotPaintOwnTranslucentBackgroundTwice(t *testing.T) {
+	doc := newFlexTestDocument(t, `<stack fill background-color="#0000ff"><text id="text" padding="2 15" background-color="#ff000080"> </text></stack>`, 80, 30)
+	text := doc.GetBoxByID[*Text](`text`)
+	canvas := NewCanvas(cpu.New(80, 30))
+	doc.paint(canvas)
+
+	box := text.GetLayoutBox()
+	paddingPixel := canvas.testGetPixel(box.X+1, box.Y+1)
+	contentPixel := canvas.testGetPixel(box.X+text.InsetLeft()+1, box.Y+text.InsetTop()+1)
+	if contentPixel != paddingPixel {
+		t.Fatalf("text background painted more than once: padding=%v content=%v", paddingPixel, contentPixel)
+	}
+}
+
 func TestFlexWidgetAllocation(t *testing.T) {
 	for _, tag := range []string{`toggle`, `check`, `progress`, `select`, `img`, `list`} {
 		t.Run(tag, func(t *testing.T) {

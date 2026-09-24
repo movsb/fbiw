@@ -197,7 +197,7 @@ func (r *Renderer) DrawMask(mask []byte, w, h int, dst image.Point, clip image.R
 		pixels := make([]byte, w*h*4)
 		for i, a := range mask[:w*h] {
 			p := pixels[i*4:]
-			p[0], p[1], p[2], p[3] = c.B(), c.G(), c.R(), a
+			p[0], p[1], p[2], p[3] = c.B(), c.G(), c.R(), uint8(uint16(a)*uint16(c.A())/255)
 		}
 		var err error
 		t, err = r.renderer.CreateTexture(sdl.PIXELFORMAT_ARGB8888, sdl.TEXTUREACCESS_STATIC, int32(w), int32(h))
