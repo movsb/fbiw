@@ -10,7 +10,6 @@ type EventType = events.Type
 
 const (
 	UnknownEvent   = events.EventUnknown
-	DocChange      = events.EventDocChange
 	InputDownEvent = events.EventInputDown
 	InputUpEvent   = events.EventInputUp
 )
@@ -21,10 +20,6 @@ func RegisterEventType() EventType {
 }
 
 type InputEventArgs = events.InputArgs
-type DocChangeArgs struct {
-	// 当前活跃文档。如果没有，可能为空。
-	Doc *Document
-}
 
 // 整个系统使用的事件类型。
 //

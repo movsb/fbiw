@@ -7,7 +7,6 @@ type Type uint
 
 const (
 	EventUnknown Type = iota + 1
-	EventDocChange
 	EventInputDown
 	EventInputUp
 

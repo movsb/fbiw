@@ -16,14 +16,6 @@ import (
 	"github.com/movsb/fbiw/internal/ports"
 )
 
-var logFrameTime = log.Println
-
-func init() {
-	if runtime.GOOS == "js" && runtime.GOARCH == "wasm" {
-		logFrameTime = func(...any) {}
-	}
-}
-
 type Option func(app *App)
 
 func WithContext(ctx context.Context) Option {
@@ -193,6 +185,13 @@ func (app *App) NewPopup(fsys fs.FS, name string, opener *Document) *Document {
 // 创建新的系统覆盖层。
 func (app *App) NewOverlay(fsys fs.FS, name string) *Document {
 	return app._New(fsys, name, _AppNewDocDesktopOverlay, nil)
+}
+
+var DocChange = event.RegisterType()
+
+type DocChangeArgs struct {
+	// 当前活跃文档。如果没有，可能为空。
+	Doc *Document
 }
 
 type _AppNewDocDesktop uint8
@@ -601,6 +600,14 @@ func (f *_FPSCounter) Frame() {
 // 获取实时帧率。
 func (app *App) GetFPS() float64 {
 	return app.fpsCalc.fps
+}
+
+var logFrameTime = log.Println
+
+func init() {
+	if runtime.GOOS == "js" && runtime.GOARCH == "wasm" {
+		logFrameTime = func(...any) {}
+	}
 }
 
 // 真正执行检测是否需要重新布局或重绘的地方。
