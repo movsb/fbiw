@@ -195,12 +195,12 @@ func TestNestedStyleMatchesFlatStyle(t *testing.T) {
 func TestStylesPaddingShorthand(t *testing.T) {
 	tests := []struct {
 		raw  string
-		want Padding
+		want Edges
 	}{
-		{raw: `10`, want: PaddingValue(10, 10, 10, 10)},
-		{raw: `10 20`, want: PaddingValue(10, 20, 10, 20)},
-		{raw: `10 20 30`, want: PaddingValue(10, 20, 30, 20)},
-		{raw: `10 20 30 40`, want: PaddingValue(10, 20, 30, 40)},
+		{raw: `10`, want: EdgesValue(10, 10, 10, 10)},
+		{raw: `10 20`, want: EdgesValue(10, 20, 10, 20)},
+		{raw: `10 20 30`, want: EdgesValue(10, 20, 30, 20)},
+		{raw: `10 20 30 40`, want: EdgesValue(10, 20, 30, 40)},
 	}
 	for _, tt := range tests {
 		t.Run(tt.raw, func(t *testing.T) {
@@ -224,6 +224,49 @@ func TestStylesPaddingShorthand(t *testing.T) {
 	}
 }
 
+func TestStylesBorderWidthShorthand(t *testing.T) {
+	tests := []struct {
+		raw  string
+		want Edges
+	}{
+		{`1`, EdgesValue(1, 1, 1, 1)},
+		{`1 2`, EdgesValue(1, 2, 1, 2)},
+		{`1 2 3`, EdgesValue(1, 2, 3, 2)},
+		{`1 2 3 4`, EdgesValue(1, 2, 3, 4)},
+	}
+	for _, tt := range tests {
+		t.Run(tt.raw, func(t *testing.T) {
+			var styles Styles
+			if _, _, _, err := styles.Set(`border-width`, tt.raw); err != nil {
+				t.Fatal(err)
+			}
+			if styles.BorderWidth != tt.want {
+				t.Fatalf(`widths = %v, want %v`, styles.BorderWidth, tt.want)
+			}
+		})
+	}
+	for _, raw := range []string{``, `1 2 3 4 5`, `-1`, `65536`, `a`} {
+		var styles Styles
+		if _, _, _, err := styles.Set(`border-width`, raw); err == nil {
+			t.Errorf(`accepted invalid border-width %q`, raw)
+		}
+	}
+}
+
+func TestBorderWidthStyleSheetAndInlineOverride(t *testing.T) {
+	doc := newFlexTestDocument(t, `<style>block { border-width: 1 2 3 4; border-color: red; }</style><block></block>`, 100, 100)
+	box := doc.Root()
+	if got := box.GetComputedStyles().BorderWidth; got != EdgesValue(1, 2, 3, 4) {
+		t.Fatalf(`sheet border widths = %v`, got)
+	}
+	if err := box.SetProp(`border-width`, `5`); err != nil {
+		t.Fatal(err)
+	}
+	if got := box.GetComputedStyles().BorderWidth; got != EdgesValue(5, 5, 5, 5) {
+		t.Fatalf(`inline border widths = %v`, got)
+	}
+}
+
 func TestStylerStyle(t *testing.T) {
 	newTree := func() (*BaseBox, *BaseBox) {
 		parent := &BaseBox{tag: `block`}
@@ -235,7 +278,7 @@ func TestStylerStyle(t *testing.T) {
 	t.Run(`应用默认样式、文档样式和内联样式`, func(t *testing.T) {
 		box := &BaseBox{tag: `block`, id: `target`}
 		box.class.Set(`featured`)
-		box.inlineStyles.SetPadding(PaddingValue(40, 40, 40, 40))
+		box.inlineStyles.SetPadding(EdgesValue(40, 40, 40, 40))
 
 		styler := _Styler{
 			defaultStyles: Must1(ParseStyle(`block { width: 10; height: 20; }`)),
@@ -257,8 +300,8 @@ func TestStylerStyle(t *testing.T) {
 		if got.Height != NumberLength(20) {
 			t.Errorf(`Height = %+v，期望默认样式的值 %+v`, got.Height, NumberLength(20))
 		}
-		if got.Padding != PaddingValue(40, 40, 40, 40) {
-			t.Errorf(`Padding = %+v，期望内联样式的值 %+v`, got.Padding, PaddingValue(40, 40, 40, 40))
+		if got.Padding != EdgesValue(40, 40, 40, 40) {
+			t.Errorf(`Padding = %+v，期望内联样式的值 %+v`, got.Padding, EdgesValue(40, 40, 40, 40))
 		}
 	})
 

@@ -62,13 +62,13 @@ type Styles struct {
 	BackgroundColor Color
 	BackgroundImage string
 	BorderColor     Color
-	BorderWidth     int
+	BorderWidth     Edges
 	BorderRadius    int
 	OutlineWidth    int
 	OutlineColor    Color
 	Color           Color
 	Height          Length
-	Padding         Padding
+	Padding         Edges
 	Width           Length
 
 	FontFamily string // font-family
@@ -161,13 +161,14 @@ func (s *Styles) SetBackgroundImage(value string) {
 	s.mark(propertyBackgroundImage)
 }
 func (s *Styles) SetBorderColor(value Color)  { s.BorderColor = value; s.mark(propertyBorderColor) }
-func (s *Styles) SetBorderWidth(value int)    { s.BorderWidth = value; s.mark(propertyBorderWidth) }
+func (s *Styles) SetBorderWidth(value int)    { s.SetBorderWidths(EdgesValue(value, value, value, value)) }
+func (s *Styles) SetBorderWidths(value Edges) { s.BorderWidth = value; s.mark(propertyBorderWidth) }
 func (s *Styles) SetBorderRadius(value int)   { s.BorderRadius = value; s.mark(propertyBorderRadius) }
 func (s *Styles) SetOutlineWidth(value int)   { s.OutlineWidth = value; s.mark(propertyOutlineWidth) }
 func (s *Styles) SetOutlineColor(value Color) { s.OutlineColor = value; s.mark(propertyOutlineColor) }
 func (s *Styles) SetColor(value Color)        { s.Color = value; s.mark(propertyColor) }
 func (s *Styles) SetHeight(value Length)      { s.Height = value; s.mark(propertyHeight) }
-func (s *Styles) SetPadding(value Padding)    { s.Padding = value; s.mark(propertyPadding) }
+func (s *Styles) SetPadding(value Edges)      { s.Padding = value; s.mark(propertyPadding) }
 func (s *Styles) SetWidth(value Length)       { s.Width = value; s.mark(propertyWidth) }
 func (s *Styles) SetFontFamily(value string)  { s.FontFamily = value; s.mark(propertyFontFamily) }
 func (s *Styles) SetFontSize(value Length)    { s.FontSize = value; s.mark(propertyFontSize) }
@@ -378,11 +379,11 @@ func (s *Styles) parseProperty(name string, raw string) (
 		n, err := strconv.Atoi(raw)
 		return n, err
 	}
-	parsePadding := func(raw string) (Padding, error) {
+	parseFourSides := func(raw, property string) (Edges, error) {
 		const maxPadding = int(^uint16(0))
 		parts := strings.Fields(raw)
 		if len(parts) < 1 || len(parts) > 4 {
-			return 0, fmt.Errorf(`padding 需要 1 到 4 个值：%s`, raw)
+			return 0, fmt.Errorf(`%s 需要 1 到 4 个值：%s`, property, raw)
 		}
 		values := make([]int, len(parts))
 		for i, part := range parts {
@@ -391,19 +392,19 @@ func (s *Styles) parseProperty(name string, raw string) (
 				return 0, err
 			}
 			if n < 0 || n > maxPadding {
-				return 0, fmt.Errorf(`padding 必须在 0 到 %d 之间：%s`, maxPadding, raw)
+				return 0, fmt.Errorf(`%s 必须在 0 到 %d 之间：%s`, property, maxPadding, raw)
 			}
 			values[i] = n
 		}
 		switch len(values) {
 		case 1:
-			return PaddingValue(values[0], values[0], values[0], values[0]), nil
+			return EdgesValue(values[0], values[0], values[0], values[0]), nil
 		case 2:
-			return PaddingValue(values[0], values[1], values[0], values[1]), nil
+			return EdgesValue(values[0], values[1], values[0], values[1]), nil
 		case 3:
-			return PaddingValue(values[0], values[1], values[2], values[1]), nil
+			return EdgesValue(values[0], values[1], values[2], values[1]), nil
 		case 4:
-			return PaddingValue(values[0], values[1], values[2], values[3]), nil
+			return EdgesValue(values[0], values[1], values[2], values[3]), nil
 		}
 		panic(`unreachable`)
 	}
@@ -453,7 +454,7 @@ func (s *Styles) parseProperty(name string, raw string) (
 	case `border-width`:
 		affectLayout = true
 		current = &s.BorderWidth
-		update, outErr = parseNumber(raw)
+		update, outErr = parseFourSides(raw, `border-width`)
 		return
 	case `border-radius`:
 		affectPaint = true
@@ -485,7 +486,7 @@ func (s *Styles) parseProperty(name string, raw string) (
 	case `padding`:
 		affectLayout = true
 		current = &s.Padding
-		update, outErr = parsePadding(raw)
+		update, outErr = parseFourSides(raw, `padding`)
 		return
 	case `width`:
 		affectLayout = true
@@ -662,22 +663,23 @@ func (l Length) IsPercentage() bool { return l.kind == LengthPercentage }
 func (l Length) IsRem() bool        { return l.kind == LengthRem }
 func (l Length) Number() int64      { return l.number }
 
-type Padding uint64
+// Edges stores top, right, bottom and left integer values.
+type Edges uint64
 
-func PaddingValue(top, right, bottom, left int) Padding {
+func EdgesValue(top, right, bottom, left int) Edges {
 	packed := uint64(top)<<48 |
 		uint64(right)<<32 |
 		uint64(bottom)<<16 |
 		uint64(left)
-	return Padding(packed)
+	return Edges(packed)
 }
 
-const paddingMask = uint64(0xffff)
+const edgeMask = uint64(0xffff)
 
-func (p Padding) PaddingTop() int    { return int(uint64(p) >> 48 & paddingMask) }
-func (p Padding) PaddingRight() int  { return int(uint64(p) >> 32 & paddingMask) }
-func (p Padding) PaddingBottom() int { return int(uint64(p) >> 16 & paddingMask) }
-func (p Padding) PaddingLeft() int   { return int(uint64(p) & paddingMask) }
+func (e Edges) Top() int    { return int(uint64(e) >> 48 & edgeMask) }
+func (e Edges) Right() int  { return int(uint64(e) >> 32 & edgeMask) }
+func (e Edges) Bottom() int { return int(uint64(e) >> 16 & edgeMask) }
+func (e Edges) Left() int   { return int(uint64(e) & edgeMask) }
 
 type Color = canvas.Color
 

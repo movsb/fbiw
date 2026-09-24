@@ -145,7 +145,7 @@ func (b *TableCell) Calc(availWidth, availHeight int, constraints fbiw.Constrain
 
 func (b *TableCell) layoutContent(width, availHeight int, constraints fbiw.Constraints, measureOnly bool) int {
 	padding := b.GetComputedStyles().Padding
-	contentWidth := max(0, width-padding.PaddingLeft()-padding.PaddingRight())
+	contentWidth := max(0, width-padding.Left()-padding.Right())
 	contentHeight := 0
 	visible := make([]fbiw.Box, 0, len(b.Children()))
 	for _, child := range b.Children() {
@@ -155,25 +155,25 @@ func (b *TableCell) layoutContent(width, availHeight int, constraints fbiw.Const
 		visible = append(visible, child)
 		child.Calc(contentWidth, max(0, availHeight-contentHeight), fbiw.Constraints{
 			ParentContentWidth:  contentWidth,
-			ParentContentHeight: max(0, availHeight-padding.PaddingTop()-padding.PaddingBottom()),
+			ParentContentHeight: max(0, availHeight-padding.Top()-padding.Bottom()),
 			PrefersMaxWidth:     true,
 			UnboundedHeight:     constraints.UnboundedHeight,
 		})
 		contentHeight += child.GetLayoutBox().Height
 	}
-	height := padding.PaddingTop() + contentHeight + padding.PaddingBottom()
+	height := padding.Top() + contentHeight + padding.Bottom()
 	styles := b.GetComputedStyles()
 	if h := fbiw.ResolveLayoutLength(styles.Height, constraints.ParentContentHeight); h.IsNumber() {
 		height = max(height, int(h.Number()))
 	}
 	if !measureOnly {
-		y := padding.PaddingTop()
+		y := padding.Top()
 		if styles.Align == `middle` || styles.Align == `both` {
-			y += max(0, height-padding.PaddingTop()-padding.PaddingBottom()-contentHeight) / 2
+			y += max(0, height-padding.Top()-padding.Bottom()-contentHeight) / 2
 		}
 		for _, child := range visible {
 			layout := child.GetLayoutBox()
-			x := padding.PaddingLeft()
+			x := padding.Left()
 			if styles.Align == `center` || styles.Align == `both` {
 				x += max(0, contentWidth-layout.Width) / 2
 			}
@@ -191,10 +191,12 @@ func (b *TableCell) Draw(canvas *fbiw.Canvas) {
 
 func (b *Table) gridBorderWidth() int {
 	styles := b.GetComputedStyles()
-	if styles.BorderWidth <= 0 || styles.BorderColor == fbiw.ColorNone {
+	widths := styles.BorderWidth
+	width := widths.Top()
+	if width <= 0 || width != widths.Right() || width != widths.Bottom() || width != widths.Left() || styles.BorderColor == fbiw.ColorNone {
 		return 0
 	}
-	return styles.BorderWidth
+	return width
 }
 
 func (b *Table) buildGrid() error {
@@ -237,7 +239,7 @@ type _IntrinsicWidths struct{ Min, Preferred int }
 
 func measureCellWidths(cell *TableCell, referenceWidth, referenceHeight int) _IntrinsicWidths {
 	styles := cell.GetComputedStyles()
-	padding := styles.Padding.PaddingLeft() + styles.Padding.PaddingRight()
+	padding := styles.Padding.Left() + styles.Padding.Right()
 	widths := _IntrinsicWidths{Min: padding, Preferred: padding}
 	for _, child := range cell.Children() {
 		if !child.IsDisplaying() {

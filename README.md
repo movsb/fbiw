@@ -178,7 +178,8 @@ import _ "github.com/movsb/fbiw/widgets"
 这里的静态列表与内置的虚拟 `<list>` 用途不同：前者随内容增长，后者使用固定槽位和数据绑定。
 
 表格默认按实际字体和内容自动测量列宽，使用单线折叠网格；`table` 的
-`border-width` 和 `border-color` 同时控制外框及内部网格，cell 自身的边框会被忽略。
+统一 `border-width` 和 `border-color` 同时控制外框及内部网格，cell 自身的边框会被忽略。
+若 table 使用四边不同的边框宽度，仅绘制外框，不生成内部网格。
 `td`、`th` 支持正整数 `rowspan` 和 `colspan`，也可用 `width` 提示首选宽度：
 
 ```html
@@ -623,6 +624,9 @@ overlay.Close()
 - `fill`
 - `flex-direction`、`flex-grow`、`gap`
 - `justify-content`、`align-items`、`align-self`
+
+`border-width` 和 `padding` 一样支持 1–4 个非负整数，依次对应上、右、下、左；
+例如 `border-width: 1 2 3 4`。`border-color` 仍只需指定一个颜色，四边共用。
 
 `width` 和 `height` 可以解析整数或百分比。常规 `Calc` 布局每次根据父容器提供的完整内容区解析百分比，不受前序兄弟元素占用影响，也不会改写计算后的样式；根元素以文档尺寸为参考。文本的独立分段路径和内容自适应父容器的百分比规则仍有限制，参见 [`todo.md`](todo.md)。
 

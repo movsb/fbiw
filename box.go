@@ -434,36 +434,30 @@ func (b *BaseBox) resolveDimensions(constraints Constraints) resolvedDimensions 
 	return size
 }
 
-func (b *BaseBox) paddingTop() int {
-	return b.computedStyles.Padding.PaddingTop()
-}
+func (b *BaseBox) paddingTop() int    { return b.computedStyles.Padding.Top() }
+func (b *BaseBox) paddingRight() int  { return b.computedStyles.Padding.Right() }
+func (b *BaseBox) paddingBottom() int { return b.computedStyles.Padding.Bottom() }
+func (b *BaseBox) paddingLeft() int   { return b.computedStyles.Padding.Left() }
 
-func (b *BaseBox) paddingRight() int {
-	return b.computedStyles.Padding.PaddingRight()
-}
-
-func (b *BaseBox) paddingBottom() int {
-	return b.computedStyles.Padding.PaddingBottom()
-}
-
-func (b *BaseBox) paddingLeft() int {
-	return b.computedStyles.Padding.PaddingLeft()
-}
+func (b *BaseBox) borderTop() int    { return b.computedStyles.BorderWidth.Top() }
+func (b *BaseBox) borderRight() int  { return b.computedStyles.BorderWidth.Right() }
+func (b *BaseBox) borderBottom() int { return b.computedStyles.BorderWidth.Bottom() }
+func (b *BaseBox) borderLeft() int   { return b.computedStyles.BorderWidth.Left() }
 
 func (b *BaseBox) InsetTop() int {
-	return b.computedStyles.BorderWidth + b.paddingTop()
+	return b.borderTop() + b.paddingTop()
 }
 
 func (b *BaseBox) InsetRight() int {
-	return b.computedStyles.BorderWidth + b.paddingRight()
+	return b.borderRight() + b.paddingRight()
 }
 
 func (b *BaseBox) InsetBottom() int {
-	return b.computedStyles.BorderWidth + b.paddingBottom()
+	return b.borderBottom() + b.paddingBottom()
 }
 
 func (b *BaseBox) InsetLeft() int {
-	return b.computedStyles.BorderWidth + b.paddingLeft()
+	return b.borderLeft() + b.paddingLeft()
 }
 
 func (b *BaseBox) HorizontalInsets() int {
@@ -509,13 +503,19 @@ type BaseBoxDrawOptions struct {
 }
 
 func (b *BaseBox) DrawOptions(canvas *Canvas, options BaseBoxDrawOptions) {
-	borderWidth := b.computedStyles.BorderWidth
 	borderRadius := max(0, b.computedStyles.BorderRadius)
-	if options.NoBorder {
-		borderWidth = 0
-	}
 	layoutWidth := b.layoutBox.Width
 	layoutHeight := b.layoutBox.Height
+	top := min(b.borderTop(), max(0, layoutHeight))
+	bottom := min(b.borderBottom(), max(0, layoutHeight-top))
+	left := min(b.borderLeft(), max(0, layoutWidth))
+	right := min(b.borderRight(), max(0, layoutWidth-left))
+	if options.NoBorder {
+		top, right, bottom, left = 0, 0, 0, 0
+	}
+	innerWidth := max(0, layoutWidth-left-right)
+	innerHeight := max(0, layoutHeight-top-bottom)
+	innerRadius := max(0, borderRadius-max(top, right, bottom, left))
 
 	if outlineWidth := b.computedStyles.OutlineWidth; outlineWidth > 0 {
 		if outlineColor := b.computedStyles.OutlineColor; b.computedStyles.has(propertyOutlineColor) && !outlineColor.IsNone() {
@@ -530,15 +530,26 @@ func (b *BaseBox) DrawOptions(canvas *Canvas, options BaseBoxDrawOptions) {
 	}
 
 	// 默认都是 border-box，所以以实际的宽和高为准。
-	if bcv := b.computedStyles.BorderColor; borderWidth > 0 && b.computedStyles.has(propertyBorderColor) && !bcv.IsNone() {
-		canvas.DrawRect(0, 0, layoutWidth, layoutHeight, borderRadius, borderWidth, ColorNone, bcv)
+	if bcv := b.computedStyles.BorderColor; (top > 0 || right > 0 || bottom > 0 || left > 0) && b.computedStyles.has(propertyBorderColor) && !bcv.IsNone() {
+		if top == right && top == bottom && top == left {
+			canvas.DrawRect(0, 0, layoutWidth, layoutHeight, borderRadius, top, ColorNone, bcv)
+		} else {
+			borderCanvas := canvas
+			if borderRadius > 0 {
+				borderCanvas = canvas.ClipRounded(0, 0, layoutWidth, layoutHeight, borderRadius)
+			}
+			borderCanvas.FillRect(0, 0, layoutWidth, top, bcv)
+			borderCanvas.FillRect(0, layoutHeight-bottom, layoutWidth, bottom, bcv)
+			borderCanvas.FillRect(0, top, left, innerHeight, bcv)
+			borderCanvas.FillRect(layoutWidth-right, top, right, innerHeight, bcv)
+		}
 	}
 
 	if src := b.computedStyles.BackgroundImage; src != `` {
-		width := layoutWidth - borderWidth*2
-		height := layoutHeight - borderWidth*2
-		canvas := canvas.Offset(borderWidth, borderWidth).ClipRounded(
-			0, 0, width, height, max(0, borderRadius-borderWidth),
+		width := innerWidth
+		height := innerHeight
+		canvas := canvas.Offset(left, top).ClipRounded(
+			0, 0, width, height, innerRadius,
 		)
 
 		// 背景图片暂时只显示首帧（如果是GIF的话），像素本来就低，太丑了。
@@ -567,11 +578,11 @@ func (b *BaseBox) DrawOptions(canvas *Canvas, options BaseBoxDrawOptions) {
 			)
 		}
 	} else if bcv := b.computedStyles.BackgroundColor; b.computedStyles.has(propertyBackgroundColor) && !bcv.IsNone() {
-		canvas.Offset(borderWidth, borderWidth).DrawRect(
+		canvas.Offset(left, top).DrawRect(
 			0, 0,
-			layoutWidth-borderWidth*2,
-			layoutHeight-borderWidth*2,
-			max(0, borderRadius-borderWidth), 0,
+			innerWidth,
+			innerHeight,
+			innerRadius, 0,
 			bcv, ColorNone,
 		)
 	}

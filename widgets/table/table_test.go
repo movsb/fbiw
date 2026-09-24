@@ -64,3 +64,21 @@ func TestRegisteredTableLayout(t *testing.T) {
 		t.Fatalf(`table layout = %+v`, got)
 	}
 }
+
+func TestAsymmetricTableBorderDoesNotCreateGrid(t *testing.T) {
+	app := fbiw.NewApp(
+		fbiw.WithRenderer(cpu.New(200, 100)),
+		fbiw.WithSystemFontData(goregular.TTF),
+	)
+	defer app.Close()
+	doc := app.NewDesktop(fstest.MapFS{
+		`main.html`: &fstest.MapFile{Data: []byte(`<document><table border-width="1 2 3 4" border-color="red"><tr><td><text>A</text></td><td><text>B</text></td></tr></table></document>`)},
+	}, `main.html`)
+	widget := doc.Root().(*Table)
+	if widget.gridBorderWidth() != 0 {
+		t.Fatal(`asymmetric outer border should not produce a uniform inner grid`)
+	}
+	if widget.InsetTop() != 1 || widget.InsetRight() != 2 || widget.InsetBottom() != 3 || widget.InsetLeft() != 4 {
+		t.Fatalf(`table insets = %d %d %d %d`, widget.InsetTop(), widget.InsetRight(), widget.InsetBottom(), widget.InsetLeft())
+	}
+}

@@ -574,7 +574,7 @@ func TestPercentageDimensionsRelayout(t *testing.T) {
 				doc := _NewDocument(200, 120, nil, nil, nil)
 				parent := newParent(doc)
 				doc.root = parent
-				parent.Base().computedStyles.SetPadding(PaddingValue(10, 10, 10, 10))
+				parent.Base().computedStyles.SetPadding(EdgesValue(10, 10, 10, 10))
 				parent.Base().computedStyles.SetBorderWidth(2)
 				first := NewBlock(doc)
 				first.computedStyles.SetWidth(NumberLength(80))
@@ -650,7 +650,7 @@ func TestPercentageDimensionsForFlexibleChild(t *testing.T) {
 
 func TestListSlotPercentageDimensions(t *testing.T) {
 	slot := _NewListItem(nil)
-	slot.computedStyles.SetPadding(PaddingValue(2, 2, 2, 2))
+	slot.computedStyles.SetPadding(EdgesValue(2, 2, 2, 2))
 	child := NewBlock(nil)
 	child.computedStyles.SetWidth(PercentageLength(50))
 	child.computedStyles.SetHeight(PercentageLength(50))
@@ -2041,5 +2041,27 @@ func TestAppendChildBindsEventTarget(t *testing.T) {
 	child.Dispatch(InputDownEvent, InputEventArgs{})
 	if !called {
 		t.Fatal(`attached child did not dispatch event`)
+	}
+}
+
+func TestAsymmetricBorderInsetsAndPaint(t *testing.T) {
+	doc := newFlexTestDocument(t, `<block width="12" height="12" border-width="1 2 3 4" border-color="red" background-color="blue" padding="1"></block>`, 12, 12)
+	box := doc.Root().Base()
+	if box.InsetTop() != 2 || box.InsetRight() != 3 || box.InsetBottom() != 4 || box.InsetLeft() != 5 {
+		t.Fatalf(`insets = %d %d %d %d`, box.InsetTop(), box.InsetRight(), box.InsetBottom(), box.InsetLeft())
+	}
+	canvas := NewCanvas(cpu.New(12, 12))
+	doc.paint(canvas)
+	for _, point := range []struct{ x, y int }{{6, 0}, {11, 5}, {6, 11}, {0, 5}, {3, 5}} {
+		pixel := canvas.testGetPixel(point.x, point.y)
+		if pixel.R != 255 || pixel.G != 50 || pixel.B != 91 {
+			t.Errorf(`border pixel (%d,%d) = %v`, point.x, point.y, pixel)
+		}
+	}
+	for _, point := range []struct{ x, y int }{{4, 5}, {9, 5}} {
+		pixel := canvas.testGetPixel(point.x, point.y)
+		if pixel.R != 30 || pixel.G != 144 || pixel.B != 255 {
+			t.Errorf(`background pixel (%d,%d) = %v`, point.x, point.y, pixel)
+		}
 	}
 }

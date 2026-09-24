@@ -904,6 +904,6 @@ func (b *SafeArea) Calc(availWidth, availHeight int, constraints Constraints) {
 		return
 	}
 	insets := b.app.safeInsets
-	b.computedStyles.SetPadding(PaddingValue(insets.top, insets.right, insets.bottom, insets.left))
+	b.computedStyles.SetPadding(EdgesValue(insets.top, insets.right, insets.bottom, insets.left))
 	blockCalc(&b.BaseBox, availWidth, availHeight, constraints)
 }
