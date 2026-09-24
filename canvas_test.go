@@ -112,7 +112,7 @@ func TestDecodeImageTrimTransparentBorder(t *testing.T) {
 	fsys := &mapFS
 	manager := NewImageManager()
 
-	untrimmed, err := manager.GetImageCached(fsys, "border.png", ImageDecodeOptions{})
+	untrimmed, err := manager.Load(fsys, "border.png", false, ImageDecodeOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -120,7 +120,7 @@ func TestDecodeImageTrimTransparentBorder(t *testing.T) {
 		t.Fatalf("未开启裁剪时尺寸错误：%dx%d", untrimmed.Width, untrimmed.Height)
 	}
 
-	trimmed, err := manager.GetImageCached(fsys, "border.png", ImageDecodeOptions{
+	trimmed, err := manager.Load(fsys, "border.png", false, ImageDecodeOptions{
 		TrimTransparentBorder: true,
 	})
 	if err != nil {
@@ -171,9 +171,8 @@ func TestDecodeImageTrimBlackBorder(t *testing.T) {
 	}
 	manager := NewImageManager()
 	mapFS := fstest.MapFS{"black.png": &fstest.MapFile{Data: encoded.Bytes()}}
-	trimmed, err := manager.GetImageCached(
-		&mapFS,
-		"black.png", ImageDecodeOptions{TrimBlackBorder: true},
+	trimmed, err := manager.Load(
+		&mapFS, "black.png", false, ImageDecodeOptions{TrimBlackBorder: true},
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -426,7 +425,7 @@ func TestSingleFrameGIFAndStaticPNG(t *testing.T) {
 	if err := png.Encode(&encoded, image.NewNRGBA(image.Rect(0, 0, 1, 1))); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := NewImageManager().GetImageCached(&fstest.MapFS{"still.png": &fstest.MapFile{Data: encoded.Bytes()}}, "still.png", ImageDecodeOptions{}); err != nil {
+	if _, err := NewImageManager().Load(&fstest.MapFS{"still.png": &fstest.MapFile{Data: encoded.Bytes()}}, "still.png", false, ImageDecodeOptions{}); err != nil {
 		t.Fatal(err)
 	}
 }

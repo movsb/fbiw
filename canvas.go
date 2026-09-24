@@ -1,7 +1,6 @@
 package fbiw
 
 import (
-	"context"
 	"fmt"
 	"image"
 	"image/color"
@@ -18,8 +17,8 @@ import (
 	"unsafe"
 
 	"github.com/movsb/fbiw/internal/canvas"
+	"github.com/movsb/fbiw/internal/helpers"
 	"github.com/movsb/fbiw/internal/ports"
-	"github.com/phuslu/lru"
 	"golang.org/x/image/font"
 	"golang.org/x/image/font/opentype"
 
@@ -402,8 +401,8 @@ type ImageDecodeOptions struct {
 }
 
 type ImageManager struct {
-	contentCache *lru.TTLCache[_ImageCacheKey, DecodedImage]
-	gifCache     *lru.TTLCache[_ImageCacheKey, *_AnimatedGIF]
+	contentCache *helpers.TTLCache[_ImageCacheKey, DecodedImage]
+	gifCache     *helpers.TTLCache[_ImageCacheKey, *_AnimatedGIF]
 
 	// 图片加载可能被异步调用。
 	closed atomic.Bool
@@ -411,9 +410,8 @@ type ImageManager struct {
 
 func NewImageManager() *ImageManager {
 	return &ImageManager{
-		// https://github.com/phuslu/lru/issues/32
-		contentCache: lru.NewTTLCache(1024, lru.WithShards[_ImageCacheKey, DecodedImage](1)),
-		gifCache:     lru.NewTTLCache(16, lru.WithShards[_ImageCacheKey, *_AnimatedGIF](1)),
+		contentCache: helpers.NewTTLCache[_ImageCacheKey, DecodedImage](128, 10*time.Minute, time.Minute),
+		gifCache:     helpers.NewTTLCache[_ImageCacheKey, *_AnimatedGIF](16, 10*time.Minute, time.Minute),
 	}
 }
 
@@ -482,12 +480,7 @@ func trimImageBorder(img image.Image, removable func(r, g, b, a uint32) bool, em
 	return trimmed
 }
 
-// 多线程安全。
-func (m *ImageManager) GetImageCached(fsys fs.FS, path string, options ImageDecodeOptions) (DecodedImage, error) {
-	return m._getImageCached(fsys, path, false, options)
-}
-
-func (m *ImageManager) _getImageCached(fsys fs.FS, path string, checking bool, options ImageDecodeOptions) (DecodedImage, error) {
+func (m *ImageManager) Load(fsys fs.FS, path string, checking bool, options ImageDecodeOptions) (DecodedImage, error) {
 	if m.closed.Load() {
 		return DecodedImage{}, fs.ErrClosed
 	}
@@ -503,14 +496,11 @@ func (m *ImageManager) _getImageCached(fsys fs.FS, path string, checking bool, o
 		}
 		return img, os.ErrNotExist
 	}
-	img, err, _ := m.contentCache.GetOrLoad(context.Background(), key,
-		func(ctx context.Context, _ _ImageCacheKey) (DecodedImage, time.Duration, error) {
-			decoded, err := m.decodeImage(fsys, path, options)
-			return decoded, time.Minute * 10, err
+	return m.contentCache.GetOrLoad(key,
+		func() (DecodedImage, error) {
+			return m.decodeImage(fsys, path, options)
 		},
 	)
-
-	return img, err
 }
 
 type _AnimatedGIF struct {
@@ -675,7 +665,7 @@ func decodedPixels(img image.Image) DecodedImage {
 	return decoded
 }
 
-func (m *ImageManager) getGIF(fsys fs.FS, path string, checking bool) (*_AnimatedGIF, error) {
+func (m *ImageManager) LoadGIF(fsys fs.FS, path string, checking bool) (*_AnimatedGIF, error) {
 	if m.closed.Load() {
 		return nil, fs.ErrClosed
 	}
@@ -686,11 +676,9 @@ func (m *ImageManager) getGIF(fsys fs.FS, path string, checking bool) (*_Animate
 		}
 		return nil, os.ErrNotExist
 	}
-	value, err, _ := m.gifCache.GetOrLoad(context.Background(), key, func(context.Context, _ImageCacheKey) (*_AnimatedGIF, time.Duration, error) {
-		v, e := decodeGIF(fsys, path)
-		return v, 10 * time.Minute, e
+	return m.gifCache.GetOrLoad(key, func() (*_AnimatedGIF, error) {
+		return decodeGIF(fsys, path)
 	})
-	return value, err
 }
 
 type FontManager struct {

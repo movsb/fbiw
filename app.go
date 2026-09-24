@@ -1,7 +1,6 @@
 package fbiw
 
 import (
-	"container/list"
 	"context"
 	"io/fs"
 	"iter"
@@ -13,6 +12,7 @@ import (
 
 	"github.com/movsb/fbiw/input/sticks"
 	"github.com/movsb/fbiw/internal/event"
+	"github.com/movsb/fbiw/internal/helpers"
 	"github.com/movsb/fbiw/internal/ports"
 )
 
@@ -92,7 +92,7 @@ type App struct {
 	// 桌面列表。
 	// 桌面由文档构成。
 	// 前台桌面是 Front() 元素。
-	desktops list.List
+	desktops helpers.List[*Desktop]
 	// // 桌面切换器。
 	// switcher         func(app *App) *Document
 	// switcherDocument *Document
@@ -250,7 +250,7 @@ func (app *App) _New(fsys fs.FS, name string, desktop _AppNewDocDesktop, docRef 
 
 func (app *App) isActiveDesktop(d *Desktop) bool {
 	if front := app.desktops.Front(); front != nil {
-		return d == front.Value.(*Desktop)
+		return d == front.Value
 	}
 	return false
 }
@@ -288,7 +288,7 @@ func (app *App) _CloseDocument(doc *Document) {
 
 	if desktop.count() <= 0 {
 		for e := app.desktops.Front(); e != nil; e = e.Next() {
-			if e.Value.(*Desktop) == desktop {
+			if e.Value == desktop {
 				desktop.app = nil
 				app.desktops.Remove(e)
 				break
@@ -301,7 +301,7 @@ func (app *App) _CloseDocument(doc *Document) {
 		if isTop {
 			var top *Document
 			if front := app.desktops.Front(); front != nil {
-				top = front.Value.(*Desktop).top()
+				top = front.Value.top()
 			}
 			app.Dispatch(DocChange, DocChangeArgs{Doc: top})
 		}
@@ -354,7 +354,7 @@ func (app *App) docDirty(doc *Document) {
 		return
 	}
 	if app.desktops.Len() > 0 {
-		front := app.desktops.Front().Value.(*Desktop)
+		front := app.desktops.Front().Value
 		if doc.desktop == front {
 			app.Dirty()
 			return
@@ -494,7 +494,7 @@ func (app *App) Run() {
 				if event.Type == InputDownEvent && event.Input.Name == sticks.Select {
 					if app.desktops.Len() > 1 {
 						app.desktops.MoveToBack(app.desktops.Front())
-						top := app.desktops.Front().Value.(*Desktop)
+						top := app.desktops.Front().Value
 						app.Dispatch(DocChange, DocChangeArgs{Doc: top.top()})
 						app.Dirty()
 						return
@@ -505,7 +505,7 @@ func (app *App) Run() {
 				// TODO 除非有系统级事件监听器？
 				// TODO 其实这两个地方都不应该判断，理论不可能为空。
 				if e := app.desktops.Front(); e != nil {
-					desktop := e.Value.(*Desktop)
+					desktop := e.Value
 					if top := desktop.top(); top != nil {
 						top.handleEvent(event)
 					}
@@ -621,7 +621,7 @@ func (app *App) sync() {
 	// 有可能只创建了overlay就开始运行，此时还没有桌面。
 	var desktop *Desktop
 	if app.desktops.Len() > 0 {
-		desktop = app.desktops.Front().Value.(*Desktop)
+		desktop = app.desktops.Front().Value
 		for doc := range desktop.All() {
 			if doc.dirty() {
 				hasDirtyDocument = true
@@ -747,7 +747,7 @@ func (app *App) allDocuments() iter.Seq[*Document] {
 func (app *App) Desktops() iter.Seq[*Desktop] {
 	desktops := make([]*Desktop, 0, app.desktops.Len())
 	for e := app.desktops.Front(); e != nil; e = e.Next() {
-		desktops = append(desktops, e.Value.(*Desktop))
+		desktops = append(desktops, e.Value)
 	}
 	return func(yield func(*Desktop) bool) {
 		for _, desktop := range desktops {
@@ -768,20 +768,20 @@ func (app *App) SwitchTo(desktop *Desktop) {
 	}
 
 	// 已经是前台。
-	if desktop == app.desktops.Front().Value.(*Desktop) {
+	if desktop == app.desktops.Front().Value {
 		return
 	}
 
 	// 移动到前台。
 	for e := app.desktops.Front(); e != nil; e = e.Next() {
-		if d := e.Value.(*Desktop); d == desktop {
+		if d := e.Value; d == desktop {
 			app.desktops.MoveToFront(e)
 			break
 		}
 	}
 
 	// 通知前台文档变化。
-	top := app.desktops.Front().Value.(*Desktop).top()
+	top := app.desktops.Front().Value.top()
 	app.Dispatch(DocChange, DocChangeArgs{Doc: top})
 
 	app.Dirty()

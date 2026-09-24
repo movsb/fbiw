@@ -1129,15 +1129,13 @@ func walkBox(box Box, callback func(box Box) bool) bool {
 	return true
 }
 
-// TODO 异步解码
-// checking: 只检测是否存在缓存。
 // 暂时只通过扩展名检测图片类型。扩展名错误行为未知。
 func (doc *Document) _loadImage(fsys fs.FS, path string, checking bool, options ImageDecodeOptions) (any, error) {
 	load := func(fsys fs.FS, path string) (any, error) {
 		if isGIF := strings.EqualFold(filepath.Ext(path), `.gif`); !isGIF {
-			return doc.imageManager._getImageCached(fsys, path, checking, options)
+			return doc.imageManager.Load(fsys, path, checking, options)
 		}
-		return doc.imageManager.getGIF(fsys, path, checking)
+		return doc.imageManager.LoadGIF(fsys, path, checking)
 	}
 	return load(cmp.Or(fsys, doc.fsys), path)
 }
@@ -1151,9 +1149,7 @@ func (doc *Document) loadImageSync(fsys fs.FS, path string, options ImageDecodeO
 func (doc *Document) loadImageAsync(fsys fs.FS, path string, options ImageDecodeOptions, callback func(any, error)) {
 	go func() {
 		img, err := doc._loadImage(fsys, path, false, options)
-		doc.Async(func() {
-			callback(img, err)
-		})
+		doc.Async(func() { callback(img, err) })
 	}()
 }
 
