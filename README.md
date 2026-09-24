@@ -138,6 +138,7 @@ func main() {
 | `safe-area` | 根据系统覆盖层占用的四边区域，为内容设置安全内边距 |
 | `scroll` | 裁剪并按像素偏移任意内容的滚动视口 |
 | `list` | 固定行列、固定可视槽位的虚拟列表 |
+| `ol` / `ul` / `li` | 可选的静态有序或无序列表，按内容换行并支持嵌套 |
 | `spacer` | 在布局主轴上分配剩余空间 |
 | `button` | 带默认样式、A 键交互和禁用状态的按钮容器 |
 | `toggle` | 不接受子节点，激活后按 A 键切换 checked 状态的开关 |
@@ -152,14 +153,29 @@ func main() {
 
 也可以使用 `fbiw.Define` 注册实现了 `Box` 接口的自定义标签。
 
-表格是可选组件；导入聚合包即可注册相关标签：
+表格和静态列表是可选组件；导入聚合包即可注册相关标签：
 
 ```go
 import _ "github.com/movsb/fbiw/widgets"
 ```
 
 需要在 Go 代码中引用类型时，可使用 `widgets.Table`、`widgets.TableRow` 和
-`widgets.TableCell`；也可以单独导入 `github.com/movsb/fbiw/widgets/table`。
+`widgets.TableCell`、`widgets.HTMLList`、`widgets.ListItem`；也可以单独导入
+`github.com/movsb/fbiw/widgets/table` 或 `github.com/movsb/fbiw/widgets/list`。
+
+`<ol>` 与 `<ul>` 只包含 `<li>`；列表项中的文字仍需放在 `<text>` 中。`<ol>` 支持
+`start`，`<li>` 支持 `value`，都接受整数。列表项可包含嵌套列表：
+
+```html
+<ol start="3">
+    <li><text>第一项</text></li>
+    <li><text>第二项</text>
+        <ul><li><text>子项</text></li></ul>
+    </li>
+</ol>
+```
+
+这里的静态列表与内置的虚拟 `<list>` 用途不同：前者随内容增长，后者使用固定槽位和数据绑定。
 
 表格默认按实际字体和内容自动测量列宽，使用单线折叠网格；`table` 的
 `border-width` 和 `border-color` 同时控制外框及内部网格，cell 自身的边框会被忽略。

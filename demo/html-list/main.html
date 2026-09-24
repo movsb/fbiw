@@ -1,0 +1,71 @@
+<document>
+<title>HTML Lists</title>
+<style>
+document {
+	color: #edf1f7;
+	font-size: 22;
+}
+#page {
+	padding: 24;
+	background-color: #15181e;
+}
+#viewport {
+	background-color: #20252e;
+	border-width: 1;
+	border-color: #3d4655;
+	padding: 16;
+}
+.heading {
+	color: #ffffff;
+	font-size: 28;
+}
+.muted {
+	color: #aab3c2;
+	font-size: 18;
+}
+.section {
+	padding: 0 0 18 0;
+}
+ul, ol {
+	padding: 4 0 4 12;
+}
+li {
+	padding: 3 0;
+}
+.accent { color: #82c7ff; }
+</style>
+
+<block id="page">
+	<text font-size="36">HTML Lists</text>
+	<text id="status" class="muted">方向键滚动　L1/R1 调整字号　A：隐藏可选步骤</text>
+	<scroll id="viewport" direction="vertical" height="440" step="48" smooth>
+		<block id="content">
+			<block class="section">
+				<text class="heading">无序列表与嵌套</text>
+				<ul>
+					<li><text>列表标记与正文分开布局。</text></li>
+					<li>
+						<text>一个条目可以包含多段内容：</text>
+						<ul>
+							<li><text>中文和 English 混排，使用当前字体计算宽度。</text></li>
+							<li><text>窗口变窄时，这段较长的说明会自动换行，并保持后续条目的垂直位置正确。</text></li>
+						</ul>
+					</li>
+					<li><text>空条目之后仍能正常排列。</text></li>
+					<li></li>
+				</ul>
+			</block>
+			<block class="section">
+				<text class="heading">有序列表与重新编号</text>
+				<ol start="7">
+					<li><text>从 start="7" 开始。</text></li>
+					<li id="optional-step"><text>按 A 隐藏或显示这个可选步骤，后续序号会重新计算。</text></li>
+					<li value="12"><text>用 value="12" 指定这一项的序号。</text></li>
+					<li><text class="accent">调整字号后，标记宽度和正文换行都会重新测量。</text></li>
+				</ol>
+			</block>
+		</block>
+	</scroll>
+	<text class="muted">列表来自 widgets 包；方向键始终留给 Scroll。</text>
+</block>
+</document>
