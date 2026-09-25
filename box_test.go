@@ -2080,14 +2080,14 @@ func TestAsymmetricBorderInsetsAndPaint(t *testing.T) {
 	}
 }
 
-func TestImageOpacityAndFadeIn(t *testing.T) {
+func TestImageOpacityAndFade(t *testing.T) {
 	app, doc, clock := newAnimationTestApp(t)
 	img := NewImage(doc)
 	if img.Opacity() != 1 {
 		t.Fatal("default image opacity is not opaque")
 	}
-	stop := img.FadeIn(time.Second)
-	if img.Opacity() != 0 || !img.fadePending || doc.timeline != nil {
+	stop := img.Fade(.2, .8, time.Second)
+	if img.Opacity() != .2 || !img.fadePending || doc.timeline != nil {
 		t.Fatal("fade started before image loaded")
 	}
 	img.setLoadedImage(DecodedImage{Width: 1, Height: 1, Pixels: []byte{0, 0, 255, 255}, Opaque: true})
@@ -2097,28 +2097,28 @@ func TestImageOpacityAndFadeIn(t *testing.T) {
 	}
 	clock.now = clock.now.Add(500 * time.Millisecond)
 	animationStep(app)
-	if img.Opacity() != .75 {
+	if math.Abs(img.Opacity()-.65) > 1e-12 {
 		t.Fatalf("fade opacity = %v", img.Opacity())
 	}
 	stop()
 	stop()
 	clock.now = clock.now.Add(time.Second)
 	animationStep(app)
-	if img.Opacity() != .75 || img.fadeTransition != nil {
+	if math.Abs(img.Opacity()-.65) > 1e-12 || img.fadeTransition != nil {
 		t.Fatal("stopped fade continued")
 	}
-	img.FadeIn(time.Second)
+	img.Fade(.8, .1, time.Second)
 	clock.now = clock.now.Add(time.Second)
 	animationStep(app)
-	if img.Opacity() != 1 || img.fadeTransition != nil {
-		t.Fatal("fade did not finish opaque")
+	if img.Opacity() != .1 || img.fadeTransition != nil {
+		t.Fatal("fade did not finish at target opacity")
 	}
 }
 
 func TestImageFadeCancelBeforeLoadAndManualOpacity(t *testing.T) {
 	_, doc, _ := newAnimationTestApp(t)
 	img := NewImage(doc)
-	stop := img.FadeIn(time.Second)
+	stop := img.Fade(0, 1, time.Second)
 	stop()
 	img.setLoadedImage(DecodedImage{Width: 1, Height: 1, Pixels: make([]byte, 4)})
 	if img.fadePending || img.fadeTransition != nil || img.Opacity() != 0 {
@@ -2145,9 +2145,24 @@ func TestImageFadeCancelBeforeLoadAndManualOpacity(t *testing.T) {
 					t.Error("invalid fade duration accepted")
 				}
 			}()
-			img.FadeIn(duration)
+			img.Fade(0, 1, duration)
 		}()
 	}
+	for _, endpoints := range [][2]float64{{-1, 1}, {0, 1.1}, {math.NaN(), 1}, {0, math.Inf(1)}} {
+		func() {
+			defer func() {
+				if recover() == nil {
+					t.Errorf("invalid fade endpoints %v accepted", endpoints)
+				}
+			}()
+			img.Fade(endpoints[0], endpoints[1], time.Second)
+		}()
+	}
+	stop = img.Fade(.4, .4, time.Second)
+	if img.Opacity() != .4 || img.fadePending || img.fadeTransition != nil {
+		t.Fatal("equal fade endpoints scheduled an animation")
+	}
+	stop()
 }
 
 func TestImageDrawPassesOpacity(t *testing.T) {

@@ -2359,11 +2359,12 @@ type Image struct {
 	rotation         float64
 	rotationCancel   func()
 	// 缩放和透明度相关参数。
-	scale, opacity float64
-	fadeDuration   time.Duration
-	fadePending    bool
-	fadeVersion    uint64
-	fadeTransition *Transition[float64]
+	scale, opacity   float64
+	fadeFrom, fadeTo float64
+	fadeDuration     time.Duration
+	fadePending      bool
+	fadeVersion      uint64
+	fadeTransition   *Transition[float64]
 
 	// 容器宽高比；零表示未设置。
 	//
@@ -2414,7 +2415,7 @@ func (b *Image) setOpacity(opacity float64) {
 }
 
 // SetOpacity 设置图片内容的透明度，0 为完全透明，1 为完全不透明。
-// 它会停止正在进行或等待加载的淡入动画；不影响图片的布局和命中区域。
+// 它会停止正在进行或等待加载的透明度动画；不影响图片的布局和命中区域。
 func (b *Image) SetOpacity(opacity float64) {
 	if math.IsNaN(opacity) || math.IsInf(opacity, 0) || opacity < 0 || opacity > 1 {
 		panic("SetOpacity: 无效的透明度。")
@@ -2423,19 +2424,23 @@ func (b *Image) SetOpacity(opacity float64) {
 	b.setOpacity(opacity)
 }
 
-// FadeIn 让图片从完全透明过渡到完全不透明。图片尚未解码时，动画会等到
-// 解码成功后再开始。Duration 必须大于零。返回可重复调用的停止函数，
-// 停止后保持当前透明度。
-func (b *Image) FadeIn(duration time.Duration) func() {
-	if duration <= 0 {
-		panic("FadeIn: 无效的时长。")
+// Fade 让图片在 from 和 to 之间过渡。两个透明度都必须在 [0,1] 内。
+// 图片尚未解码时，动画会等到解码成功后再开始。Duration 必须大于零。
+// 返回可重复调用的停止函数，停止后保持当前透明度。
+func (b *Image) Fade(from, to float64, duration time.Duration) func() {
+	if duration <= 0 || math.IsNaN(from) || math.IsInf(from, 0) || from < 0 || from > 1 ||
+		math.IsNaN(to) || math.IsInf(to, 0) || to < 0 || to > 1 {
+		panic("Fade: 无效的透明度或时长。")
 	}
 	b.cancelFade()
 	version := b.fadeVersion
-	b.fadeDuration, b.fadePending = duration, true
-	b.setOpacity(0)
-	if b.status == imageLoadStatusDecoded {
-		b.startFadeIn()
+	b.fadeFrom, b.fadeTo, b.fadeDuration = from, to, duration
+	b.setOpacity(from)
+	if from != to {
+		b.fadePending = true
+		if b.status == imageLoadStatusDecoded {
+			b.startFade()
+		}
 	}
 	stopped := false
 	return func() {
@@ -2458,14 +2463,14 @@ func (b *Image) cancelFade() {
 	}
 }
 
-func (b *Image) startFadeIn() {
+func (b *Image) startFade() {
 	if !b.fadePending {
 		return
 	}
 	b.fadePending = false
 	version := b.fadeVersion
 	var transition *Transition[float64]
-	transition = b.document.NewTransition(b.opacity, TransitionOptions[float64]{
+	transition = b.document.NewTransition(b.fadeFrom, TransitionOptions[float64]{
 		Duration: b.fadeDuration, Easing: EaseOut, Animator: NumberAnimator,
 		OnUpdate: b.setOpacity,
 		OnComplete: func() {
@@ -2475,7 +2480,7 @@ func (b *Image) startFadeIn() {
 		},
 	})
 	b.fadeTransition = transition
-	transition.SetTarget(1)
+	transition.SetTarget(b.fadeTo)
 }
 
 // RotationOptions 描述匀速中心旋转。
@@ -2637,7 +2642,7 @@ func (b *Image) setLoadedImage(result any) {
 		panic(fmt.Sprintf("unexpected image result: %T", result))
 	}
 	b.startGIF()
-	b.startFadeIn()
+	b.startFade()
 }
 
 func (b *Image) Calc(availWidth, availHeight int, constraints Constraints) {
