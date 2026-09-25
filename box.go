@@ -2365,6 +2365,7 @@ type Image struct {
 	fadePending      bool
 	fadeVersion      uint64
 	fadeTransition   *Transition[float64]
+	fadeOnComplete   func()
 
 	// 容器宽高比；零表示未设置。
 	//
@@ -2426,8 +2427,9 @@ func (b *Image) SetOpacity(opacity float64) {
 
 // Fade 让图片在 from 和 to 之间过渡。两个透明度都必须在 [0,1] 内。
 // 图片尚未解码时，动画会等到解码成功后再开始。Duration 必须大于零。
-// 返回可重复调用的停止函数，停止后保持当前透明度。
-func (b *Image) Fade(from, to float64, duration time.Duration) func() {
+// onComplete 仅在动画自然完成时调用。返回可重复调用的停止函数，
+// 停止后保持当前透明度。
+func (b *Image) Fade(from, to float64, duration time.Duration, onComplete func()) func() {
 	if duration <= 0 || math.IsNaN(from) || math.IsInf(from, 0) || from < 0 || from > 1 ||
 		math.IsNaN(to) || math.IsInf(to, 0) || to < 0 || to > 1 {
 		panic("Fade: 无效的透明度或时长。")
@@ -2435,6 +2437,7 @@ func (b *Image) Fade(from, to float64, duration time.Duration) func() {
 	b.cancelFade()
 	version := b.fadeVersion
 	b.fadeFrom, b.fadeTo, b.fadeDuration = from, to, duration
+	b.fadeOnComplete = onComplete
 	b.setOpacity(from)
 	if from != to {
 		b.fadePending = true
@@ -2457,6 +2460,7 @@ func (b *Image) Fade(from, to float64, duration time.Duration) func() {
 func (b *Image) cancelFade() {
 	b.fadeVersion++
 	b.fadePending = false
+	b.fadeOnComplete = nil
 	if b.fadeTransition != nil {
 		b.fadeTransition.Cancel()
 		b.fadeTransition = nil
@@ -2476,6 +2480,11 @@ func (b *Image) startFade() {
 		OnComplete: func() {
 			if b.fadeVersion == version && b.fadeTransition == transition {
 				b.fadeTransition = nil
+				complete := b.fadeOnComplete
+				b.fadeOnComplete = nil
+				if complete != nil {
+					complete()
+				}
 			}
 		},
 	})

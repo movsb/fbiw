@@ -2086,7 +2086,8 @@ func TestImageOpacityAndFade(t *testing.T) {
 	if img.Opacity() != 1 {
 		t.Fatal("default image opacity is not opaque")
 	}
-	stop := img.Fade(.2, .8, time.Second)
+	completed := 0
+	stop := img.Fade(.2, .8, time.Second, func() { completed++ })
 	if img.Opacity() != .2 || !img.fadePending || doc.timeline != nil {
 		t.Fatal("fade started before image loaded")
 	}
@@ -2107,10 +2108,16 @@ func TestImageOpacityAndFade(t *testing.T) {
 	if math.Abs(img.Opacity()-.65) > 1e-12 || img.fadeTransition != nil {
 		t.Fatal("stopped fade continued")
 	}
-	img.Fade(.8, .1, time.Second)
+	if completed != 0 {
+		t.Fatal("stopped fade invoked completion callback")
+	}
+	img.Fade(.8, .1, time.Second, func() {
+		completed++
+		img.Fade(.1, .6, time.Second, nil)
+	})
 	clock.now = clock.now.Add(time.Second)
 	animationStep(app)
-	if img.Opacity() != .1 || img.fadeTransition != nil {
+	if img.Opacity() != .1 || completed != 1 || img.fadeTransition == nil {
 		t.Fatal("fade did not finish at target opacity")
 	}
 }
@@ -2118,7 +2125,7 @@ func TestImageOpacityAndFade(t *testing.T) {
 func TestImageFadeCancelBeforeLoadAndManualOpacity(t *testing.T) {
 	_, doc, _ := newAnimationTestApp(t)
 	img := NewImage(doc)
-	stop := img.Fade(0, 1, time.Second)
+	stop := img.Fade(0, 1, time.Second, func() { t.Fatal("cancelled fade completed") })
 	stop()
 	img.setLoadedImage(DecodedImage{Width: 1, Height: 1, Pixels: make([]byte, 4)})
 	if img.fadePending || img.fadeTransition != nil || img.Opacity() != 0 {
@@ -2145,7 +2152,7 @@ func TestImageFadeCancelBeforeLoadAndManualOpacity(t *testing.T) {
 					t.Error("invalid fade duration accepted")
 				}
 			}()
-			img.Fade(0, 1, duration)
+			img.Fade(0, 1, duration, nil)
 		}()
 	}
 	for _, endpoints := range [][2]float64{{-1, 1}, {0, 1.1}, {math.NaN(), 1}, {0, math.Inf(1)}} {
@@ -2155,10 +2162,10 @@ func TestImageFadeCancelBeforeLoadAndManualOpacity(t *testing.T) {
 					t.Errorf("invalid fade endpoints %v accepted", endpoints)
 				}
 			}()
-			img.Fade(endpoints[0], endpoints[1], time.Second)
+			img.Fade(endpoints[0], endpoints[1], time.Second, nil)
 		}()
 	}
-	stop = img.Fade(.4, .4, time.Second)
+	stop = img.Fade(.4, .4, time.Second, func() { t.Fatal("equal endpoints completed") })
 	if img.Opacity() != .4 || img.fadePending || img.fadeTransition != nil {
 		t.Fatal("equal fade endpoints scheduled an animation")
 	}

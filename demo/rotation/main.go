@@ -39,12 +39,12 @@ func main() {
 	}
 	spinning := doc.GetBoxByID[*fbiw.Image]("spinning")
 	spinning.SetImage(source)
-	spinning.Fade(0, 1, 600*time.Millisecond)
+	spinning.Fade(0, 1, 600*time.Millisecond, nil)
 	stop := spinning.Rotate(fbiw.RotationOptions{Duration: 3 * time.Second, Overflow: true})
 	defer stop()
 	finite := doc.GetBoxByID[*fbiw.Image]("finite")
 	finite.SetImage(source)
-	finite.Fade(0, 1, 600*time.Millisecond)
+	finite.Fade(0, 1, 600*time.Millisecond, nil)
 	pictures := []*fbiw.Image{spinning, finite}
 	activeScales := []float64{1.5, .5}
 	transitions := make([]*fbiw.Transition[float64], len(pictures))

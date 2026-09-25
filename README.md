@@ -1346,13 +1346,16 @@ position.SetTarget(Point{100, 200})
 
 ```go
 picture.SetOpacity(0.5)              // 0 完全透明，1 完全不透明
-stopFade := picture.Fade(0, 1, 600 * time.Millisecond)
+stopFade := picture.Fade(0, 1, 600 * time.Millisecond, func() {
+    // 透明度已精确到达 1
+})
 // stopFade() // 停止后保持当前透明度
 ```
 
 `Fade` 若在图片解码前调用，会从解码成功时开始计时；已经解码时立即开始。
 它不会改变布局或命中区域，也适用于 GIF 的所有帧。手动调用 `SetOpacity`
 会停止正在进行或等待加载的透明度动画。时长必须大于零，起始和结束透明度必须在 `[0,1]`。
+结束回调只在自然到达目标透明度时调用；停止、立即赋值或被新动画替换都不会调用。
 
 图片的 `SetScale` 支持中心缩放并可与旋转叠加，不改变布局和命中区域，
 遵守旋转配置中的 `Overflow`。倍数必须是大于零的有限数值。
