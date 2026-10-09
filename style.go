@@ -73,8 +73,8 @@ type Styles struct {
 
 	FontFamily string // font-family
 	FontSize   Length // font-size
-	FontBold   bool   // bold
-	FontItalic bool   // italic
+	FontBold   bool   // font-weight: bold
+	FontItalic bool   // font-style: italic
 
 	// 是否当作Spacer可变大小布局。
 	Spacer bool
@@ -220,9 +220,9 @@ func stylePropertyByName(name string) styleProperty {
 		return propertyFontFamily
 	case `font-size`, `FontSize`:
 		return propertyFontSize
-	case `bold`, `font-bold`, `FontBold`:
+	case `font-weight`, `FontBold`:
 		return propertyFontBold
-	case `italic`, `font-italic`, `FontItalic`:
+	case `font-style`, `FontItalic`:
 		return propertyFontItalic
 	case `spacer`, `Spacer`:
 		return propertySpacer
@@ -506,17 +506,31 @@ func (s *Styles) parseProperty(name string, raw string) (
 		current = &s.FontSize
 		update, outErr = parseFontSize(raw)
 		return
-	case `bold`, `font-bold`:
+	case `font-weight`:
 		affectInherit = true
 		affectLayout = true
 		current = &s.FontBold
-		update, outErr = parseBoolean(raw, true)
+		switch raw {
+		case `bold`:
+			update = true
+		case `normal`:
+			update = false
+		default:
+			outErr = fmt.Errorf(`不支持的 font-weight：%s`, raw)
+		}
 		return
-	case `italic`, `font-italic`:
+	case `font-style`:
 		affectInherit = true
 		affectLayout = true
 		current = &s.FontItalic
-		update, outErr = parseBoolean(raw, true)
+		switch raw {
+		case `italic`:
+			update = true
+		case `normal`:
+			update = false
+		default:
+			outErr = fmt.Errorf(`不支持的 font-style：%s`, raw)
+		}
 		return
 	case `spacer`:
 		affectLayout = true

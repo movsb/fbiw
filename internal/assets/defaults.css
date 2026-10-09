@@ -5,10 +5,10 @@ document {
 	font-size: 32;
 }
 b {
-	bold: true;
+	font-weight: bold;
 }
 i {
-	italic: true;
+	font-style: italic;
 }
 code {
 	font-family: monospace;

@@ -28,7 +28,7 @@ func newDrop(doc *fbiw.Document, tag string) *_Drop {
 }
 
 func init() {
-	fbiw.DefineStyles(`th { bold: true; align: both; }`)
+	fbiw.DefineStyles(`th { font-weight: bold; align: both; }`)
 	fbiw.Define(`table`, false, NewTable)
 	fbiw.Define(`tr`, false, NewTableRow)
 	fbiw.Define(`td`, false, NewTableCell)

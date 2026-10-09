@@ -586,6 +586,48 @@ func TestDisplayBoolean(t *testing.T) {
 	}
 }
 
+func TestFontWeight(t *testing.T) {
+	tests := map[string]bool{
+		`normal`: false,
+		`bold`:   true,
+	}
+	for raw, want := range tests {
+		var styles Styles
+		if _, _, _, err := styles.Set(`font-weight`, raw); err != nil {
+			t.Fatalf(`设置 font-weight: %s 失败：%v`, raw, err)
+		}
+		if styles.FontBold != want || !styles.has(propertyFontBold) {
+			t.Fatalf(`font-weight: %s 得到 FontBold=%t, bits=%#x`, raw, styles.FontBold, styles.bits)
+		}
+	}
+
+	var styles Styles
+	if _, _, _, err := styles.Set(`font-weight`, `false`); err == nil {
+		t.Fatal(`font-weight: false 应被拒绝`)
+	}
+}
+
+func TestFontStyle(t *testing.T) {
+	tests := map[string]bool{
+		`normal`: false,
+		`italic`: true,
+	}
+	for raw, want := range tests {
+		var styles Styles
+		if _, _, _, err := styles.Set(`font-style`, raw); err != nil {
+			t.Fatalf(`设置 font-style: %s 失败：%v`, raw, err)
+		}
+		if styles.FontItalic != want || !styles.has(propertyFontItalic) {
+			t.Fatalf(`font-style: %s 得到 FontItalic=%t, bits=%#x`, raw, styles.FontItalic, styles.bits)
+		}
+	}
+
+	var styles Styles
+	if _, _, _, err := styles.Set(`font-style`, `false`); err == nil {
+		t.Fatal(`font-style: false 应被拒绝`)
+	}
+}
+
 func TestDisplayDefaultAndPriority(t *testing.T) {
 	box := &BaseBox{tag: `block`}
 	if !box.IsDisplaying() {

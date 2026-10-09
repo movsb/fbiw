@@ -617,8 +617,8 @@ overlay.Close()
 - `padding`
 - `font-family`
 - `font-size`
-- `bold` / `font-bold`
-- `italic` / `font-italic`
+- `font-weight`（`normal` / `bold`）
+- `font-style`（`normal` / `italic`）
 - `spacer`
 - `display`
 - `fill`
