@@ -297,6 +297,22 @@ func TestUnboundedInlineMeasuresFullContentWidth(t *testing.T) {
 	}
 }
 
+func TestInlineTextHonorsEmWidth(t *testing.T) {
+	doc := newFlexTestDocument(t, `<inline><text id="text" width="2em">A</text><block id="next" width="10"></block></inline>`, 100, 30)
+	text := doc.GetBoxByID[*Text](`text`)
+	next := doc.GetBoxByID[*Block](`next`)
+
+	if got, want := text.computedStyles.Width, NumberLength(64); got != want {
+		t.Fatalf(`computed width = %+v, want %+v`, got, want)
+	}
+	if got, want := text.layoutBox.Width, 64; got != want {
+		t.Fatalf(`text layout width = %d, want %d`, got, want)
+	}
+	if got, want := next.layoutBox.X, 64; got != want {
+		t.Fatalf(`next box X = %d, want %d`, got, want)
+	}
+}
+
 func TestUnboundedAxisKeepsPercentageReferenceAndDisablesGrowth(t *testing.T) {
 	doc := newFlexTestDocument(t, `<flex id="content" flex-direction="column"><block id="percent" height="50%"></block><block height="10" flex-grow="1"></block></flex>`, 100, 100)
 	content := doc.GetBoxByID[*Flex](`content`)

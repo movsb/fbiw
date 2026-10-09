@@ -2033,7 +2033,11 @@ func (t *Text) segmentInline(availWidth, availHeight int, widthStyle Length) boo
 	t.textLines = append(t.textLines, line)
 	t.textLineMaxWidth = max(t.textLineMaxWidth, width)
 
-	t.layoutBox.Width = width + t.HorizontalInsets()
+	if widthStyle.IsNumber() {
+		t.layoutBox.Width = int(widthStyle.Number())
+	} else {
+		t.layoutBox.Width = width + t.HorizontalInsets()
+	}
 
 	// 如果是空内容，行高也不应该为零。
 	// 假定为当前字体的行高。
