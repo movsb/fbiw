@@ -2822,6 +2822,12 @@ func (b *Image) Calc(availWidth, availHeight int, constraints Constraints) {
 }
 
 func (b *Image) Draw(canvas *Canvas) {
+	// 错误情况下，简单绘制个背景，防止透明背景。
+	if b.err != nil && !b.computedStyles.has(propertyBackgroundColor) {
+		color := b.Document().ResolveThemeColor(ThemeColor(`--color-text`))
+		b.computedStyles.SetBackgroundColor(color)
+	}
+
 	b.Base().DrawOptions(canvas, BaseBoxDrawOptions{NoChildren: true})
 
 	switch b.status {
