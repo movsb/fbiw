@@ -440,6 +440,31 @@ func TestStylerStyle(t *testing.T) {
 		}
 	})
 
+	t.Run(`em 根据父字号和当前字号计算`, func(t *testing.T) {
+		root := &BaseBox{tag: `block`}
+		child := &BaseBox{tag: `inline`, parent: root}
+		grandchild := &BaseBox{tag: `inline`, parent: child}
+		root.children = []Box{child}
+		child.children = []Box{grandchild}
+
+		sheet := Must1(ParseStyle(`
+			block { font-size: 20; }
+			block > inline { font-size: 1.5em; width: 10em; height: 2.5em; }
+			inline > inline { font-size: 0.5em; width: 2em; }
+		`))
+
+		if err := (_Styler{}).Style(root, true, sheet); err != nil {
+			t.Fatalf(`Style() 返回错误：%v`, err)
+		}
+
+		if got := child.GetComputedStyles(); got.FontSize != NumberLength(30) || got.Width != NumberLength(300) || got.Height != NumberLength(75) {
+			t.Fatalf(`子节点 em 计算错误：FontSize=%+v Width=%+v Height=%+v`, got.FontSize, got.Width, got.Height)
+		}
+		if got := grandchild.GetComputedStyles(); got.FontSize != NumberLength(15) || got.Width != NumberLength(30) {
+			t.Fatalf(`孙节点 em 计算错误：FontSize=%+v Width=%+v`, got.FontSize, got.Width)
+		}
+	})
+
 	t.Run(`descendants 为 false 时只处理当前节点`, func(t *testing.T) {
 		parent, child := newTree()
 		sheet := Must1(ParseStyle(`* { width: 12; }`))

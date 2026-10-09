@@ -630,6 +630,8 @@ overlay.Close()
 
 `width` 和 `height` 可以解析整数或百分比。常规 `Calc` 布局每次根据父容器提供的完整内容区解析百分比，不受前序兄弟元素占用影响，也不会改写计算后的样式；根元素以文档尺寸为参考。文本的独立分段路径和内容自适应父容器的百分比规则仍有限制，参见 [`todo.md`](todo.md)。
 
+`font-size`、`width` 和 `height` 支持小数 `em`。`font-size` 的 `em` 相对于父元素的计算字号；`width` 和 `height` 的 `em` 相对于元素自身的计算字号。
+
 `display` 是非继承的 bool 样式，默认 `true`。接受 `true` / `false`、`1` / `0`，空属性 `<block display>` 表示 `true`。隐藏元素不参与父布局和绘制，隐藏祖先下的子元素也不会显示。`none`、`block`、`inline`、`flex` 等布局关键字不再接受；隐藏请使用 `display="false"`，选择布局请使用相应的盒子标签。Go 中使用 `Styles.SetDisplay(bool)`，`DisplayMode` 类型已移除。
 
 `padding` 接受一至四个 `0...65535` 范围内的整数，展开顺序与 CSS shorthand 相同：

@@ -354,6 +354,15 @@ func (s *Styles) parseProperty(name string, raw string) (
 		if before, ok := strings.CutSuffix(raw, `%`); ok {
 			n, err := strconv.Atoi(before)
 			return PercentageLength(n), err
+		} else if before, ok := strings.CutSuffix(raw, `em`); ok {
+			n, err := strconv.ParseFloat(before, 64)
+			if err != nil {
+				return Length{}, err
+			}
+			if n < 0 {
+				return Length{}, fmt.Errorf(`长度不能为负数：%s`, raw)
+			}
+			return EmLength(n), nil
 		} else {
 			n, err := strconv.Atoi(before)
 			return NumberLength(n), err
@@ -647,9 +656,10 @@ const (
 	LengthNumber
 	LengthPercentage
 	LengthRem
+	LengthEm
 )
 
-// Length 表示样式中的绝对数值、百分比或 rem。是否显式声明仍由
+// Length 表示样式中的绝对数值、百分比、rem 或 em。是否显式声明仍由
 // Styles 的属性位图记录；LengthNone 让脱离 Styles 使用的零值保持安全。
 type Length struct {
 	number int64
@@ -671,10 +681,16 @@ func RemLength(v float64) Length {
 	return Length{number: int64(math.Round(v * remScale)), kind: LengthRem}
 }
 
+// EmLength 使用与 rem 相同的精度保存小数。
+func EmLength(v float64) Length {
+	return Length{number: int64(math.Round(v * remScale)), kind: LengthEm}
+}
+
 func (l Length) Empty() bool        { return l.kind == LengthNone }
 func (l Length) IsNumber() bool     { return l.kind == LengthNumber }
 func (l Length) IsPercentage() bool { return l.kind == LengthPercentage }
 func (l Length) IsRem() bool        { return l.kind == LengthRem }
+func (l Length) IsEm() bool         { return l.kind == LengthEm }
 func (l Length) Number() int64      { return l.number }
 
 // Edges stores top, right, bottom and left integer values.
@@ -1496,12 +1512,37 @@ func (s _Styler) computeStyles(node Box, rules [][]RuleMatch) error {
 		}
 	}
 
+	// font-size 的 em 与百分比相同，相对于父节点的计算字号。
+	if styles.FontSize.IsEm() {
+		base := Length{}
+		if parent := node.Parent(); parent != nil {
+			base = parent.GetComputedStyles().FontSize
+		} else if s.documentStyles != nil {
+			base = s.documentStyles.FontSize
+		}
+		if base.IsNumber() {
+			styles.FontSize = NumberLength(base.number * styles.FontSize.number / remScale)
+		}
+	}
+
 	// rem 始终相对于 <document> 的计算字号，不受中间祖先字号影响。
 	if styles.FontSize.IsRem() && s.documentStyles != nil {
 		base := s.documentStyles.FontSize
 		if base.IsNumber() {
 			styles.FontSize = NumberLength(base.number * styles.FontSize.number / remScale)
 		}
+	}
+
+	// 其他 em 长度相对于当前元素的计算字号。第一阶段只支持宽高。
+	if styles.FontSize.IsNumber() {
+		resolveEm := func(value Length) Length {
+			if value.IsEm() {
+				return NumberLength(styles.FontSize.number * value.number / remScale)
+			}
+			return value
+		}
+		styles.Width = resolveEm(styles.Width)
+		styles.Height = resolveEm(styles.Height)
 	}
 
 	// 直接保存起来。
