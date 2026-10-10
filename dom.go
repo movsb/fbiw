@@ -1106,12 +1106,18 @@ func (doc *Document) paint(canvas *Canvas) {
 
 	// 文档默认总是居中绘制？
 	// TODO 对于未占满的部分，需要画backdrop/背景虚化？
-	displayWidth, displayHeight := canvas.width, canvas.height
-	offsetX := (displayWidth - doc.root.Base().layoutBox.Width) / 2
-	offsetY := (displayHeight - doc.root.Base().layoutBox.Height) / 2
+	offsetX, offsetY := doc.rootOffset(canvas.width, canvas.height)
 	canvas = canvas.Offset(offsetX, offsetY)
 
 	doc.root.Draw(canvas)
+}
+
+func (doc *Document) rootOffset(viewportWidth, viewportHeight int) (x, y int) {
+	if doc.root == nil {
+		return 0, 0
+	}
+	root := doc.root.GetLayoutBox()
+	return (viewportWidth - root.Width) / 2, (viewportHeight - root.Height) / 2
 }
 
 func walkBox(box Box, callback func(box Box) bool) bool {

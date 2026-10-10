@@ -75,6 +75,10 @@ type Box interface {
 	// 由外部强制设置布局盒子尺寸。
 	SetLayoutBox(layout Rect)
 
+	// 返回 border box 相对于文档视口（屏幕左上角）的坐标。
+	// 与 GetLayoutBox 不同，X/Y 包含祖先布局、文档居中和滚动偏移。
+	GetBoundingClientRect() Rect
+
 	// 自身是否处理显示状态。
 	//
 	// 不会判断祖先显示关系。
@@ -198,6 +202,41 @@ func (b *BaseBox) GetName() string {
 
 func (b *BaseBox) GetLayoutBox() Rect {
 	return b.layoutBox
+}
+
+func (b *BaseBox) GetBoundingClientRect() Rect {
+	if b.document == nil || b.document.root == nil {
+		return Rect{}
+	}
+
+	rect := b.layoutBox
+	current := Box(b)
+	for {
+		if !current.IsDisplaying() {
+			return Rect{}
+		}
+		parent := current.Parent()
+		if parent == nil {
+			break
+		}
+		if actual := parent.Base()._EventTarget.box; actual != nil {
+			parent = actual
+		}
+		if scroll, ok := parent.(*Scroll); ok {
+			x, y := scroll.ScrollOffset()
+			rect.X -= x
+			rect.Y -= y
+		}
+		layout := parent.GetLayoutBox()
+		rect.X += layout.X
+		rect.Y += layout.Y
+		current = parent
+	}
+
+	x, y := b.document.rootOffset(b.document.width, b.document.height)
+	rect.X += x
+	rect.Y += y
+	return rect
 }
 
 // SetLayoutBox lets container widgets assign their own and their children's

@@ -24,6 +24,43 @@ import (
 	"golang.org/x/image/math/fixed"
 )
 
+func TestGetBoundingClientRectIncludesDocumentAndAncestorOffsets(t *testing.T) {
+	doc := _NewDocument(200, 100, nil, nil, nil)
+	root := &BaseBox{document: doc, computedStyles: Styles{Display: true}, layoutBox: Rect{Width: 100, Height: 80}}
+	parent := &BaseBox{document: doc, computedStyles: Styles{Display: true}, layoutBox: Rect{X: 10, Y: 5, Width: 60, Height: 50}}
+	child := &BaseBox{document: doc, computedStyles: Styles{Display: true}, layoutBox: Rect{X: 7, Y: 3, Width: 20, Height: 15}}
+	doc.root = root
+	root.AppendChild(parent)
+	parent.AppendChild(child)
+
+	if got, want := child.GetBoundingClientRect(), (Rect{X: 67, Y: 18, Width: 20, Height: 15}); got != want {
+		t.Fatalf("bounding rect = %#v, want %#v", got, want)
+	}
+	doc.width, doc.height = 220, 120
+	if got, want := child.GetBoundingClientRect(), (Rect{X: 77, Y: 28, Width: 20, Height: 15}); got != want {
+		t.Fatalf("resized bounding rect = %#v, want %#v", got, want)
+	}
+}
+
+func TestGetBoundingClientRectIncludesScrollOffset(t *testing.T) {
+	doc := _NewDocument(200, 100, nil, nil, nil)
+	root := &BaseBox{document: doc, computedStyles: Styles{Display: true}, layoutBox: Rect{Width: 100, Height: 80}}
+	scroll := NewScroll(doc)
+	scroll.computedStyles = Styles{Display: true}
+	scroll.layoutBox = Rect{X: 20, Y: 10, Width: 60, Height: 50}
+	scroll.offset = _ScrollPosition{X: 4, Y: 6}
+	content := &BaseBox{document: doc, computedStyles: Styles{Display: true}, layoutBox: Rect{X: 2, Y: 3, Width: 100, Height: 100}}
+	target := &BaseBox{document: doc, computedStyles: Styles{Display: true}, layoutBox: Rect{X: 8, Y: 9, Width: 20, Height: 15}}
+	doc.root = root
+	root.AppendChild(scroll)
+	scroll.AppendChild(content)
+	content.AppendChild(target)
+
+	if got, want := target.GetBoundingClientRect(), (Rect{X: 76, Y: 26, Width: 20, Height: 15}); got != want {
+		t.Fatalf("bounding rect = %#v, want %#v", got, want)
+	}
+}
+
 func newFlexTestDocument(t *testing.T, body string, width, height int) *Document {
 	t.Helper()
 	fm := NewFontManager()
