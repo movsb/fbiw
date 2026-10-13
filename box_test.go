@@ -510,6 +510,31 @@ func TestImageAspectRatioLayout(t *testing.T) {
 	}
 }
 
+func TestImageTrimBorderProperties(t *testing.T) {
+	img := NewImage(nil)
+	if img.decodeOptions.TrimTransparentBorder || img.decodeOptions.TrimBlackBorder {
+		t.Fatal(`图片裁边默认应关闭`)
+	}
+	if err := img.SetProp(`trim-transparent-border`, ``); err != nil {
+		t.Fatal(err)
+	}
+	if err := img.SetProp(`trim-black-border`, `true`); err != nil {
+		t.Fatal(err)
+	}
+	if !img.decodeOptions.TrimTransparentBorder || !img.decodeOptions.TrimBlackBorder {
+		t.Fatalf(`图片裁边属性未开启：%+v`, img.decodeOptions)
+	}
+	if err := img.SetProp(`trim-transparent-border`, `false`); err != nil {
+		t.Fatal(err)
+	}
+	if img.decodeOptions.TrimTransparentBorder || !img.decodeOptions.TrimBlackBorder {
+		t.Fatalf(`图片裁边属性未独立设置：%+v`, img.decodeOptions)
+	}
+	if err := img.SetProp(`trim-black-border`, `invalid`); err == nil {
+		t.Fatal(`非法布尔值应返回错误`)
+	}
+}
+
 func TestImageAspectRatioZeroAndFill(t *testing.T) {
 	zero := NewImage(nil)
 	zero.aspectRatio = 2

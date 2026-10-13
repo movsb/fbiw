@@ -1123,8 +1123,12 @@ listHeight = border + padding + contentHeight
 <img src="icon.png" width="64" height="64">
 <img src="loading.gif" width="64" height="64">
 <img src="cover.png" width="160" aspect-ratio="16/9" fill="cover">
+<img src="scan.png" trim-transparent-border trim-black-border>
 <block background-image="panel.png"></block>
 ```
+
+`trim-transparent-border` 会移除四周的全透明像素，`trim-black-border` 会移除四周的
+不透明纯黑像素；两者默认关闭，可单独开启，也可显式写成 `="true"` 或 `="false"`。
 
 GIF 在 `<img>` 中按文件的帧间隔自动循环播放；单帧 GIF 显示为静态图片。
 播放使用 GIF 的完整画布尺寸，避免局部帧导致布局抖动。

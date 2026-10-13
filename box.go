@@ -2373,6 +2373,9 @@ type Image struct {
 	// TODO [关于 HTML 元素的 Attribute 的转义问题 - 陪她去流浪](https://blog.twofei.com/1056/)
 	src _FsysAndPath
 
+	// 图片解码选项；默认不裁剪，避免无属性的 <img> 改变原图内容和固有尺寸。
+	decodeOptions ImageDecodeOptions
+
 	// 如果在异步加载的过程中修改了src（比如虚拟滚动重新绑定的时候），
 	// 则异步结果其实是不再有效的，应该作废。但是后面还可能会使用到，
 	// 所以暂时不取消异步加载（也即不使用Context提前结束加载过程，让其继续缓存着），
@@ -2593,6 +2596,26 @@ func (b *Image) SetProp(key string, val string) error {
 	case `src`:
 		b.setSrc(nil, val)
 		return nil
+	case `trim-transparent-border`, `trim-black-border`:
+		enabled := true
+		var err error
+		if val != `` {
+			enabled, err = strconv.ParseBool(val)
+			if err != nil {
+				return fmt.Errorf(`%s: %w`, key, err)
+			}
+		}
+		options := b.decodeOptions
+		if key == `trim-transparent-border` {
+			options.TrimTransparentBorder = enabled
+		} else {
+			options.TrimBlackBorder = enabled
+		}
+		if options != b.decodeOptions {
+			b.decodeOptions = options
+			b.resetLoadedImage(false)
+		}
+		return nil
 	case `aspect-ratio`:
 		ratio, err := parseAspectRatio(val)
 		if err != nil {
@@ -2632,6 +2655,10 @@ func (b *Image) setSrc(fsys fs.FS, path string) {
 		return
 	}
 	b.src = new
+	b.resetLoadedImage(true)
+}
+
+func (b *Image) resetLoadedImage(cleanupTemp bool) {
 
 	b.stopGIF()
 	b.gif = nil
@@ -2645,12 +2672,14 @@ func (b *Image) setSrc(fsys fs.FS, path string) {
 	b.decodedImage = DecodedImage{}
 	b.drawWidth, b.drawHeight = 0, 0
 	b.err = nil
-	if old := b.tmpFile; old != nil {
+	if old := b.tmpFile; old != nil && cleanupTemp {
 		old.cleanup.Stop()
 		os.Remove(old.path)
 		b.tmpFile = nil
 	}
-	b.document.RequestLayout()
+	if b.document != nil {
+		b.document.RequestLayout()
+	}
 }
 
 // 显示指定的内存已解码图片。
@@ -2767,7 +2796,7 @@ func (b *Image) Calc(availWidth, availHeight int, constraints Constraints) {
 	case imageLoadStatusNone:
 		// 如果有缓存的大小信息，直接用。
 		// 这里总是以零大小加载，不缩放，才能获取到原始大小信息。
-		if result, err := b.document.loadImageSync(b.src.fsys, b.src.path, ImageDecodeOptions{TrimTransparentBorder: true, TrimBlackBorder: true}); err == nil {
+		if result, err := b.document.loadImageSync(b.src.fsys, b.src.path, b.decodeOptions); err == nil {
 			b.setLoadedImage(result)
 			b.status = imageLoadStatusDecoded
 			b.Calc(availWidth, availHeight, constraints)
@@ -2776,7 +2805,7 @@ func (b *Image) Calc(availWidth, availHeight int, constraints Constraints) {
 
 		src, version := b.src, b.loadVersion
 		b.status = imageLoadStatusDecoding
-		b.document.loadImageAsync(b.src.fsys, b.src.path, ImageDecodeOptions{TrimTransparentBorder: true, TrimBlackBorder: true},
+		b.document.loadImageAsync(b.src.fsys, b.src.path, b.decodeOptions,
 			func(result any, err error) {
 				// src属于防御性校验，用来防止在包内直接修改却忘记同步递增版本号。
 				// 理论上不应该判断（版本号变化src一定变化）。
