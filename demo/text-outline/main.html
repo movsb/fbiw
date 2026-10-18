@@ -1,0 +1,35 @@
+<document>
+<title>文字轮廓</title>
+<style>
+document { color: white; font-size: 24; }
+#page { background-color: #141c28; padding: 24; }
+.hint { color: #bac8db; font-size: 20; }
+.sample { background-image: background.png; height: 160; padding: 16; }
+.sample text { font-size: 32; }
+#outlined { text-outline-width: 1; text-outline-color: #000000a0; }
+#preview { text-outline-width: 2; text-outline-color: #000000a0; }
+.plain { text-outline-width: 0; font-weight: normal; }
+</style>
+<block id="page" fill>
+ <text font-size="34">背景图上的文字轮廓</text>
+ <text class="hint">左 / 右：宽度 0–8　A：切换颜色　B：重置</text>
+ <spacer height="16"></spacer>
+ <text class="hint">原始文字 · 无轮廓</text>
+ <block class="sample">
+  <text>山海之间，继续冒险</text>
+  <text>Continue your adventure · 0123456789</text>
+ </block>
+ <spacer height="12"></spacer>
+ <text class="hint">推荐设置 · 1 px 半透明黑色</text>
+ <block id="outlined" class="sample">
+  <text>山海之间，继续冒险</text>
+  <text>Continue your adventure · 0123456789</text>
+ </block>
+ <spacer height="12"></spacer>
+ <text id="status" class="hint">自定义</text>
+ <block id="preview" class="sample">
+  <text>山海之间，继续冒险</text>
+  <text>继承轮廓 / <b class="plain">此处单独关闭</b></text>
+ </block>
+</block>
+</document>

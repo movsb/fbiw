@@ -2165,15 +2165,20 @@ func (t *Text) Draw(canvas *Canvas) {
 			rc := fragment.layoutBox
 			owner := fragment.Run.Owner
 			canvas := canvas.Offset(drawOffsetX, drawOffsetY)
+			styles := owner.GetComputedStyles()
 
-			if cr := owner.Base().computedStyles.BackgroundColor; owner != t && owner.Base().computedStyles.has(propertyBackgroundColor) && !cr.IsNone() {
+			if cr := styles.BackgroundColor; owner != t && styles.has(propertyBackgroundColor) && !cr.IsNone() {
 				canvas.FillRect(0, 0, rc.Width, rc.Height, cr)
 			}
 
 			text := fragment.Run.Data[fragment.Start:fragment.End]
-			canvas.DrawString(text,
+			canvas.DrawText(text,
 				t.document.LoadFaces(owner),
-				owner.Base().computedStyles.Color,
+				styles.Color,
+				TextOptions{
+					OutlineWidth: styles.TextOutlineWidth,
+					OutlineColor: styles.TextOutlineColor,
+				},
 			)
 
 			drawOffsetX += rc.Width
@@ -2190,14 +2195,19 @@ func (t *Text) drawTextLines(canvas *Canvas, drawOffsetY, contentWidth int) {
 			rc := fragment.layoutBox
 			owner := fragment.Run.Owner
 			fragmentCanvas := canvas.Offset(drawOffsetX, drawOffsetY)
+			styles := owner.GetComputedStyles()
 
-			if cr := owner.Base().computedStyles.BackgroundColor; owner != t && owner.Base().computedStyles.has(propertyBackgroundColor) && !cr.IsNone() {
+			if cr := styles.BackgroundColor; owner != t && styles.has(propertyBackgroundColor) && !cr.IsNone() {
 				fragmentCanvas.FillRect(0, 0, rc.Width, rc.Height, cr)
 			}
-			fragmentCanvas.DrawString(
+			fragmentCanvas.DrawText(
 				fragment.Run.Data[fragment.Start:fragment.End],
 				t.document.LoadFaces(owner),
-				owner.Base().computedStyles.Color,
+				styles.Color,
+				TextOptions{
+					OutlineWidth: styles.TextOutlineWidth,
+					OutlineColor: styles.TextOutlineColor,
+				},
 			)
 			drawOffsetX += rc.Width
 		}
@@ -2920,7 +2930,7 @@ func (b *Image) Draw(canvas *Canvas) {
 				s = s[endIndex:]
 			}
 			for line, part := range parts {
-				canvas.Offset(0, line*faces[0].TextHeight()).DrawString(part, faces, color)
+				canvas.Offset(0, line*faces[0].TextHeight()).DrawText(part, faces, color, TextOptions{})
 			}
 		}
 	}

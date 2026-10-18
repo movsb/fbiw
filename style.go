@@ -45,6 +45,8 @@ const (
 	propertyJustifyContent
 	propertyAlignItems
 	propertyAlignSelf
+	propertyTextOutlineWidth
+	propertyTextOutlineColor
 )
 
 // 用于保存节点的样式值。
@@ -75,6 +77,10 @@ type Styles struct {
 	FontSize   Length // font-size
 	FontBold   bool   // font-weight: bold
 	FontItalic bool   // font-style: italic
+
+	// TextOutlineWidth 为 0 时关闭；支持 0 到 8 像素，不影响排版。
+	TextOutlineWidth int
+	TextOutlineColor Color
 
 	// 是否当作Spacer可变大小布局。
 	Spacer bool
@@ -190,6 +196,15 @@ func (s *Styles) SetJustifyContent(value string) {
 func (s *Styles) SetAlignItems(value string) { s.AlignItems = value; s.mark(propertyAlignItems) }
 func (s *Styles) SetAlignSelf(value string)  { s.AlignSelf = value; s.mark(propertyAlignSelf) }
 
+func (s *Styles) SetTextOutlineWidth(value int) {
+	s.TextOutlineWidth = max(0, min(8, value))
+	s.mark(propertyTextOutlineWidth)
+}
+func (s *Styles) SetTextOutlineColor(value Color) {
+	s.TextOutlineColor = value
+	s.mark(propertyTextOutlineColor)
+}
+
 func stylePropertyByName(name string) styleProperty {
 	switch name {
 	case `align`, `Align`:
@@ -208,6 +223,10 @@ func stylePropertyByName(name string) styleProperty {
 		return propertyOutlineWidth
 	case `outline-color`, `OutlineColor`:
 		return propertyOutlineColor
+	case `text-outline-width`, `TextOutlineWidth`:
+		return propertyTextOutlineWidth
+	case `text-outline-color`, `TextOutlineColor`:
+		return propertyTextOutlineColor
 	case `color`, `Color`:
 		return propertyColor
 	case `height`, `Height`:
@@ -299,7 +318,7 @@ func DefineStyles(css string) {
 // 直接传入的是结构体字段，原始名字，没有小写、没有中划线。
 func shouldInherit(name string) bool {
 	switch name {
-	case `Color`:
+	case `Color`, `TextOutlineWidth`, `TextOutlineColor`:
 		return true
 	case `FontFamily`, `FontSize`, `FontBold`, `FontItalic`:
 		return true
@@ -480,6 +499,19 @@ func (s *Styles) parseProperty(name string, raw string) (
 		// affectLayout = true
 		current = &s.OutlineWidth
 		update, outErr = parseNumber(raw)
+		return
+	case `text-outline-width`:
+		affectInherit, affectPaint = true, true
+		current = &s.TextOutlineWidth
+		update, outErr = parseNumber(raw)
+		if outErr == nil && (update.(int) < 0 || update.(int) > 8) {
+			outErr = fmt.Errorf("text-outline-width 必须在 0 到 8 之间：%s", raw)
+		}
+		return
+	case `text-outline-color`:
+		affectInherit, affectPaint = true, true
+		current = &s.TextOutlineColor
+		update, outErr = parseColor(raw)
 		return
 	case `color`:
 		affectInherit = true
@@ -1556,6 +1588,7 @@ func isColorProperty(name string) bool {
 	case `background-color`, `BackgroundColor`,
 		`border-color`, `BorderColor`,
 		`outline-color`, `OutlineColor`,
+		`text-outline-color`, `TextOutlineColor`,
 		`color`, `Color`:
 		return true
 	default:

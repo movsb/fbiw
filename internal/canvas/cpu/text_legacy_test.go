@@ -46,7 +46,7 @@ func (c *Canvas) SetPixel(x, y int, value color.NRGBA) {
 // 尽量只保留读取 mask、混色和写回三个步骤。
 // NOTE 代码已经删除了
 func (c *Canvas) drawStringDevice2(text string, faces []*FontFace, fill Color) {
-	canvas.DrawText(c.renderer, text, faces, image.Pt(c.x, c.y), c.clipBounds(), canvas.Color(fill))
+	canvas.DrawText(c.renderer, text, faces, image.Pt(c.x, c.y), c.clipBounds(), canvas.Color(fill), canvas.TextOptions{})
 }
 
 type FontManager struct{ face *FontFace }

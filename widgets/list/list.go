@@ -193,5 +193,5 @@ func (b *Item) Draw(canvas *fbiw.Canvas) {
 		return
 	}
 	x := b.InsetLeft() + b.gutter - b.markerGap - b.markerWidth
-	canvas.Offset(x, b.InsetTop()).DrawString(b.marker, b.Document().LoadFaces(b), b.GetComputedStyles().Color)
+	canvas.Offset(x, b.InsetTop()).DrawText(b.marker, b.Document().LoadFaces(b), b.GetComputedStyles().Color, fbiw.TextOptions{})
 }

@@ -834,6 +834,29 @@ func (m *Meter) Draw(canvas *fbiw.Canvas) {
 只应用到根节点，不会继承给后代。Popup 或 Overlay 需要透明根节点时可显式设置
 `background-color="none"`。
 
+### 背景图上的文字轮廓
+
+为文字设置 1 像素半透明黑色轮廓，可改善复杂背景上的可读性：
+
+```css
+body {
+    color: white;
+    text-outline-width: 1;
+    text-outline-color: #000000a0;
+}
+```
+
+这两个属性会继承；宽度支持整数 `0` 到 `8`，默认 `0`（关闭），颜色需显式设置。
+子元素可用 `text-outline-width: 0` 关闭。轮廓使用缓存的字形膨胀 mask，不影响文字宽高、换行或对齐，超出当前裁剪区域的部分会被裁掉。这是实线轮廓，不含模糊或偏移。
+直接绘制文字时可给 `Canvas.DrawText` 传入绘制配置；无需额外效果时传 `fbiw.TextOptions{}`：
+
+```go
+c.DrawText(text, faces, color, fbiw.TextOptions{
+    OutlineWidth: 1,
+    OutlineColor: fbiw.ColorFromRGBA(0, 0, 0, 160),
+})
+```
+
 ## 查询和绑定元素
 
 可以使用 ID 或选择器查询 Box：

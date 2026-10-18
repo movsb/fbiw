@@ -104,7 +104,7 @@ func (b *Terminal) Draw(canvas *fbiw.Canvas) {
 				fgColor = fbiw.ColorNone
 			}
 
-			canvas.DrawString(cell.Data, faces, fgColor)
+			canvas.DrawText(cell.Data, faces, fgColor, fbiw.TextOptions{})
 
 			offsetX += b.cellWidth + b.spacingHorizontal
 		}

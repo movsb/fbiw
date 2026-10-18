@@ -361,16 +361,17 @@ func (c *Canvas) Clear() {
 	c.renderer.Clear()
 }
 
+// TextOptions 配置文字绘制效果，零值保持默认绘制行为。
+type TextOptions = canvas.TextOptions
+
 // 画字符串，以指定的字体、指定的颜色、于当前位置。
 //
-// 超出 framebuffer 的像素会被裁剪。
-func (c *Canvas) DrawString(text string, faces []*FontFace, color Color) {
-	if color == canvas.ColorNone {
+// 超出 framebuffer 的像素会被裁剪。options 的零值不启用额外效果。
+func (c *Canvas) DrawText(text string, faces []*FontFace, color Color, options TextOptions) {
+	if color.IsNone() {
 		return
 	}
-	canvas.DrawText(
-		c.renderer, text, faces, image.Pt(c.x, c.y), c.clipBounds(), color,
-	)
+	canvas.DrawText(c.renderer, text, faces, image.Pt(c.x, c.y), c.clipBounds(), color, options)
 }
 
 type _ImageCacheKey struct {

@@ -15,11 +15,12 @@ type FontFace struct {
 	name string
 
 	// 文字渲染过程的光栅化非常消耗，所以缓存一下。
-	cache map[rune]GlyphValue
+	glyphCache   map[rune]GlyphValue
+	outlineCache map[outlineKey]GlyphValue
 }
 
 func NewFontFace(name string, face font.Face) *FontFace {
-	return &FontFace{Face: face, name: name, cache: map[rune]GlyphValue{}}
+	return &FontFace{Face: face, name: name, glyphCache: map[rune]GlyphValue{}}
 }
 
 // 测试文本 text 使用此字体时所占据的宽度。
@@ -57,7 +58,7 @@ type GlyphValue struct {
 }
 
 func (ff *FontFace) GlyphCached(r rune) GlyphValue {
-	if mask, ok := ff.cache[r]; ok {
+	if mask, ok := ff.glyphCache[r]; ok {
 		return mask
 	}
 
@@ -81,10 +82,10 @@ func (ff *FontFace) GlyphCached(r rune) GlyphValue {
 		)
 	}
 
-	if ff.cache == nil {
-		ff.cache = map[rune]GlyphValue{}
+	if ff.glyphCache == nil {
+		ff.glyphCache = map[rune]GlyphValue{}
 	}
-	ff.cache[r] = value
+	ff.glyphCache[r] = value
 	return value
 }
 
@@ -93,9 +94,75 @@ func (ff FontFace) HasGlyph(r rune) bool {
 	return ok
 }
 
+type outlineKey struct {
+	char  rune
+	width int
+}
+
+// OutlineCached 缓存膨胀后的 mask，绘制热路径不再重复计算轮廓。
+func (ff *FontFace) OutlineCached(r rune, width int) GlyphValue {
+	width = max(0, min(8, width))
+	glyph := ff.GlyphCached(r)
+	if width == 0 || glyph.Width == 0 || glyph.Height == 0 {
+		return glyph
+	}
+	key := outlineKey{r, width}
+	if value, ok := ff.outlineCache[key]; ok {
+		return value
+	}
+	w, h := int(glyph.Width)+2*width, int(glyph.Height)+2*width
+	value := glyph
+	value.Width, value.Height = uint16(w), uint16(h)
+	value.OffsetX -= int16(width)
+	value.OffsetY -= int16(width)
+	value.Masks = dilateMask(glyph.Masks, int(glyph.Width), int(glyph.Height), width)
+	if ff.outlineCache == nil {
+		ff.outlineCache = make(map[outlineKey]GlyphValue)
+	}
+	ff.outlineCache[key] = value
+	return value
+}
+
+func dilateMask(mask []byte, w, h, radius int) []byte {
+	stride := w + 2*radius
+	out := make([]byte, stride*(h+2*radius))
+	for y := range h {
+		for x := range w {
+			alpha := mask[y*w+x]
+			if alpha == 0 {
+				continue
+			}
+			for dy := 0; dy <= 2*radius; dy++ {
+				for dx := 0; dx <= 2*radius; dx++ {
+					i := (y+dy)*stride + x + dx
+					out[i] = max(out[i], alpha)
+				}
+			}
+		}
+	}
+	return out
+}
+
+// TextOptions 配置文字绘制效果。零值不启用额外效果。
+type TextOptions struct {
+	OutlineWidth int
+	OutlineColor Color
+}
+
 // DrawText 完成字体 fallback、kerning 和字符推进，并把规范化后的字形
-// Alpha mask 提交给 renderer。
-func DrawText(renderer Renderer, text string, faces []*FontFace, origin image.Point, clip image.Rectangle, color Color) {
+// Alpha mask 提交给 renderer。options 的零值不启用额外效果。
+func DrawText(renderer Renderer, text string, faces []*FontFace, origin image.Point, clip image.Rectangle, color Color, options TextOptions) {
+	// 先绘制整段轮廓，再绘制文字，避免后一个字的轮廓覆盖前一个字。
+	if options.OutlineWidth > 0 && options.OutlineColor.A() > 0 {
+		drawTextPass(renderer, text, faces, origin, clip, options.OutlineColor, min(options.OutlineWidth, 8))
+	}
+	drawTextPass(renderer, text, faces, origin, clip, color, 0)
+}
+
+func drawTextPass(renderer Renderer, text string, faces []*FontFace, origin image.Point, clip image.Rectangle, color Color, width int) {
+	if len(faces) == 0 {
+		return
+	}
 	prev := rune(-1)
 	dot := fixed.Point26_6{X: 0, Y: faces[0].Metrics().Ascent}
 
@@ -119,6 +186,9 @@ func DrawText(renderer Renderer, text string, faces []*FontFace, origin image.Po
 			face = faces[0]
 		}
 		glyph := face.GlyphCached(next)
+		if width > 0 {
+			glyph = face.OutlineCached(next, width)
+		}
 
 		if glyph.Width == 0 || glyph.Height == 0 {
 			dot.X += glyph.Advance
