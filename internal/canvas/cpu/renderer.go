@@ -205,15 +205,21 @@ func (r *Renderer) DrawImage(img canvas.Image, src image.Rectangle, degrees, sca
 		dx, dy := float64(minX)+.5-cx, float64(y)+.5-cy
 		sx, sy := (cos*dx+sin*dy)/scaleX+float64(src.Min.X+src.Max.X)/2-.5, (-sin*dx+cos*dy)/scaleY+float64(src.Min.Y+src.Max.Y)/2-.5
 		for x := minX; x < maxX; x++ {
+			// Test the image's geometric bounds before clamping interpolation
+			// neighbors. Outside remains transparent; inside extends edge pixels.
+			if sx < float64(src.Min.X)-.5 || sx >= float64(src.Max.X)-.5 ||
+				sy < float64(src.Min.Y)-.5 || sy >= float64(src.Max.Y)-.5 {
+				sx += cos / scaleX
+				sy -= sin / scaleY
+				continue
+			}
 			ix, iy := int(math.Floor(sx)), int(math.Floor(sy))
 			fx, fy := sx-float64(ix), sy-float64(iy)
 			var a, b, g, red float64
 			for oy := range 2 {
 				for ox := range 2 {
-					px, py := ix+ox, iy+oy
-					if px < src.Min.X || px >= src.Max.X || py < src.Min.Y || py >= src.Max.Y {
-						continue
-					}
+					px := max(src.Min.X, min(src.Max.X-1, ix+ox))
+					py := max(src.Min.Y, min(src.Max.Y-1, iy+oy))
 					wx, wy := 1-fx, 1-fy
 					if ox == 1 {
 						wx = fx

@@ -14,10 +14,7 @@ uniform vec2 u_clip_params;
 uniform int u_mode;
 
 vec4 samplePixel(vec2 pixel) {
-	if (pixel.x < u_source_rect.x || pixel.y < u_source_rect.y ||
-		pixel.x >= u_source_rect.x + u_source_rect.z || pixel.y >= u_source_rect.y + u_source_rect.w) {
-		return vec4(0.0);
-	}
+	pixel = clamp(pixel, u_source_rect.xy, u_source_rect.xy + u_source_rect.zw - 1.0);
 	return texture2D(u_texture, (pixel + 0.5) / u_image_size).bgra;
 }
 
@@ -42,6 +39,11 @@ void main() {
 		u_inverse.x * delta.x + u_inverse.y * delta.y,
 		u_inverse.z * delta.x + u_inverse.w * delta.y
 	) + u_source_rect.xy + u_source_rect.zw * 0.5 - 0.5;
+	// Pixel centers inside the image use clamped edge samples; fragments
+	// outside its geometric bounds remain transparent.
+	if (source.x < u_source_rect.x - 0.5 || source.y < u_source_rect.y - 0.5 ||
+		source.x >= u_source_rect.x + u_source_rect.z - 0.5 ||
+		source.y >= u_source_rect.y + u_source_rect.w - 0.5) discard;
 	vec2 base = floor(source);
 	vec2 fraction = source - base;
 	vec4 c00 = samplePixel(base);

@@ -144,10 +144,9 @@ func (r *Renderer) DrawImage(img canvas.Image, src image.Rectangle, degrees, sca
 	if clip.Empty() {
 		return
 	}
-	// CPU/GLES 的双线性采样允许图片边缘外一像素的透明样本参与插值。
-	// SDL_RenderCopyExF 只栅格化目标四边形，所以这里把旋转专用纹理的
-	// 一像素透明边框也计入目标尺寸，否则边缘会被提前截断。
-	padded := src == image.Rect(0, 0, img.Width, img.Height) && (degrees != 0 || scaleX != 1 || scaleY != 1)
+	// 旋转使用透明边框抗锯齿；普通缩放由 SDL 将采样限制在图片
+	// 边缘，避免透明边框参与插值导致四边透底。
+	padded := src == image.Rect(0, 0, img.Width, img.Height) && degrees != 0
 	w, h := float64(src.Dx())*scaleX, float64(src.Dy())*scaleY
 	var s *sdl.Rect
 	if padded {

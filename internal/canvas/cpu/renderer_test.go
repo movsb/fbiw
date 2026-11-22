@@ -55,3 +55,40 @@ func TestDrawImageOpacity(t *testing.T) {
 		t.Fatal("zero opacity changed pixel")
 	}
 }
+
+// A scaled source rectangle must fill its geometric bounds without blending
+// transparent samples or adjacent pixels from outside the source rectangle.
+func TestDrawImageScaledEdges(t *testing.T) {
+	for _, opacity := range []float64{1, .5} {
+		r := New(10, 8)
+		background := color.NRGBA{B: 200, A: 255}
+		for y := range 8 {
+			for x := range 10 {
+				r.SetPixel(image.Pt(x, y), background)
+			}
+		}
+		img := canvas.Image{Width: 4, Height: 4, Pixels: make([]byte, 4*4*4), Opaque: true}
+		for i := 0; i < len(img.Pixels); i += 4 {
+			img.Pixels[i], img.Pixels[i+3] = 255, 255
+		}
+		for y := 1; y < 3; y++ {
+			for x := 1; x < 3; x++ {
+				i := (y*4 + x) * 4
+				img.Pixels[i], img.Pixels[i+2] = 0, 200
+			}
+		}
+		r.DrawImage(img, image.Rect(1, 1, 3, 3), 0, 3, 2, 5, 4, opacity, image.Rect(0, 0, 10, 8), image.Rectangle{}, 0)
+		want := color.NRGBA{R: uint8(200 * opacity), B: uint8(200 * (1 - opacity)), A: 255}
+		for y := range 8 {
+			for x := range 10 {
+				expected := background
+				if x >= 2 && x < 8 && y >= 2 && y < 6 {
+					expected = want
+				}
+				if got := r.Pixel(image.Pt(x, y)); got != expected {
+					t.Fatalf("opacity=%v pixel(%d,%d)=%v, want %v", opacity, x, y, got, expected)
+				}
+			}
+		}
+	}
+}
